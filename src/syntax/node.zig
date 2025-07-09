@@ -261,12 +261,16 @@ pub const SyntaxNode = union(enum) {
 
     const PLACEHOLDER_SOURCE = " ";
 
-    pub fn leaf(k: SyntaxKind) SyntaxNode {
-        return SyntaxNode{ .Leaf = .init(PLACEHOLDER_SOURCE, k) };
+    pub fn leaf(k: SyntaxKind, s: []const u8) SyntaxNode {
+        return SyntaxNode{ .Leaf = .init(k, s) };
     }
 
     pub fn tree(k: SyntaxKind, c: []const SyntaxNode) SyntaxNode {
         return SyntaxNode{ .Tree = .init(k, c) };
+    }
+
+    pub fn err(e: SyntaxError, s: []const u8) SyntaxNode {
+        return SyntaxNode{ .Error = .init(e, s) };
     }
 
     pub fn source(self: SyntaxNode) []const u8 {
@@ -297,7 +301,7 @@ pub const LeafNode = struct {
     kind: SyntaxKind,
     source: []const u8,
 
-    fn init(source: []const u8, kind: SyntaxKind) LeafNode {
+    fn init(kind: SyntaxKind, source: []const u8) LeafNode {
         return LeafNode{
             .kind = kind,
             .source = source,
@@ -325,6 +329,13 @@ pub const TreeNode = struct {
 pub const ErrorNode = struct {
     source: []const u8,
     err: SyntaxError,
+
+    pub fn init(err: SyntaxError, source: []const u8) ErrorNode {
+        return ErrorNode{
+            .source = source,
+            .err = err,
+        };
+    }
 };
 
 pub const SyntaxError = union(enum) {};

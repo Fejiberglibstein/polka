@@ -30,6 +30,10 @@ pub fn before(self: *Scanner) []const u8 {
     return self.source[0..self.cursor];
 }
 
+pub fn from(self: *Scanner, cursor: usize) []const u8 {
+    return self.source[cursor..self.cursor];
+}
+
 /// Check if the cursor is on top of the pattern
 pub fn at(self: *Scanner, pat: Pattern) bool {
     return pat.matches(self.after());
@@ -53,6 +57,31 @@ pub fn eatWhile(self: *Scanner, pat: Pattern) void {
     while (pat.matches(self.after())) {
         self.cursor += pat.length();
     }
+}
+
+pub fn eatWhitespace(self: *Scanner) void {
+    self.eatWhile(.{ .Any = &[_]u8{ ' ', '\t' } });
+}
+
+pub fn eatNewline(self: *Scanner) bool {
+    const newline = Pattern{ .Any = &[_]u8{ '\n', '\r' } };
+
+    if (self.at(newline)) {
+        if (self.eat() == '\r') {
+            _ = self.eatIf(.{ .Char = '\n' });
+        }
+        return true;
+    }
+
+    return false;
+}
+
+pub fn peek(self: *Scanner) ?u8 {
+    if (self.cursor >= self.source.len) {
+        return null;
+    }
+
+    return self.source[self.cursor];
 }
 
 const Pattern = union(enum) {
