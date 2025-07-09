@@ -1,3 +1,5 @@
+pub const std = @import("std");
+
 pub const SyntaxKind = enum {
     /// Error node
     Error,
@@ -230,7 +232,7 @@ pub const SyntaxKind = enum {
             .Break => "`break` keyword",
             .Ident => "identifier",
             .Number => "number",
-            .String => "string",
+            .string => "string",
             .Grouping => "grouping",
             .FunctionDef => "function definition",
             .FunctionParameters => "function parameters",
@@ -338,4 +340,18 @@ pub const ErrorNode = struct {
     }
 };
 
-pub const SyntaxError = union(enum) {};
+pub const SyntaxError = union(enum) {
+    UnterminatedString: void,
+    ExpectedToken: SyntaxKind,
+    UnexpectedToken: SyntaxKind,
+    UnexpectedCharacter: u8,
+
+    fn to_string(self: SyntaxError, a: std.mem.Allocator) []const u8 {
+        switch (self) {
+            .UnterminatedString => "Unterminated string",
+            .ExpectedToken => |k| std.fmt.allocPrint(a, "Expected token {s}", .{k.name()}),
+            .UnexpectedToken => |k| std.fmt.allocPrint(a, "Unexpected token {s}", .{k.name()}),
+            .UnexpectedCharacter => |c| std.fmt.allocPrint(a, "Unexpected character {c}", .{c}),
+        }
+    }
+};

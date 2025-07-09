@@ -88,6 +88,7 @@ const Pattern = union(enum) {
     String: []const u8,
     Any: []const u8,
     Char: u8,
+    Fn: fn (u8) bool,
 
     pub fn matches(self: Pattern, source: []const u8) bool {
         switch (self) {
