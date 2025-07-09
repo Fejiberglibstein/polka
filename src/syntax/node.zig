@@ -1,4 +1,4 @@
-const SyntaxKind = enum {
+pub const SyntaxKind = enum {
     /// Error node
     Error,
     /// End of file
@@ -254,16 +254,26 @@ const SyntaxKind = enum {
     }
 };
 
-const SyntaxNode = union(enum) {
-    LeafNode: LeafNode,
+pub const SyntaxNode = union(enum) {
+    Leaf: LeafNode,
     Tree: TreeNode,
     Error: ErrorNode,
+
+    const PLACEHOLDER_SOURCE = " ";
+
+    pub fn leaf(k: SyntaxKind) SyntaxNode {
+        return SyntaxNode{ .Leaf = .init(PLACEHOLDER_SOURCE, k) };
+    }
+
+    pub fn tree(k: SyntaxKind, c: []const SyntaxNode) SyntaxNode {
+        return SyntaxNode{ .Tree = .init(k, c) };
+    }
 
     pub fn source(self: SyntaxNode) []const u8 {
         return switch (self) {
             .Tree => |v| v.source,
             .Error => |v| v.source,
-            .LeafNode => |v| v.source,
+            .Leaf => |v| v.source,
         };
     }
 
@@ -275,15 +285,15 @@ const SyntaxNode = union(enum) {
         };
     }
 
-    pub fn children(self: SyntaxNode) []SyntaxNode {
-        switch (self) {
+    pub fn children(self: SyntaxNode) []const SyntaxNode {
+        return switch (self) {
             .Tree => |v| v.children,
-            _ => .{},
-        }
+            else => ([_]SyntaxNode{})[0..],
+        };
     }
 };
 
-const LeafNode = struct {
+pub const LeafNode = struct {
     kind: SyntaxKind,
     source: []const u8,
 
@@ -295,28 +305,26 @@ const LeafNode = struct {
     }
 };
 
-const TreeNode = struct {
-    // TODO Do a more data-oriented approach like is mentioned in zig compiler internals. Make a
-    // `specials` list and use indexes into that list rather than have a vec of children for each
-    // node.
+pub const TreeNode = struct {
     kind: SyntaxKind,
-    children: []SyntaxNode,
-    range: []const u8,
+    children: []const SyntaxNode,
+    source: []const u8,
 
-    pub fn init(kind: SyntaxKind, children: []SyntaxNode) TreeNode {
+    pub fn init(kind: SyntaxKind, children: []const SyntaxNode) TreeNode {
         const start = children[0].source();
-        const end = children[children.len].source();
-        const range: []SyntaxNode = .{ .ptr = start.ptr, .len = &end.ptr[end.len] - start.ptr };
+        const end = children[children.len - 1].source();
 
-        return TreeNode{
-            .kind = kind,
-            .children = children,
-            .range = range
-        };
+        // create the source to encompass the source of the children
+        const length: usize = @intFromPtr(&end[end.len - 1]) - @intFromPtr(start.ptr);
+        const source: []const u8 = start.ptr[0..length];
+
+        return TreeNode{ .kind = kind, .children = children, .source = source };
     }
 };
 
-const ErrorNode = struct {
+pub const ErrorNode = struct {
     source: []const u8,
-    err: []const u8,
+    err: SyntaxError,
 };
+
+pub const SyntaxError = union(enum) {};
