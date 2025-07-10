@@ -1,0 +1,11 @@
+foreground = \"#*foo.baz\"
+$$$
+TextNode [
+	Text,
+	Code [
+		CodeBegin,
+		DotAccess [ Ident, Dot, Ident ]
+	],
+	Text
+]
+

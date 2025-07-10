@@ -166,7 +166,7 @@ fn parsePrimary(p: *Parser) void {
             parseExpr(p, 0, false);
             p.expect(.RightParen);
         },
-        else => {}
+        else => {},
     }
 }
 

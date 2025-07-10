@@ -84,6 +84,17 @@ pub fn peek(self: *Scanner) ?u8 {
     return self.source[self.cursor];
 }
 
+fn isAlpha(c: u8) bool {
+    return (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z');
+}
+
+pub fn eatAlpha(self: *Scanner) bool {
+    const start = self.cursor;
+    self.eatWhile(.{ .Fn = isAlpha });
+
+    return start != self.cursor;
+}
+
 const Pattern = union(enum) {
     String: []const u8,
     Any: []const u8,

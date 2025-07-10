@@ -1,0 +1,47 @@
+
+# Colors
+[colors.primary]
+#* for color in colors do
+color: #*color.bar foo
+#* end
+foo
+
+$$$
+TextNode [
+	Newline,
+	Text,
+	Newline,
+	Text,
+	Newline,
+	Code [
+		CodeBegin,
+		ForLoop [
+			For,
+			Ident,
+			In,
+			Ident,
+			Do,
+			Newline,
+			TextNode [
+				Text,
+				Code [
+					CodeBegin,
+					DotAccess [ 
+						Ident,
+						Dot,
+						Ident
+					],
+				],
+				Text,
+				Newline,
+				Code [ 
+					CodeBegin
+				]
+			],
+			End
+		],
+		Newline
+	],
+	Text,
+	Newline
+]

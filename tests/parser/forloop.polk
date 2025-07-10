@@ -1,0 +1,36 @@
+
+#* for i in range(4) do
+hi
+#* end
+
+$$$
+TextNode [
+	Newline,
+	Code [
+		CodeBegin,
+		ForLoop [
+			For,
+			Ident,
+			In,
+			FunctionCall [
+				Ident,
+				ArgumentList [ 
+					LeftParen,
+					Number,
+					RightParen
+				]
+			],
+			Do,
+			Newline,
+			TextNode [
+				Text,
+				Newline,
+				Code [ 
+					CodeBegin
+				]
+			],
+			End
+		],
+		Newline
+	]
+]

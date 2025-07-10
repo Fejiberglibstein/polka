@@ -1,0 +1,227 @@
+#* foo.bar.bar(4, 10)
+$$$
+TextNode [
+	Code [
+		CodeBegin,
+		FunctionCall [
+			DotAccess [
+				DotAccess [
+					Ident,
+					Dot,
+					Ident
+				]
+				Dot,
+				Ident
+			],
+			ArgumentList [
+				LeftParen,
+				Number,
+				Comma,
+				Number,
+				RightParen
+			]
+		]
+	]
+]
+
+        test(
+            &parse("#* let foo = 10 \n#* foo "),
+            tree!(
+              TextNode [
+                Code [
+                  CodeBegin,
+                  LetExpr [ Let, Ident, Eq, Number ],
+                  Newline,
+                  CodeBegin,
+                  Ident,
+                ]
+              ]
+            ),
+        );
+
+        test(
+            &parse(
+                r#"
+                #* if true then 
+                #*     if false then
+                hello there
+                #*     end
+                #* end
+                "#,
+            ),
+            tree!(
+              TextNode [
+                Newline,
+                Code [
+                  CodeBegin,
+                  Conditional [
+                    If,
+                    Bool,
+                    Then,
+                    Newline,
+                    TextNode [
+                      Code [
+                        CodeBegin,
+                        Conditional [
+                          If,
+                          Bool,
+                          Then,
+                          Newline,
+                          TextNode [
+                            Text,
+                            Newline,
+                            Code [ CodeBegin ],
+                          ],
+                          End,
+                        ],
+                        Newline,
+                        CodeBegin,
+                      ],
+                    ],
+                    End,
+                  ],
+                  Newline,
+                ]
+              ]
+            ),
+        );
+
+        test(
+            &parse(
+                r#"
+                #* for i in range(4) do
+                hi
+                #* end
+                "#,
+            ),
+            tree!(
+                TextNode [
+                    Newline,
+                    Code [
+                        CodeBegin,
+                        ForLoop [
+                            For,
+                            Ident,
+                            In,
+                            FunctionCall [
+                                Ident,
+                                ArgumentList [ LeftParen, Number, RightParen, ]
+                            ],
+                            Do,
+                            Newline,
+                            TextNode [
+                                Text,
+                                Newline,
+                                Code [ CodeBegin ]
+                            ],
+                        End
+                        ],
+                    Newline
+                    ],
+                ]
+            ),
+        );
+
+        test(
+            &parse(
+                r#"
+                hello
+                #* function foo(bar, baz) 
+                #*     return 4
+                #* end
+                > world
+                "#,
+            ),
+            tree!(
+              TextNode [
+                Newline,
+                Text,
+                Newline,
+                Code [
+                  CodeBegin,
+                  FunctionDef [
+                    Function,
+                    Ident,
+                    FunctionParameters [ LeftParen, Ident, Comma, Ident, RightParen ],
+                    Newline,
+                    TextNode [
+                      Code [
+                        CodeBegin,
+                        ReturnExpr [ Return, Number, ],
+                        Newline,
+                        CodeBegin
+                      ]
+                    ],
+                    End,
+                  ],
+                  Newline
+                ],
+                Text,
+                Newline
+              ]
+            ),
+        );
+
+        test(
+            &parse(
+                r#"
+                # Colors
+                [colors.primary]
+                #* for color in colors do
+                color: #*color.bar foo
+                #* end
+                foo
+                "#,
+            ),
+            tree!(
+              TextNode [
+                Newline,
+                Text,
+                Newline,
+                Text,
+                Newline,
+                Code [
+                  CodeBegin,
+                  ForLoop [
+                    For,
+                    Ident,
+                    In,
+                    Ident,
+                    Do,
+                    Newline,
+                    TextNode [
+                      Text,
+                      Code [
+                        CodeBegin,
+                        DotAccess [ Ident, Dot, Ident ],
+                      ],
+                      Text,
+                      Newline,
+                      Code [ CodeBegin, ]
+                    ],
+                    End
+                  ],
+                  Newline,
+                ],
+                Text,
+                Newline
+              ]
+            ),
+        );
+
+        test(
+            &parse("foreground = \"#*foo.baz\""),
+            tree!(
+              TextNode [
+                Text,
+                Code [
+                  CodeBegin,
+                  DotAccess [ Ident, Dot, Ident ]
+                ],
+                Text
+              ]
+            ),
+        );
+    }
+}
+

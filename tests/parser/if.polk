@@ -1,0 +1,43 @@
+
+#* if true then 
+#*     if false then
+hello there
+#*     end
+#* end
+
+$$$
+TextNode [
+	Newline,
+	Code [
+		CodeBegin,
+		Conditional [
+			If,
+			Bool,
+			Then,
+			Newline,
+			TextNode [
+				Code [
+					CodeBegin,
+					Conditional [
+						If,
+						Bool,
+						Then,
+						Newline,
+						TextNode [
+							Text,
+							Newline,
+							Code [ 
+								CodeBegin 
+							],
+						],
+						End
+					],
+					Newline,
+					CodeBegin
+				],
+			],
+			End
+		],
+		Newline
+	]
+]

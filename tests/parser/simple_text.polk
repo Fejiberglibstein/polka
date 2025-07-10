@@ -1,0 +1,15 @@
+
+foo
+bar
+
+bar
+$$$
+TextNode[
+	Newline,
+	Text,
+	Newline,
+	Text,
+	Newline,
+	Newline,
+	Text
+]

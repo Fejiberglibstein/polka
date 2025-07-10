@@ -1,0 +1,42 @@
+
+hello
+#* function foo(bar, baz) 
+#*     return 4
+#* end
+> world
+
+TextNode [
+	Newline,
+	Text,
+	Newline,
+	Code [
+		CodeBegin,
+		FunctionDef [
+			Function,
+			Ident,
+			FunctionParameters [ 
+				LeftParen, 
+				Ident, 
+				Comma,
+				Ident,
+				RightParen 
+			],
+			Newline,
+			TextNode [
+				Code [
+					CodeBegin,
+					ReturnExpr [ 
+						Return,
+						Number
+					]
+					Newline,
+					CodeBegin
+				]
+			],
+			End,
+		],
+		Newline
+	],
+	Text,
+	Newline
+]

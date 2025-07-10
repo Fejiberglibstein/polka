@@ -1,0 +1,16 @@
+#* let foo = 10 \n#* foo 
+$$$
+TextNode [
+	Code [
+		CodeBegin,
+		LetExpr [ 
+			Let,
+			Ident,
+			Eq,
+			Number 
+		],
+		Newline,
+		CodeBegin,
+		Ident
+	]
+]
