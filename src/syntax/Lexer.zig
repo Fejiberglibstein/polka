@@ -8,49 +8,6 @@ const SyntaxKind = @import("node.zig").SyntaxKind;
 
 const Lexer = @This();
 
-pub const Mode = enum {
-    /// Lines beginning with `#*`. If any text comes before the `#*`, then the Mode would be
-    /// [Mode::CodeExpr] instead
-    ///
-    /// ```text
-    ///     #* if (sys.hostname == "foo")
-    ///     #*   // ...
-    ///     #* end
-    /// ```
-    CodeLine,
-    /// While in text mode, expressions beginning with `#*`
-    ///
-    /// ```text
-    ///     The hostname is #*sys.hostname
-    /// ```
-    CodeExpr,
-    /// Code block beginning with `#**` and ending with `**#`
-    ///
-    /// Code expressions inside a block do not need to begin with the normal `#*`
-    ///
-    /// ```text
-    ///     #**
-    ///     local bar = function()
-    ///         return "not"
-    ///     end
-    ///
-    ///     local foo = {
-    ///         bar = bar
-    ///     }
-    ///     **#
-    /// ```
-    CodeBlock,
-    /// Normal file contents
-    TopLevelText,
-    /// Text inside ``
-    Text,
-
-    fn isCode(self: Mode) bool {
-        return self == .Codeline or self == .CodeBlock or self == .CodeExpr;
-    }
-};
-pub const Whitespace = enum { PrecedingWhitespace, None };
-
 s: Scanner,
 mode: Mode,
 currentError: ?ErrorNode,
@@ -86,7 +43,7 @@ pub fn next(self: *Lexer) struct { SyntaxNode, SyntaxKind, Whitespace } {
     return .{ node, kind, whitespace };
 }
 
-fn set_err(self: *Lexer, err: SyntaxError) SyntaxKind {
+fn setErr(self: *Lexer, err: SyntaxError) SyntaxKind {
     if (!self.currentError) {
         self.currentError = err;
     }
@@ -98,7 +55,7 @@ fn code(self: *Lexer) SyntaxKind {
     const c = self.s.eat();
 
     switch (c) {
-        '#' => if (self.s.eat_if(.{ .Char = '*' })) .CodeBegin,
+        '#' => if (self.s.eatIf(.{ .Char = '*' })) .CodeBegin,
         '[' => .LeftBracket,
         ']' => .RightBracket,
         '(' => .LeftParen,
@@ -109,36 +66,36 @@ fn code(self: *Lexer) SyntaxKind {
         '%' => .Perc,
         '/' => .Slash,
         // TODO: Fix this and make `self.eat_codeblockend`
-        '*' => if (self.s.eat_if(.{ .String = "*#" })) .CodeblockEnd,
+        '*' => if (self.s.eatIf(.{ .String = "*#" })) .CodeblockEnd,
         '*' => .Star,
         '-' => .Minus,
         '.' => .Dot,
         ',' => .Comma,
         '`' => .Backtick,
-        '=' => if (self.s.eat_if(.{ .Char = '=' })) .EqEq,
-        '!' => if (self.s.eat_if(.{ .Char = '=' })) .NotEq,
-        '<' => if (self.s.eat_if(.{ .Char = '=' })) .LtEq,
-        '>' => if (self.s.eat_if(.{ .Char = '=' })) .GtEq,
+        '=' => if (self.s.eatIf(.{ .Char = '=' })) .EqEq,
+        '!' => if (self.s.eatIf(.{ .Char = '=' })) .NotEq,
+        '<' => if (self.s.eatIf(.{ .Char = '=' })) .LtEq,
+        '>' => if (self.s.eatIf(.{ .Char = '=' })) .GtEq,
         '=' => .Eq,
         '<' => .Lt,
         '>' => .Gt,
         '"' => self.string(),
         '0'...'9' => self.number(),
         'a'...'z', 'A'...'Z', '_' => self.ident(m),
-        inline else => |_| self.set_err(.{ .UnexpectedCharacter = c }),
+        inline else => |_| self.setErr(.{ .UnexpectedCharacter = c }),
     }
 }
 
 fn string(self: *Lexer) SyntaxKind {
     while (true) {
-        self.s.eat_until(.{ .Any = &[_]u8{ '\\', '"', '\n', '\r' } });
+        self.s.eatUntil(.{ .Any = &[_]u8{ '\\', '"', '\n', '\r' } });
 
-        if (self.s.eat_newline()) {
-            return self.set_err(.{.UnterminatedString});
+        if (self.s.eatNewline()) {
+            return self.setErr(.{.UnterminatedString});
         }
 
         switch (self.s.eat()) {
-            '\\' => if (self.s.eat_if(.{ .Char = '"' })) {},
+            '\\' => if (self.s.eatIf(.{ .Char = '"' })) {},
             '"' => break,
             null => break,
 
@@ -149,18 +106,18 @@ fn string(self: *Lexer) SyntaxKind {
     return .String;
 }
 
-inline fn is_digit(c: u8) bool {
+inline fn isDigit(c: u8) bool {
     return c >= '0' and c <= '9';
 }
 
-inline fn is_ident_char(c: u8) bool {
-    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or is_digit(c) or c == '_';
+inline fn isIdentChar(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or isDigit(c) or c == '_';
 }
 
 fn number(self: *Lexer) SyntaxKind {
-    self.s.eat_while(.{ .Fn = is_digit });
-    if (self.s.eat_if(.{ .Char = '.' })) {
-        self.s.eat_while(.{ .Fn = is_digit });
+    self.s.eatWhile(.{ .Fn = isDigit });
+    if (self.s.eatIf(.{ .Char = '.' })) {
+        self.s.eatWhile(.{ .Fn = isDigit });
     }
     return .Number;
 }
@@ -169,7 +126,7 @@ fn ident(self: *Lexer) SyntaxKind {
     // we already parsed the first character of the ident
     const cursor = self.s.cursor - 1;
 
-    self.s.eatWhile(.{ .Fn = is_ident_char });
+    self.s.eatWhile(.{ .Fn = isIdentChar });
 
     return if (keyword(self.s.from(cursor))) |k|
         k
@@ -222,17 +179,17 @@ fn keyword(t: []const u8) ?SyntaxKind {
 
 /// Parse a token while in text mode
 fn text(self: *Lexer) SyntaxKind {
-    if (self.eat_codebegin()) {
+    if (self.eatCodebegin()) {
         return .CodeBegin;
     }
 
     while (true) {
-        self.s.eat_until(.{ .Any = &[_]u8{ '\r', '\n', '\\', '`', '#' } });
+        self.s.eatUntil(.{ .Any = &[_]u8{ '\r', '\n', '\\', '`', '#' } });
 
         var s = self.s;
 
         switch (s.eat()) {
-            '\\' => s.eat_if('`'),
+            '\\' => s.eatIf('`'),
             '#' => if (s.at(.{ .Char = '*' })) {
                 break;
             },
@@ -251,9 +208,52 @@ fn text(self: *Lexer) SyntaxKind {
     return .Text;
 }
 
-fn eat_codebegin(self: *Lexer) bool {
+fn eatCodebegin(self: *Lexer) bool {
     return if (self.mode != .CodeBlock)
-        self.s.eat_if("#*") || self.s.eat_if(";*")
+        self.s.eatIf("#*") || self.s.eatIf(";*")
     else
         true;
 }
+
+pub const Mode = enum {
+    /// Lines beginning with `#*`. If any text comes before the `#*`, then the Mode would be
+    /// [Mode::CodeExpr] instead
+    ///
+    /// ```text
+    ///     #* if (sys.hostname == "foo")
+    ///     #*   // ...
+    ///     #* end
+    /// ```
+    CodeLine,
+    /// While in text mode, expressions beginning with `#*`
+    ///
+    /// ```text
+    ///     The hostname is #*sys.hostname
+    /// ```
+    CodeExpr,
+    /// Code block beginning with `#**` and ending with `**#`
+    ///
+    /// Code expressions inside a block do not need to begin with the normal `#*`
+    ///
+    /// ```text
+    ///     #**
+    ///     local bar = function()
+    ///         return "not"
+    ///     end
+    ///
+    ///     local foo = {
+    ///         bar = bar
+    ///     }
+    ///     **#
+    /// ```
+    CodeBlock,
+    /// Normal file contents
+    TopLevelText,
+    /// Text inside ``
+    Text,
+
+    fn isCode(self: Mode) bool {
+        return self == .Codeline or self == .CodeBlock or self == .CodeExpr;
+    }
+};
+pub const Whitespace = enum { PrecedingWhitespace, None };

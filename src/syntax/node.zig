@@ -179,7 +179,7 @@ pub const SyntaxKind = enum {
     /// Newline, a literal `\n`.
     Newline,
 
-    pub fn is_binary_op(self: SyntaxKind) bool {
+    pub fn isBinaryOp(self: SyntaxKind) bool {
         return self == .Plus or self == .Minus or self == .Perc or self == .Star or self == .Slash;
     }
 
@@ -346,7 +346,7 @@ pub const SyntaxError = union(enum) {
     UnexpectedToken: SyntaxKind,
     UnexpectedCharacter: u8,
 
-    fn to_string(self: SyntaxError, a: std.mem.Allocator) []const u8 {
+    fn toString(self: SyntaxError, a: std.mem.Allocator) []const u8 {
         switch (self) {
             .UnterminatedString => "Unterminated string",
             .ExpectedToken => |k| std.fmt.allocPrint(a, "Expected token {s}", .{k.name()}),
