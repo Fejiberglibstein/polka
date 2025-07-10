@@ -297,6 +297,23 @@ pub const SyntaxNode = union(enum) {
             else => ([_]SyntaxNode{})[0..],
         };
     }
+
+    pub fn intoError(self: *SyntaxNode, err: SyntaxError) {
+        switch (self) {
+            .Error => {},
+            else => {
+                self.* = .{ .Error = .init(err, self.source()) };
+            },
+        }
+    }
+
+    pub fn expected(self: *SyntaxNode, exp: SyntaxKind) void {
+        self.intoError(.{ .ExpectedToken = exp });
+    }
+
+    pub fn unexpected(self: *SyntaxNode) void {
+        self.intoError(.{ .UnexpectedToken = self.kind() });
+    }
 };
 
 pub const LeafNode = struct {
