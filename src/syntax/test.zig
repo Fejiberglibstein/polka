@@ -10,7 +10,10 @@ const SyntaxKind = @import("node.zig").SyntaxKind;
 const Scanner = @import("Scanner.zig");
 const parser = @import("parser.zig");
 
-fn Parse(comptime text: []const u8, allocator: std.mem.Allocator) !SyntaxNode {
+fn parseFile(
+    comptime text: []const u8,
+    allocator: std.mem.Allocator,
+) !struct { SyntaxNode, std.ArrayList(SyntaxNode) } {
     // list of all nodes
     //
     // Make both nodes and stack 500 capacity so that the list won't be resized ever and our
@@ -53,9 +56,10 @@ fn Parse(comptime text: []const u8, allocator: std.mem.Allocator) !SyntaxNode {
         }
     }
 
-    try std.testing.expectEqual(nodes.items.len, 1);
+    try std.testing.expectEqual(stack.items.len, 1);
+    const node = stack.items[0];
 
-    return nodes.items[0];
+    return struct { node, nodes };
 }
 
 fn nodeEql(n1: SyntaxNode, n2: SyntaxNode) !void {
@@ -82,26 +86,45 @@ fn nodeEql(n1: SyntaxNode, n2: SyntaxNode) !void {
 }
 
 fn testParser(comptime path: []const u8, allocator: std.mem.Allocator) !void {
-    const file = @embedFile("tests/" ++ path ++ ".polk");
-    const index = std.mem.indexOf(u8, file, "\n$$$\n");
+    const file = @embedFile("tests/parser" ++ path ++ ".polk");
+    const SEP = "\n$$$\n";
+
+    const index = std.mem.indexOf(u8, file, SEP);
 
     const source = file[0..index];
-    const expected_source = file[index..];
+    const expected_source = file[index + SEP.len ..];
 
-    const expected = try Parse(expected_source, allocator);
+    const expected_node, const expected_nodes = try parseFile(expected_source, allocator);
+    defer expected_nodes.deinit();
 
-    const parsed = parser.parse(source, allocator);
+    const parsed_node, const parsed_nodes = parser.parse(source, allocator);
+    defer parsed_nodes.deinit();
 
-    try nodeEql(parsed, expected) catch {
+    try nodeEql(parsed_node, expected_node) catch {
         std.debug.print("Expected \n", .{});
-        std.json.stringify(expected, .{}, std.io.getStdErr().writer());
+        std.json.stringify(expected_node, .{}, std.io.getStdErr().writer());
 
         std.debug.print("\n\nGot \n", .{});
-        std.json.stringify(parsed, .{}, std.io.getStdErr().writer());
+        std.json.stringify(parsed_node, .{}, std.io.getStdErr().writer());
     };
 }
 
 test "testParser" {
-    const allocator = std.heap.testAllocator(std.heap.PageAllocator);
-    testParser("ifs", allocator);
+    var allocator = std.heap.DebugAllocator(.{}).init;
+    try testParser("complex_text", allocator.allocator());
+    _ = allocator.deinit();
+    try testParser("forloop", allocator.allocator());
+    _ = allocator.deinit();
+    try testParser("function", allocator.allocator());
+    _ = allocator.deinit();
+    try testParser("if", allocator.allocator());
+    _ = allocator.deinit();
+    try testParser("inline_expressions", allocator.allocator());
+    _ = allocator.deinit();
+    try testParser("multiline_code", allocator.allocator());
+    _ = allocator.deinit();
+    try testParser("simple_code", allocator.allocator());
+    _ = allocator.deinit();
+    try testParser("simple_text", allocator.allocator());
+    _ = allocator.deinit();
 }

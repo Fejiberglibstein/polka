@@ -6,10 +6,14 @@ const Lexer = @import("Lexer.zig");
 const Mode = @import("Lexer.zig").Mode;
 
 /// Parses top level text of a file
-pub fn parse(t: []const u8, allocator: std.mem.Allocator) struct { []SyntaxNode, Parser } {
+pub fn parse(t: []const u8, allocator: std.mem.Allocator) struct { SyntaxNode, std.ArrayList(SyntaxNode) } {
     var parser = Parser.init(t, allocator);
     parseText(&parser);
-    return struct { parser.nodes, parser };
+
+    std.debug.assert(parser.stack.items.len == 1);
+    const node = parser.stack.items[0];
+    parser.stack.deinit();
+    return struct { node, parser.nodes };
 }
 
 fn parseText(p: *Parser) void {
