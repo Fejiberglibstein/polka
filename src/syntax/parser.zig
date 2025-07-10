@@ -5,6 +5,103 @@ const TreeNode = @import("node.zig").TreeNode;
 const Lexer = @import("Lexer.zig");
 const Mode = @import("Lexer.zig").Mode;
 
+/// Parses top level text of a file
+pub fn parse(t: []const u8, allocator: std.mem.Allocator) struct { []SyntaxNode, Parser } {
+    var parser = Parser.init(t, allocator);
+    parseText(&parser);
+    return struct { parser.nodes, parser };
+}
+
+fn parseText(p: *Parser) void {
+    const m = p.marker();
+
+    while (true) {
+        if (p.isEndingKind(p.current.kind)) {
+            @branchHint(.unlikely);
+            break;
+        }
+
+        switch (p.current.kind) {
+            .Text => p.eat(),
+            .Newline => p.eat(),
+            .CodeblockBegin => {
+                p.setMode(.Codeblock);
+                // TODO
+                break;
+            },
+            .CodeBegin => {
+                // Save current mode, will be either top level text or normal text
+                const old_mode = p.mode();
+
+                p.setMode(if (p.lastKind() == .Newline) .CodeLine else .CodeExpr);
+
+                const m2 = p.marker();
+                p.assert(.Codebegin);
+
+                if (p.mode() == .CodeLine) {
+                    parseCode(p);
+                } else {
+                    parse_expr(p, 0, true);
+                }
+
+                p.wrap(.Code, m2);
+                p.setMode(old_mode);
+
+                if (!p.isEndingKind(p.current.kind)) {
+                    // Since the mode was just switched, the current token will be a code mode
+                    // token, not a text mode token which is needed now that we're back in text
+                    // mode.
+                    p.reparse();
+                }
+            },
+            // this shouldn't ever happen since we don't produce any other tokens in the lexer
+            else => p.unexpected(),
+        }
+    }
+
+    p.wrap(.TextNode, m);
+}
+
+fn parseCode(p: *Parser) void {
+    while (true) {
+        if (p.isEndingKind(p.current.kind)) {
+            @branchHint(.unlikely);
+            break;
+        }
+
+        switch (p.current.kind) {
+            .Newline => {
+                p.eat();
+                switch (p.mode()) {
+                    .CodeLine => if (p.current.kind == .CodeBegin) {
+                        p.eat();
+                    } else {
+                        break;
+                    },
+
+                    .CodeBlock => {},
+
+                    // This should never happen
+                    .TopLevelText, .Text, .CodeExpr => p.unexpected(),
+                }
+            },
+            .Export => parseExportExpr(p),
+            .Let => parseLetExpr(p),
+            .If => parseIfExpr(p),
+            .For => parseForExpr(p),
+            .While => parseWhileExpr(p),
+            .Function => parseFunctionDef(p),
+            .Return => {
+                const m = p.marker();
+                p.assert(.Return);
+                parse_expr(p, 0, false);
+                p.wrap(.ReturnExpr, m);
+            },
+            else => parse_expr(p, 0, false),
+        }
+    }
+}
+
 const Parser = struct {
     text: []const u8,
     l: Lexer,

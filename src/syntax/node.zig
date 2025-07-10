@@ -298,11 +298,11 @@ pub const SyntaxNode = union(enum) {
         };
     }
 
-    pub fn intoError(self: *SyntaxNode, err: SyntaxError) {
+    pub fn intoError(self: *SyntaxNode, e: SyntaxError) void {
         switch (self) {
             .Error => {},
             else => {
-                self.* = .{ .Error = .init(err, self.source()) };
+                self.* = .{ .Error = .init(e, self.source()) };
             },
         }
     }
