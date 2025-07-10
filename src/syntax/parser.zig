@@ -41,7 +41,7 @@ fn parseText(p: *Parser) void {
                 if (p.mode() == .CodeLine) {
                     parseCode(p);
                 } else {
-                    parse_expr(p, 0, true);
+                    parseExpr(p, 0, true);
                 }
 
                 p.wrap(.Code, m2);
@@ -94,12 +94,238 @@ fn parseCode(p: *Parser) void {
             .Return => {
                 const m = p.marker();
                 p.assert(.Return);
-                parse_expr(p, 0, false);
+                parseExpr(p, 0, false);
                 p.wrap(.ReturnExpr, m);
             },
-            else => parse_expr(p, 0, false),
+            else => parseExpr(p, 0, false),
         }
     }
+}
+
+/// Parse function call arguments
+fn parseArgs(p: *Parser) void {
+    const m = p.marker();
+
+    p.expect(.LeftParen);
+    if (!p.at(.RightParen)) {
+        while (true) {
+            parseExpr(p, 0, false);
+            if (!p.eatIf(.Comma)) {
+                break;
+            }
+        }
+    }
+
+    p.expect(.RightParen);
+    p.wrap(.ArgumentList, m);
+}
+
+/// Parse an expression
+fn parseExpr(p: *Parser, prec: usize, expr: bool) void {
+    _ = prec;
+    if (expr and p.current.preceding_whitespace) {
+        return;
+    }
+
+    const m = p.marker();
+    parsePrimary(p);
+
+    while (true) {
+        if (expr and p.current.preceding_whitespace) {
+            break;
+        }
+
+        if (p.current.kind == .LeftParen) {
+            parseArgs(p);
+            p.wrap(.FunctionCall, m);
+            continue;
+        }
+
+        if (p.eatIf(.Dot)) {
+            p.expect(.Ident);
+            p.wrap(.DotAccess, m);
+            continue;
+        }
+
+        if (p.current.kind.isBinaryOp()) {
+            @panic("unimplemented");
+        }
+
+        break;
+    }
+}
+
+/// Parse a primary node.
+///
+/// Primaries are strings, numbers, bools, identifiers (variables), and lua-like tables
+fn parsePrimary(p: *Parser) void {
+    switch (p.current.kind) {
+        .Ident | .String | .Number | .Bool => p.eat(),
+        .LeftParen => {
+            p.assert(.LeftParen);
+            parseExpr(p, 0, false);
+            p.expect(.RightParen);
+        },
+        else => {}
+    }
+}
+
+/// Parse an exported variable or function
+fn parseExportExpr(p: *Parser) void {
+    const m = p.marker();
+    p.assert(.Export);
+    switch (p.current.kind) {
+        .Let => parseLetExpr(p),
+        .Function => parseFunctionDef(p),
+        _ => p.unexpected(),
+    }
+
+    p.wrap(.ExportExpr, m);
+}
+
+/// Parse a `while x do ... end`
+fn parseWhileExpr(p: *Parser) void {
+    const m = p.marker();
+    // Parse first line of while loop
+    p.assert(.While);
+    parseExpr(p, 0, false);
+    p.expect(.Do);
+    p.expect(.Newline);
+
+    // Set things up for parsing body
+    const old_end = p.finish_on_end;
+    p.finish_on_end = true;
+    const mode = p.mode();
+    p.setMode(.TopLevelText);
+
+    // Parse the body
+    p.reparse(); // Reparse the last token since we just switched modes
+    parseText(p);
+
+    p.setMode(mode);
+    p.finish_on_end = old_end;
+
+    p.expect(.End);
+    p.wrap(.WhileLoop, m);
+}
+
+/// Parse a `for x in y do ... end`
+fn parseForExpr(p: *Parser) void {
+    const m = p.marker();
+    // Parse first line of for loop
+    p.assert(.For);
+    p.expect(.Ident);
+    p.expect(.In);
+    parseExpr(p, 0, false);
+    p.expect(.Do);
+    p.expect(.Newline);
+
+    // Set things up for parsing body
+    const old_end = p.finish_on_end;
+    p.finish_on_end = true;
+    const mode = p.mode();
+    p.setMode(.TopLevelText);
+
+    // Parse the body
+    p.reparse(); // Reparse the last token since we just switched modes
+    parseText(p);
+
+    p.setMode(mode);
+    p.finish_on_end = old_end;
+
+    p.expect(.End);
+    p.wrap(.ForLoop, m);
+}
+
+/// Parse a `if x then ... end`
+fn parseIfExpr(p: *Parser) void {
+    const m = p.marker();
+    // Parse first line of if
+    p.assert(.If);
+    parseExpr(p, 0, false);
+    p.expect(.Then);
+    p.expect(.Newline);
+
+    // Set things up for parsing body
+    const old_end = p.finish_on_end;
+    p.finish_on_end = true;
+    const mode = p.mode();
+    p.setMode(.TopLevelText);
+
+    // Parse the body
+    p.reparse(); // Reparse the last token since we just switched modes
+    parseText(p);
+
+    // TODO: add else if
+    if (p.at(.Else)) {
+        if (p.eatIf(.If)) {
+            @panic("unimplemented");
+        }
+        p.expect(.Newline);
+        parseText(p);
+    }
+
+    p.setMode(mode);
+    p.finish_on_end = old_end;
+
+    p.expect(.End);
+    p.wrap(.Conditional, m);
+}
+
+/// Parse parameters in a function declaration
+fn parseParams(p: *Parser) void {
+    const m = p.marker();
+
+    p.expect(.LeftParen);
+    if (!p.eatIf(.RightParen)) {
+        while (true) {
+            p.expect(.Ident);
+            if (!p.eatIf(.Comma)) {
+                break;
+            }
+        }
+        p.expect(.RightParen);
+    }
+
+    p.wrap(.FunctionParameters, m);
+}
+
+/// Parse a function declaration
+fn parseFunctionDef(p: *Parser) void {
+    const m = p.marker();
+    // Parse first line of declaration
+    p.assert(.Function);
+    p.expect(.Ident);
+    parseParams(p);
+    p.expect(.Newline);
+
+    // Set things up for parsing body
+    const old_end = p.finish_on_end;
+    p.finish_on_end = true;
+    const mode = p.mode();
+    p.set_mode(.TopLevelText);
+
+    // Parse the body
+    p.reparse(); // Reparse the last token since we just switched modes
+    parseText(p);
+
+    p.setMode(mode);
+    p.finish_on_end = old_end;
+
+    p.expect(.End);
+    p.wrap(.FunctionDef, m);
+}
+
+/// Parses a variable declaration `let foo = 10`
+fn parseLetExpr(p: *Parser) void {
+    const m = p.marker();
+
+    p.assert(.Let);
+    p.expect(.Ident);
+    p.expect(.Eq);
+    parseExpr(p, 0, false);
+
+    p.wrap(.LetExpr, m);
 }
 
 const Parser = struct {
