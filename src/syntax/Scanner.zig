@@ -59,8 +59,12 @@ pub fn eatWhile(self: *Scanner, pat: Pattern) void {
     }
 }
 
-pub fn eatWhitespace(self: *Scanner) void {
+pub fn eatSpaces(self: *Scanner) void {
     self.eatWhile(.{ .Any = &[_]u8{ ' ', '\t' } });
+}
+
+pub fn eatWhitespace(self: *Scanner) void {
+    self.eatWhile(.{ .Any = &[_]u8{ ' ', '\t', '\n', '\r' } });
 }
 
 pub fn eatNewline(self: *Scanner) bool {
@@ -118,6 +122,10 @@ const Pattern = union(enum) {
 
             .Char => |c| {
                 return c == source[0];
+            },
+
+            .Fn => |f| {
+                return f(source[0]);
             },
         }
     }

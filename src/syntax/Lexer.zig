@@ -22,7 +22,7 @@ pub fn init(source: []const u8) Lexer {
 
 pub fn next(self: *Lexer) struct { SyntaxNode, SyntaxKind, Whitespace } {
     const before_spaces = self.s.cursor;
-    self.s.eatWhitespace();
+    self.s.eatSpaces();
     const start = self.s.cursor;
     const whitespace: Whitespace = if (start != before_spaces) .PrecedingWhitespace else .None;
 
