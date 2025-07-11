@@ -366,7 +366,7 @@ const Parser = struct {
     }
 
     fn marker(self: Parser) Marker {
-        return self.nodes.items.len;
+        return self.stack.items.len;
     }
 
     fn eat(self: *Parser) Allocator.Error!void {
@@ -420,10 +420,10 @@ const Parser = struct {
 
         try self.nodes.appendSlice(self.stack.items[m..]);
         // Sizing down, so can't get an allocation error
-        self.nodes.resize(self.stack.items.len - m) catch unreachable;
+        self.stack.resize(m) catch unreachable;
         const len = self.nodes.items.len - offset;
 
-        try self.nodes.append(SyntaxNode.tree(
+        try self.stack.append(SyntaxNode.tree(
             kind,
             self.nodes.items,
             .{ .len = @intCast(len), .offset = @intCast(offset) },

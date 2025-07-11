@@ -43,7 +43,6 @@ fn parseFile(
         if (s.eatIf(.{ .Char = '[' })) {
             // Start a tree node
             if (kind) |k| {
-                @compileLog(std.fmt.comptimePrint("{d}", .{stack.slice().len}));
                 try ind_stack.append(.{ stack.slice().len, k });
             } else {
                 @panic("malformed test data");
@@ -80,7 +79,7 @@ fn parseFile(
     return .{ node, nodes };
 }
 
-fn nodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []SyntaxNode, all2: []SyntaxNode) !void {
+fn nodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []const SyntaxNode, all2: []const SyntaxNode) !void {
     try expectEqual(n1.kind(), n2.kind());
     switch (n1) {
         .Leaf => switch (n2) {
@@ -89,9 +88,9 @@ fn nodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []SyntaxNode, all2: []SyntaxNod
         },
         .Tree => switch (n2) {
             .Tree => {
-                expectEqual(n1.children(all1).len, n2.children(all2).len);
-                for (n1, n2) |c1, c2| {
-                    try nodeEql(c1, c2);
+                try expectEqual(n1.children(all1).len, n2.children(all2).len);
+                for (n1.children(all1), n2.children(all2)) |c1, c2| {
+                    try nodeEql(c1, c2, all1, all2);
                 }
             },
             else => try expect(false),
@@ -118,16 +117,18 @@ fn testParser(comptime path: []const u8, allocator: std.mem.Allocator) !void {
 
     const source = file[0..index];
 
-    const parsed_node, const parsed_nodes = parser.parse(source, allocator);
+    const parsed_node, const parsed_nodes = try parser.parse(source, allocator);
     defer parsed_nodes.deinit();
 
-    try nodeEql(parsed_node, expected_node, parsed_nodes, expected_nodes) catch {
+    nodeEql(parsed_node, expected_node, parsed_nodes.items, expected_nodes.slice()) catch {
         std.debug.print("Expected \n", .{});
-        std.json.stringify(expected_node, .{}, std.io.getStdErr().writer());
+        try std.json.stringify(expected_node, .{}, std.io.getStdErr().writer());
 
         std.debug.print("\n\nGot \n", .{});
-        std.json.stringify(parsed_node, .{}, std.io.getStdErr().writer());
+        try std.json.stringify(parsed_node, .{}, std.io.getStdErr().writer());
     };
+
+    std.debug.print("test " ++ path ++ " passed", .{});
 }
 
 test "testParser" {
