@@ -132,7 +132,7 @@ fn parseArgs(p: *Parser) Allocator.Error!void {
 /// Parse an expression
 fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
     _ = prec;
-    if (expr and p.current.preceding_whitespace) {
+    if (expr and p.current.whitespace == .PrecedingWhitespace) {
         return;
     }
 
@@ -140,7 +140,7 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
     try parsePrimary(p);
 
     while (true) {
-        if (expr and p.current.preceding_whitespace) {
+        if (expr and p.current.whitespace == .PrecedingWhitespace) {
             break;
         }
 
@@ -354,7 +354,7 @@ const Parser = struct {
         node: SyntaxNode,
         kind: SyntaxKind,
         /// if there was whitespace before the token
-        preceding_whitespace: bool,
+        whitespace: Lexer.Whitespace,
     };
 
     fn mode(self: *Parser) Mode {
@@ -412,18 +412,22 @@ const Parser = struct {
     }
 
     fn unexpected(self: *Parser) Allocator.Error!void {
-        try self.eatGet().unexpected();
+        (try self.eatGet()).unexpected();
     }
 
     fn wrap(self: *Parser, kind: SyntaxKind, m: Marker) Allocator.Error!void {
-        const start = self.nodes.len;
-        try self.nodes.appendSlice(self.stack[m..]);
+        const offset = self.nodes.items.len;
+
+        try self.nodes.appendSlice(self.stack.items[m..]);
         // Sizing down, so can't get an allocation error
         self.nodes.resize(self.stack.items.len - m) catch unreachable;
+        const len = self.nodes.items.len - offset;
 
-        // TODO use indexes into nodes so that the pointers don't become invalidated
-
-        self.nodes.append(.{ .Tree = TreeNode.tree(kind, self.nodes[start..]) });
+        try self.nodes.append(SyntaxNode.tree(
+            kind,
+            self.nodes.items,
+            .{ .len = @intCast(len), .offset = @intCast(offset) },
+        ));
     }
 
     fn isEndingKind(self: Parser, kind: SyntaxKind) bool {
@@ -431,8 +435,8 @@ const Parser = struct {
     }
 
     fn init(t: []const u8, allocator: std.mem.Allocator) Parser {
-        const lexer = Lexer.init(t);
-        const token = Parser.parseToken(lexer);
+        var lexer = Lexer.init(t);
+        const token = Parser.parseToken(&lexer);
 
         return Parser{
             .text = t,
@@ -450,7 +454,7 @@ const Parser = struct {
         return Token{
             .node = node,
             .kind = kind,
-            .preceding_whitespace = whitespace,
+            .whitespace = whitespace,
         };
     }
 };

@@ -2,6 +2,7 @@
 //! you are building an executable. If you are making a library, the convention
 //! is to delete this file and start with root.zig instead.
 
+const parse = @import("syntax/parser.zig");
 const SyntaxNode = @import("syntax/node.zig").SyntaxNode;
 const Scanner = @import("syntax/Scanner.zig");
 const ast = @import("syntax/ast.zig");
@@ -20,6 +21,8 @@ pub fn main() !void {
     const stdout = bw.writer();
 
     try stdout.print("Run `zig build test` to run the tests.\n", .{});
+
+    _ = try parse.parse("", std.heap.page_allocator);
 
     try bw.flush(); // Don't forget to flush!
 }

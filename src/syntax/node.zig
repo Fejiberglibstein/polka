@@ -274,7 +274,7 @@ pub const SyntaxNode = union(enum) {
     pub fn tree(k: SyntaxKind, all_nodes: []SyntaxNode, c: TreeNode.Children) SyntaxNode {
         const children_slice = c.slice(all_nodes);
 
-        var len = 0;
+        var len: usize = 0;
         for (children_slice) |child| len += child.length();
 
         return SyntaxNode{ .Tree = TreeNode{
@@ -285,7 +285,7 @@ pub const SyntaxNode = union(enum) {
     }
 
     pub fn err(e: SyntaxError, text_length: usize, preceding_whitespace: u16) SyntaxNode {
-        return SyntaxNode{ .Leaf = ErrorNode{
+        return SyntaxNode{ .Error = ErrorNode{
             .err = e,
             .text_length = text_length,
             .preceding_whitespace = preceding_whitespace,
@@ -321,7 +321,7 @@ pub const SyntaxNode = union(enum) {
             .Leaf => |v| {
                 self.* = SyntaxNode{ .Error = ErrorNode{
                     .err = e,
-                    .preceding_whitepace = v.preceding_whitespace,
+                    .preceding_whitespace = v.preceding_whitespace,
                     .text_length = v.text_length,
                 } };
             },
