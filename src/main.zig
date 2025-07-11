@@ -2,11 +2,11 @@
 //! you are building an executable. If you are making a library, the convention
 //! is to delete this file and start with root.zig instead.
 
-const _node = @import("syntax/node.zig");
-const SyntaxNode = _node.SyntaxNode;
+const SyntaxNode = @import("syntax/node.zig").SyntaxNode;
 const Scanner = @import("syntax/Scanner.zig");
 const ast = @import("syntax/ast.zig");
 const syntax_tests = @import("syntax/test.zig");
+const std = @import("std");
 
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
@@ -26,10 +26,5 @@ pub fn main() !void {
 
 test "all" {
     std.testing.refAllDeclsRecursive(@This());
-
-    const node = ast.Code{ .@"0" = SyntaxNode.tree(.Code, &[_]SyntaxNode{.leaf(.Ident, " ")}) };
-    node.foo();
     _ = syntax_tests;
 }
-
-const std = @import("std");

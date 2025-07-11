@@ -1,6 +1,6 @@
 pub const std = @import("std");
 
-pub const SyntaxKind = enum {
+pub const SyntaxKind = enum(u8) {
     /// Error node
     Error,
     /// End of file
@@ -263,23 +263,40 @@ pub const SyntaxNode = union(enum) {
 
     const PLACEHOLDER_SOURCE = " ";
 
-    pub fn leaf(k: SyntaxKind, s: []const u8) SyntaxNode {
-        return SyntaxNode{ .Leaf = .init(k, s) };
+    pub fn leaf(k: SyntaxKind, text_length: usize, preceding_whitespace: u16) SyntaxNode {
+        return SyntaxNode{ .Leaf = LeafNode{
+            .kind = k,
+            .text_length = text_length,
+            .preceding_whitespace = preceding_whitespace,
+        } };
     }
 
-    pub fn tree(k: SyntaxKind, c: []const SyntaxNode) SyntaxNode {
-        return SyntaxNode{ .Tree = .init(k, c) };
+    pub fn tree(k: SyntaxKind, all_nodes: []SyntaxNode, c: TreeNode.Children) SyntaxNode {
+        const children_slice = c.slice(all_nodes);
+
+        var len = 0;
+        for (children_slice) |child| len += child.length();
+
+        return SyntaxNode{ .Tree = TreeNode{
+            .kind = k,
+            .children = c,
+            .text_length = len,
+        } };
     }
 
-    pub fn err(e: SyntaxError, s: []const u8) SyntaxNode {
-        return SyntaxNode{ .Error = .init(e, s) };
+    pub fn err(e: SyntaxError, text_length: usize, preceding_whitespace: u16) SyntaxNode {
+        return SyntaxNode{ .Leaf = ErrorNode{
+            .err = e,
+            .text_length = text_length,
+            .preceding_whitespace = preceding_whitespace,
+        } };
     }
 
-    pub fn source(self: SyntaxNode) []const u8 {
+    pub fn length(self: SyntaxNode) usize {
         return switch (self) {
-            .Tree => |v| v.source,
-            .Error => |v| v.source,
-            .Leaf => |v| v.source,
+            .Tree => |v| v.text_length,
+            .Error => |v| v.text_length + v.preceding_whitespace,
+            .Leaf => |v| v.text_length + v.preceding_whitespace,
         };
     }
 
@@ -291,18 +308,29 @@ pub const SyntaxNode = union(enum) {
         };
     }
 
-    pub fn children(self: SyntaxNode) []const SyntaxNode {
+    pub fn children(self: SyntaxNode, all_nodes: []const SyntaxNode) []const SyntaxNode {
         return switch (self) {
-            .Tree => |v| v.children,
+            .Tree => |v| v.children.slice(all_nodes),
             else => ([_]SyntaxNode{})[0..],
         };
     }
 
     pub fn intoError(self: *SyntaxNode, e: SyntaxError) void {
-        switch (self) {
+        switch (self.*) {
             .Error => {},
-            else => {
-                self.* = .{ .Error = .init(e, self.source()) };
+            .Leaf => |v| {
+                self.* = SyntaxNode{ .Error = ErrorNode{
+                    .err = e,
+                    .preceding_whitepace = v.preceding_whitespace,
+                    .text_length = v.text_length,
+                } };
+            },
+            .Tree => |v| {
+                self.* = SyntaxNode{ .Error = ErrorNode{
+                    .err = e,
+                    .preceding_whitespace = 0,
+                    .text_length = v.text_length,
+                } };
             },
         }
     }
@@ -318,52 +346,46 @@ pub const SyntaxNode = union(enum) {
 
 pub const LeafNode = struct {
     kind: SyntaxKind,
-    source: []const u8,
-
-    fn init(kind: SyntaxKind, source: []const u8) LeafNode {
-        return LeafNode{
-            .kind = kind,
-            .source = source,
-        };
-    }
+    /// Length of the range in the source text that this node takes up
+    text_length: usize,
+    /// Whitespace that came before this node
+    preceding_whitespace: u16,
 };
 
 pub const TreeNode = struct {
     kind: SyntaxKind,
-    children: []const SyntaxNode,
-    source: []const u8,
+    children: Children,
+    /// Length of the range in the source text that this node takes up, with preceding whitespace
+    /// included.
+    text_length: usize,
 
-    pub fn init(kind: SyntaxKind, children: []const SyntaxNode) TreeNode {
-        const start = children[0].source();
-        const end = children[children.len - 1].source();
+    /// A range of nodes inside the AST. `offset` acts as an index into the list of all the nodes
+    pub const Children = struct {
+        offset: u32,
+        len: u32,
 
-        // create the source to encompass the source of the children
-        const length: usize = @intFromPtr(&end[end.len - 1]) - @intFromPtr(start.ptr);
-        const source: []const u8 = start.ptr[0..length];
-
-        return TreeNode{ .kind = kind, .children = children, .source = source };
-    }
+        pub fn slice(self: @This(), all_nodes: []const SyntaxNode) []const SyntaxNode {
+            return all_nodes[self.offset..(self.offset + self.len)];
+        }
+    };
 };
 
 pub const ErrorNode = struct {
-    source: []const u8,
     err: SyntaxError,
-
-    pub fn init(err: SyntaxError, source: []const u8) ErrorNode {
-        return ErrorNode{
-            .source = source,
-            .err = err,
-        };
-    }
+    /// Length of the range in the source text that this node takes up
+    text_length: usize,
+    /// Whitespace that came before this node
+    preceding_whitespace: u16,
 };
 
-pub const SyntaxError = union(enum) {
+pub const SyntaxError = union(enum(u8)) {
     UnterminatedString: void,
     ExpectedToken: SyntaxKind,
     UnexpectedToken: SyntaxKind,
     UnexpectedCharacter: u8,
 
     fn toString(self: SyntaxError, a: std.mem.Allocator) []const u8 {
+        // TODO perhaps make this do comptime string concatenation instead of `allocPrint`ing ?
         switch (self) {
             .UnterminatedString => "Unterminated string",
             .ExpectedToken => |k| std.fmt.allocPrint(a, "Expected token {s}", .{k.name()}),
