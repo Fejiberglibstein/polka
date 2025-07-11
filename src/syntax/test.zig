@@ -12,48 +12,60 @@ const parser = @import("parser.zig");
 
 fn parseFile(
     comptime text: []const u8,
-    allocator: std.mem.Allocator,
 ) !struct { SyntaxNode, std.ArrayList(SyntaxNode) } {
     // list of all nodes
     //
     // Make both nodes and stack 500 capacity so that the list won't be resized ever and our
     // pointers won't be invalidated
-    var nodes = try std.ArrayList(SyntaxNode).initCapacity(allocator, 500);
+    var nodes = try std.BoundedArray(SyntaxNode, 500).init(0);
     // stack to append on
-    var stack = try std.ArrayList(SyntaxNode).initCapacity(allocator, 500);
+    var stack = try std.BoundedArray(SyntaxNode, 500).init(0);
 
     // Stack we push for the start of each tree node
-    var ind_stack = std.ArrayList(.{ u32, SyntaxKind }).init(allocator);
+    var ind_stack = try std.BoundedArray(struct { u32, SyntaxKind }, 500).init(0);
 
-    const s = Scanner.init(text);
+    var s = Scanner.init(text);
 
     while (true) {
         const m = s.cursor;
 
         s.eatWhitespace();
 
-        if (s.eatAlpha()) {
-            const kind = @field(SyntaxKind, s.from(m));
+        @compileLog(std.fmt.comptimePrint("{s}\n\n", .{s.after()}));
 
-            s.eatWhitespace();
+        // Eat the identifier and get the kind, if any
+        _ = s.eatAlpha();
+        const kind: ?SyntaxKind = if (m != s.cursor) @field(SyntaxKind, s.from(m)) else null;
 
-            if (s.eatIf(.{ .Char = '[' })) {
-                ind_stack.append(.{ ind_stack.items.len, kind });
-            } else if (s.eatIf(.{ .Char = ']' })) {
-                const ind = ind_stack.pop() orelse @panic("malformed test data");
+        s.eatWhitespace();
 
-                const len = nodes.items.len;
-                try nodes.appendSlice(stack.items[ind.@"0"..]);
-                try stack.resize(stack.items.len - ind.@"0");
-
-                stack.append(.{ .Tree = .init(ind.@"1", nodes[len..]) });
+        if (s.eatIf(.{ .Char = '[' })) {
+            // Start a tree node
+            if (kind) |k| {
+                try ind_stack.append(.{ ind_stack.slice().len, k });
             } else {
-                _ = s.eatIf(.{ .Char = ',' });
-
-                stack.append(.{ .Leaf = .init(kind, " ") });
+                @panic("malformed test data");
             }
-            s.eatWhitespace();
+        } else if (s.eatIf(.{ .Char = ']' })) {
+            // Close the tree node
+            const ind = ind_stack.pop() orelse @panic("malformed test data");
+
+            const len = nodes.slice().len;
+            try nodes.appendSlice(stack.slice()[ind.@"0"..]);
+            try stack.resize(stack.slice().len - ind.@"0");
+
+            stack.append(.{ .Tree = .init(ind.@"1", nodes.slice()[len..]) });
+        } else {
+            // If neither [ nor ], then it's a leaf node
+            if (kind) |k| {
+                try stack.append(.{ .Leaf = .init(k, " ") });
+            } else {
+                @panic("malformed test data");
+            }
         }
+        s.eatWhitespace();
+        _ = s.eatIf(.{ .Char = ',' });
+        s.eatWhitespace();
     }
 
     try std.testing.expectEqual(stack.items.len, 1);
@@ -86,16 +98,22 @@ fn nodeEql(n1: SyntaxNode, n2: SyntaxNode) !void {
 }
 
 fn testParser(comptime path: []const u8, allocator: std.mem.Allocator) !void {
-    const file = @embedFile("tests/parser" ++ path ++ ".polk");
+    const file = @embedFile("tests/" ++ path ++ ".polk");
     const SEP = "\n$$$\n";
 
-    const index = std.mem.indexOf(u8, file, SEP);
+    var expected_node: SyntaxNode = undefined;
+    var expected_nodes: []SyntaxNode = undefined;
+
+    comptime {
+        const index = std.mem.indexOf(u8, file, SEP).?;
+        const expected_source = file[(index + SEP.len)..];
+
+        expected_node, expected_nodes = try parseFile(expected_source);
+    }
+
+    const index = std.mem.indexOf(u8, file, SEP).?;
 
     const source = file[0..index];
-    const expected_source = file[index + SEP.len ..];
-
-    const expected_node, const expected_nodes = try parseFile(expected_source, allocator);
-    defer expected_nodes.deinit();
 
     const parsed_node, const parsed_nodes = parser.parse(source, allocator);
     defer parsed_nodes.deinit();
