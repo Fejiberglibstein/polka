@@ -22,6 +22,10 @@ pub fn eat(self: *Scanner) ?u8 {
     return self.source[old];
 }
 
+pub fn moveTo(self: *Scanner, m: usize) void {
+    self.cursor = m;
+}
+
 pub fn isDone(self: Scanner) bool {
     return self.cursor >= self.source.len;
 }
@@ -96,7 +100,7 @@ pub fn peek(self: *Scanner) ?u8 {
     return self.source[self.cursor];
 }
 
-fn isAlpha(c: u8) bool {
+inline fn isAlpha(c: u8) bool {
     return (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z');
 }
 
@@ -111,7 +115,7 @@ const Pattern = union(enum) {
     String: []const u8,
     Any: []const u8,
     Char: u8,
-    Fn: fn (u8) bool,
+    Fn: fn (u8) callconv(.@"inline") bool,
 
     pub fn matches(self: Pattern, source: []const u8) bool {
         switch (self) {

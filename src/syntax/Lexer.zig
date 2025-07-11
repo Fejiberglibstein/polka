@@ -10,7 +10,7 @@ const Lexer = @This();
 
 s: Scanner,
 mode: Mode,
-currentError: ?ErrorNode,
+currentError: ?SyntaxError,
 
 pub fn init(source: []const u8) Lexer {
     return Lexer{
@@ -24,38 +24,42 @@ pub fn next(self: *Lexer) struct { SyntaxNode, SyntaxKind, Whitespace } {
     const before_spaces = self.s.cursor;
     self.s.eatSpaces();
     const start = self.s.cursor;
-    const whitespace: Whitespace = if (start != before_spaces) .PrecedingWhitespace else .None;
+    const whitespace: u16 = @intCast(start - before_spaces);
 
-    const kind: SyntaxKind = undefined;
-
-    if (self.s.eatNewline()) {
-        kind = .Newline;
-    } else if (self.s.peek() == null) {
-        kind = .EOF;
-    } else switch (self.mode) {
+    const kind = if (self.s.eatNewline())
+        .Newline
+    else if (self.s.peek() == null)
+        .EOF
+    else switch (self.mode) {
         .CodeLine, .CodeExpr, .CodeBlock => self.code(),
         .TopLevelText, .Text => self.text(),
-    }
+    };
 
-    const range = self.s.from(start);
-    const node: SyntaxNode = if (self.currentError) |err| .err(err, range) else .leaf(kind, range);
+    const range = self.s.cursor - start;
+    const node: SyntaxNode = if (self.currentError) |err|
+        .err(err, range, whitespace)
+    else
+        .leaf(kind, range, whitespace);
 
-    return .{ node, kind, whitespace };
+    return .{ node, kind, if (whitespace != 0) .PrecedingWhitespace else .None };
+}
+
+pub fn reparse(self: *Lexer, node: SyntaxNode) void {
+    self.s.moveTo(self.s.cursor - node.length());
 }
 
 fn setErr(self: *Lexer, err: SyntaxError) SyntaxKind {
-    if (!self.currentError) {
+    if (self.currentError == null) {
         self.currentError = err;
     }
     return .Error;
 }
 
 fn code(self: *Lexer) SyntaxKind {
-    const m = self.s.cursor;
-    const c = self.s.eat();
+    const c = self.s.eat() orelse unreachable;
 
-    switch (c) {
-        '#' => if (self.s.eatIf(.{ .Char = '*' })) .CodeBegin,
+    return sw: switch (c) {
+        '#' => if (self.s.eatIf(.{ .Char = '*' })) .CodeBegin else continue :sw 0,
         '[' => .LeftBracket,
         ']' => .RightBracket,
         '(' => .LeftParen,
@@ -66,24 +70,23 @@ fn code(self: *Lexer) SyntaxKind {
         '%' => .Perc,
         '/' => .Slash,
         // TODO: Fix this and make `self.eat_codeblockend`
-        '*' => if (self.s.eatIf(.{ .String = "*#" })) .CodeblockEnd,
-        '*' => .Star,
+        '*' => if (self.s.eatIf(.{ .String = "*#" }))
+            .CodeblockEnd
+        else
+            .Star,
         '-' => .Minus,
         '.' => .Dot,
         ',' => .Comma,
         '`' => .Backtick,
-        '=' => if (self.s.eatIf(.{ .Char = '=' })) .EqEq,
-        '!' => if (self.s.eatIf(.{ .Char = '=' })) .NotEq,
-        '<' => if (self.s.eatIf(.{ .Char = '=' })) .LtEq,
-        '>' => if (self.s.eatIf(.{ .Char = '=' })) .GtEq,
-        '=' => .Eq,
-        '<' => .Lt,
-        '>' => .Gt,
+        '=' => if (self.s.eatIf(.{ .Char = '=' })) .EqEq else .Eq,
+        '!' => if (self.s.eatIf(.{ .Char = '=' })) .NotEq else continue :sw 0,
+        '<' => if (self.s.eatIf(.{ .Char = '=' })) .LtEq else .Lt,
+        '>' => if (self.s.eatIf(.{ .Char = '=' })) .GtEq else .Gt,
         '"' => self.string(),
         '0'...'9' => self.number(),
-        'a'...'z', 'A'...'Z', '_' => self.ident(m),
-        inline else => |_| self.setErr(.{ .UnexpectedCharacter = c }),
-    }
+        'a'...'z', 'A'...'Z', '_' => self.ident(),
+        else => self.setErr(.{ .UnexpectedCharacter = c }),
+    };
 }
 
 fn string(self: *Lexer) SyntaxKind {
@@ -91,13 +94,12 @@ fn string(self: *Lexer) SyntaxKind {
         self.s.eatUntil(.{ .Any = &[_]u8{ '\\', '"', '\n', '\r' } });
 
         if (self.s.eatNewline()) {
-            return self.setErr(.{.UnterminatedString});
+            return self.setErr(.UnterminatedString);
         }
 
-        switch (self.s.eat()) {
+        switch (self.s.eat() orelse 0) {
             '\\' => if (self.s.eatIf(.{ .Char = '"' })) {},
             '"' => break,
-            null => break,
 
             else => {},
         }
@@ -188,15 +190,15 @@ fn text(self: *Lexer) SyntaxKind {
 
         var s = self.s;
 
-        switch (s.eat()) {
-            '\\' => s.eatIf('`'),
+        switch (s.eat() orelse 0) {
+            '\\' => _ = s.eatIf(.{ .Char = '`' }),
             '#' => if (s.at(.{ .Char = '*' })) {
                 break;
             },
 
             '`' => if (self.mode != .TopLevelText) {
                 // Consume the `
-                self.s.eat();
+                _ = self.s.eat();
                 break;
             },
             else => break,
@@ -210,7 +212,7 @@ fn text(self: *Lexer) SyntaxKind {
 
 fn eatCodebegin(self: *Lexer) bool {
     return if (self.mode != .CodeBlock)
-        self.s.eatIf("#*") || self.s.eatIf(";*")
+        self.s.eatIf(.{ .String = "#*" }) or self.s.eatIf(.{ .String = ";*" })
     else
         true;
 }
