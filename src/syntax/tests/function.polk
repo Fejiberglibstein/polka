@@ -5,6 +5,7 @@ hello
 #* end
 > world
 
+$$$
 TextNode [
 	Newline,
 	Text,

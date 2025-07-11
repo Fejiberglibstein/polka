@@ -12,7 +12,7 @@ const parser = @import("parser.zig");
 
 fn parseFile(
     comptime text: []const u8,
-) !struct { SyntaxNode, std.ArrayList(SyntaxNode) } {
+) !struct { SyntaxNode, std.BoundedArray(SyntaxNode, 500) } {
     // list of all nodes
     //
     // Make both nodes and stack 500 capacity so that the list won't be resized ever and our
@@ -26,15 +26,16 @@ fn parseFile(
 
     var s = Scanner.init(text);
 
-    while (true) {
+    while (!s.isDone()) {
         const m = s.cursor;
-
         s.eatWhitespace();
-
-        @compileLog(std.fmt.comptimePrint("{s}\n\n", .{s.after()}));
 
         // Eat the identifier and get the kind, if any
         _ = s.eatAlpha();
+
+        if (m != s.cursor and !@hasField(SyntaxKind, s.from(m))) {
+            @compileError("SyntaxKind " ++ s.from(m) ++ " does not exist");
+        }
         const kind: ?SyntaxKind = if (m != s.cursor) @field(SyntaxKind, s.from(m)) else null;
 
         s.eatWhitespace();
@@ -42,7 +43,8 @@ fn parseFile(
         if (s.eatIf(.{ .Char = '[' })) {
             // Start a tree node
             if (kind) |k| {
-                try ind_stack.append(.{ ind_stack.slice().len, k });
+                @compileLog(std.fmt.comptimePrint("{d}", .{stack.slice().len}));
+                try ind_stack.append(.{ stack.slice().len, k });
             } else {
                 @panic("malformed test data");
             }
@@ -50,15 +52,19 @@ fn parseFile(
             // Close the tree node
             const ind = ind_stack.pop() orelse @panic("malformed test data");
 
-            const len = nodes.slice().len;
+            const offset = nodes.slice().len;
             try nodes.appendSlice(stack.slice()[ind.@"0"..]);
-            try stack.resize(stack.slice().len - ind.@"0");
+            try stack.resize(ind.@"0");
+            const len = nodes.slice().len - offset;
 
-            stack.append(.{ .Tree = .init(ind.@"1", nodes.slice()[len..]) });
+            try stack.append(SyntaxNode.tree(ind.@"1", nodes.slice(), .{
+                .len = len,
+                .offset = offset,
+            }));
         } else {
             // If neither [ nor ], then it's a leaf node
             if (kind) |k| {
-                try stack.append(.{ .Leaf = .init(k, " ") });
+                try stack.append(SyntaxNode.leaf(k, 0, 0));
             } else {
                 @panic("malformed test data");
             }
@@ -68,13 +74,13 @@ fn parseFile(
         s.eatWhitespace();
     }
 
-    try std.testing.expectEqual(stack.items.len, 1);
-    const node = stack.items[0];
+    try std.testing.expectEqual(stack.slice().len, 1);
+    const node = stack.slice()[0];
 
-    return struct { node, nodes };
+    return .{ node, nodes };
 }
 
-fn nodeEql(n1: SyntaxNode, n2: SyntaxNode) !void {
+fn nodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []SyntaxNode, all2: []SyntaxNode) !void {
     try expectEqual(n1.kind(), n2.kind());
     switch (n1) {
         .Leaf => switch (n2) {
@@ -83,7 +89,7 @@ fn nodeEql(n1: SyntaxNode, n2: SyntaxNode) !void {
         },
         .Tree => switch (n2) {
             .Tree => {
-                expectEqual(n1.children().len, n2.children().len);
+                expectEqual(n1.children(all1).len, n2.children(all2).len);
                 for (n1, n2) |c1, c2| {
                     try nodeEql(c1, c2);
                 }
@@ -101,15 +107,12 @@ fn testParser(comptime path: []const u8, allocator: std.mem.Allocator) !void {
     const file = @embedFile("tests/" ++ path ++ ".polk");
     const SEP = "\n$$$\n";
 
-    var expected_node: SyntaxNode = undefined;
-    var expected_nodes: []SyntaxNode = undefined;
-
-    comptime {
+    const expected_node, const expected_nodes = comptime blk: {
         const index = std.mem.indexOf(u8, file, SEP).?;
         const expected_source = file[(index + SEP.len)..];
 
-        expected_node, expected_nodes = try parseFile(expected_source);
-    }
+        break :blk try parseFile(expected_source);
+    };
 
     const index = std.mem.indexOf(u8, file, SEP).?;
 
@@ -118,7 +121,7 @@ fn testParser(comptime path: []const u8, allocator: std.mem.Allocator) !void {
     const parsed_node, const parsed_nodes = parser.parse(source, allocator);
     defer parsed_nodes.deinit();
 
-    try nodeEql(parsed_node, expected_node) catch {
+    try nodeEql(parsed_node, expected_node, parsed_nodes, expected_nodes) catch {
         std.debug.print("Expected \n", .{});
         std.json.stringify(expected_node, .{}, std.io.getStdErr().writer());
 
@@ -128,6 +131,7 @@ fn testParser(comptime path: []const u8, allocator: std.mem.Allocator) !void {
 }
 
 test "testParser" {
+    @setEvalBranchQuota(100000);
     var allocator = std.heap.DebugAllocator(.{}).init;
     try testParser("complex_text", allocator.allocator());
     _ = allocator.deinit();

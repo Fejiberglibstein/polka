@@ -13,13 +13,17 @@ pub fn init(source: []const u8) Scanner {
 ///
 /// Returns null if at the end of the string
 pub fn eat(self: *Scanner) ?u8 {
-    if (self.cursor >= self.source.len) {
+    if (self.isDone()) {
         return null;
     }
 
     const old = self.cursor;
     self.cursor += 1;
     return self.source[old];
+}
+
+pub fn isDone(self: Scanner) bool {
+    return self.cursor >= self.source.len;
 }
 
 pub fn after(self: *Scanner) []const u8 {
@@ -36,10 +40,12 @@ pub fn from(self: *Scanner, cursor: usize) []const u8 {
 
 /// Check if the cursor is on top of the pattern
 pub fn at(self: *Scanner, pat: Pattern) bool {
+    if (self.isDone()) return false;
     return pat.matches(self.after());
 }
 
 pub fn eatIf(self: *Scanner, pat: Pattern) bool {
+    if (self.isDone()) return false;
     if (pat.matches(self.after())) {
         self.cursor += pat.length();
         return true;
@@ -48,14 +54,18 @@ pub fn eatIf(self: *Scanner, pat: Pattern) bool {
 }
 
 pub fn eatUntil(self: *Scanner, pat: Pattern) void {
+    if (self.isDone()) return;
     while (!pat.matches(self.after())) {
         _ = self.eat();
+        if (self.isDone()) return;
     }
 }
 
 pub fn eatWhile(self: *Scanner, pat: Pattern) void {
+    if (self.isDone()) return;
     while (pat.matches(self.after())) {
         self.cursor += pat.length();
+        if (self.isDone()) return;
     }
 }
 
@@ -68,9 +78,9 @@ pub fn eatWhitespace(self: *Scanner) void {
 }
 
 pub fn eatNewline(self: *Scanner) bool {
-    const newline = Pattern{ .Any = &[_]u8{ '\n', '\r' } };
+    if (self.isDone()) return false;
 
-    if (self.at(newline)) {
+    if (self.at(.{ .Any = &[_]u8{ '\n', '\r' } })) {
         if (self.eat() == '\r') {
             _ = self.eatIf(.{ .Char = '\n' });
         }
@@ -81,9 +91,7 @@ pub fn eatNewline(self: *Scanner) bool {
 }
 
 pub fn peek(self: *Scanner) ?u8 {
-    if (self.cursor >= self.source.len) {
-        return null;
-    }
+    if (self.isDone()) return null;
 
     return self.source[self.cursor];
 }
