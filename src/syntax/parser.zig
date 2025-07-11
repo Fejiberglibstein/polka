@@ -5,18 +5,23 @@ const TreeNode = @import("node.zig").TreeNode;
 const Lexer = @import("Lexer.zig");
 const Mode = @import("Lexer.zig").Mode;
 
+const Allocator = std.mem.Allocator;
+
 /// Parses top level text of a file
-pub fn parse(t: []const u8, allocator: std.mem.Allocator) struct { SyntaxNode, std.ArrayList(SyntaxNode) } {
+pub fn parse(
+    t: []const u8,
+    allocator: std.mem.Allocator,
+) Allocator.Error!struct { SyntaxNode, std.ArrayList(SyntaxNode) } {
     var parser = Parser.init(t, allocator);
-    parseText(&parser);
+    try parseText(&parser);
 
     std.debug.assert(parser.stack.items.len == 1);
     const node = parser.stack.items[0];
     parser.stack.deinit();
-    return struct { node, parser.nodes };
+    return .{ node, parser.nodes };
 }
 
-fn parseText(p: *Parser) void {
+fn parseText(p: *Parser) Allocator.Error!void {
     const m = p.marker();
 
     while (true) {
@@ -26,10 +31,10 @@ fn parseText(p: *Parser) void {
         }
 
         switch (p.current.kind) {
-            .Text => p.eat(),
-            .Newline => p.eat(),
+            .Text => try p.eat(),
+            .Newline => try p.eat(),
             .CodeblockBegin => {
-                p.setMode(.Codeblock);
+                p.setMode(.CodeBlock);
                 // TODO
                 break;
             },
@@ -40,15 +45,15 @@ fn parseText(p: *Parser) void {
                 p.setMode(if (p.lastKind() == .Newline) .CodeLine else .CodeExpr);
 
                 const m2 = p.marker();
-                p.assert(.Codebegin);
+                try p.assert(.CodeBegin);
 
                 if (p.mode() == .CodeLine) {
-                    parseCode(p);
+                    try parseCode(p);
                 } else {
-                    parseExpr(p, 0, true);
+                    try parseExpr(p, 0, true);
                 }
 
-                p.wrap(.Code, m2);
+                try p.wrap(.Code, m2);
                 p.setMode(old_mode);
 
                 if (!p.isEndingKind(p.current.kind)) {
@@ -59,14 +64,14 @@ fn parseText(p: *Parser) void {
                 }
             },
             // this shouldn't ever happen since we don't produce any other tokens in the lexer
-            else => p.unexpected(),
+            else => try p.unexpected(),
         }
     }
 
-    p.wrap(.TextNode, m);
+    try p.wrap(.TextNode, m);
 }
 
-fn parseCode(p: *Parser) void {
+fn parseCode(p: *Parser) Allocator.Error!void {
     while (true) {
         if (p.isEndingKind(p.current.kind)) {
             @branchHint(.unlikely);
@@ -75,10 +80,10 @@ fn parseCode(p: *Parser) void {
 
         switch (p.current.kind) {
             .Newline => {
-                p.eat();
+                try p.eat();
                 switch (p.mode()) {
                     .CodeLine => if (p.current.kind == .CodeBegin) {
-                        p.eat();
+                        try p.eat();
                     } else {
                         break;
                     },
@@ -86,53 +91,53 @@ fn parseCode(p: *Parser) void {
                     .CodeBlock => {},
 
                     // This should never happen
-                    .TopLevelText, .Text, .CodeExpr => p.unexpected(),
+                    .TopLevelText, .Text, .CodeExpr => try p.unexpected(),
                 }
             },
-            .Export => parseExportExpr(p),
-            .Let => parseLetExpr(p),
-            .If => parseIfExpr(p),
-            .For => parseForExpr(p),
-            .While => parseWhileExpr(p),
-            .Function => parseFunctionDef(p),
+            .Export => try parseExportExpr(p),
+            .Let => try parseLetExpr(p),
+            .If => try parseIfExpr(p),
+            .For => try parseForExpr(p),
+            .While => try parseWhileExpr(p),
+            .Function => try parseFunctionDef(p),
             .Return => {
                 const m = p.marker();
-                p.assert(.Return);
-                parseExpr(p, 0, false);
-                p.wrap(.ReturnExpr, m);
+                try p.assert(.Return);
+                try parseExpr(p, 0, false);
+                try p.wrap(.ReturnExpr, m);
             },
-            else => parseExpr(p, 0, false),
+            else => try parseExpr(p, 0, false),
         }
     }
 }
 
 /// Parse function call arguments
-fn parseArgs(p: *Parser) void {
+fn parseArgs(p: *Parser) Allocator.Error!void {
     const m = p.marker();
 
-    p.expect(.LeftParen);
+    try p.expect(.LeftParen);
     if (!p.at(.RightParen)) {
         while (true) {
-            parseExpr(p, 0, false);
-            if (!p.eatIf(.Comma)) {
+            try parseExpr(p, 0, false);
+            if (!try p.eatIf(.Comma)) {
                 break;
             }
         }
     }
 
-    p.expect(.RightParen);
-    p.wrap(.ArgumentList, m);
+    try p.expect(.RightParen);
+    try p.wrap(.ArgumentList, m);
 }
 
 /// Parse an expression
-fn parseExpr(p: *Parser, prec: usize, expr: bool) void {
+fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
     _ = prec;
     if (expr and p.current.preceding_whitespace) {
         return;
     }
 
     const m = p.marker();
-    parsePrimary(p);
+    try parsePrimary(p);
 
     while (true) {
         if (expr and p.current.preceding_whitespace) {
@@ -140,14 +145,14 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) void {
         }
 
         if (p.current.kind == .LeftParen) {
-            parseArgs(p);
-            p.wrap(.FunctionCall, m);
+            try parseArgs(p);
+            try p.wrap(.FunctionCall, m);
             continue;
         }
 
-        if (p.eatIf(.Dot)) {
-            p.expect(.Ident);
-            p.wrap(.DotAccess, m);
+        if (try p.eatIf(.Dot)) {
+            try p.expect(.Ident);
+            try p.wrap(.DotAccess, m);
             continue;
         }
 
@@ -162,39 +167,39 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) void {
 /// Parse a primary node.
 ///
 /// Primaries are strings, numbers, bools, identifiers (variables), and lua-like tables
-fn parsePrimary(p: *Parser) void {
+fn parsePrimary(p: *Parser) Allocator.Error!void {
     switch (p.current.kind) {
-        .Ident | .String | .Number | .Bool => p.eat(),
+        .Ident, .String, .Number, .Bool => try p.eat(),
         .LeftParen => {
-            p.assert(.LeftParen);
-            parseExpr(p, 0, false);
-            p.expect(.RightParen);
+            try p.assert(.LeftParen);
+            try parseExpr(p, 0, false);
+            try p.expect(.RightParen);
         },
         else => {},
     }
 }
 
 /// Parse an exported variable or function
-fn parseExportExpr(p: *Parser) void {
+fn parseExportExpr(p: *Parser) Allocator.Error!void {
     const m = p.marker();
-    p.assert(.Export);
+    try p.assert(.Export);
     switch (p.current.kind) {
-        .Let => parseLetExpr(p),
-        .Function => parseFunctionDef(p),
-        _ => p.unexpected(),
+        .Let => try parseLetExpr(p),
+        .Function => try parseFunctionDef(p),
+        else => try p.unexpected(),
     }
 
-    p.wrap(.ExportExpr, m);
+    try p.wrap(.ExportExpr, m);
 }
 
 /// Parse a `while x do ... end`
-fn parseWhileExpr(p: *Parser) void {
+fn parseWhileExpr(p: *Parser) Allocator.Error!void {
     const m = p.marker();
     // Parse first line of while loop
-    p.assert(.While);
-    parseExpr(p, 0, false);
-    p.expect(.Do);
-    p.expect(.Newline);
+    try p.assert(.While);
+    try parseExpr(p, 0, false);
+    try p.expect(.Do);
+    try p.expect(.Newline);
 
     // Set things up for parsing body
     const old_end = p.finish_on_end;
@@ -204,25 +209,25 @@ fn parseWhileExpr(p: *Parser) void {
 
     // Parse the body
     p.reparse(); // Reparse the last token since we just switched modes
-    parseText(p);
+    try parseText(p);
 
     p.setMode(mode);
     p.finish_on_end = old_end;
 
-    p.expect(.End);
-    p.wrap(.WhileLoop, m);
+    try p.expect(.End);
+    try p.wrap(.WhileLoop, m);
 }
 
 /// Parse a `for x in y do ... end`
-fn parseForExpr(p: *Parser) void {
+fn parseForExpr(p: *Parser) Allocator.Error!void {
     const m = p.marker();
     // Parse first line of for loop
-    p.assert(.For);
-    p.expect(.Ident);
-    p.expect(.In);
-    parseExpr(p, 0, false);
-    p.expect(.Do);
-    p.expect(.Newline);
+    try p.assert(.For);
+    try p.expect(.Ident);
+    try p.expect(.In);
+    try parseExpr(p, 0, false);
+    try p.expect(.Do);
+    try p.expect(.Newline);
 
     // Set things up for parsing body
     const old_end = p.finish_on_end;
@@ -232,23 +237,23 @@ fn parseForExpr(p: *Parser) void {
 
     // Parse the body
     p.reparse(); // Reparse the last token since we just switched modes
-    parseText(p);
+    try parseText(p);
 
     p.setMode(mode);
     p.finish_on_end = old_end;
 
-    p.expect(.End);
-    p.wrap(.ForLoop, m);
+    try p.expect(.End);
+    try p.wrap(.ForLoop, m);
 }
 
 /// Parse a `if x then ... end`
-fn parseIfExpr(p: *Parser) void {
+fn parseIfExpr(p: *Parser) Allocator.Error!void {
     const m = p.marker();
     // Parse first line of if
-    p.assert(.If);
-    parseExpr(p, 0, false);
-    p.expect(.Then);
-    p.expect(.Newline);
+    try p.assert(.If);
+    try parseExpr(p, 0, false);
+    try p.expect(.Then);
+    try p.expect(.Newline);
 
     // Set things up for parsing body
     const old_end = p.finish_on_end;
@@ -258,78 +263,78 @@ fn parseIfExpr(p: *Parser) void {
 
     // Parse the body
     p.reparse(); // Reparse the last token since we just switched modes
-    parseText(p);
+    try parseText(p);
 
     // TODO: add else if
     if (p.at(.Else)) {
-        if (p.eatIf(.If)) {
+        if (try p.eatIf(.If)) {
             @panic("unimplemented");
         }
-        p.expect(.Newline);
-        parseText(p);
+        try p.expect(.Newline);
+        try parseText(p);
     }
 
     p.setMode(mode);
     p.finish_on_end = old_end;
 
-    p.expect(.End);
-    p.wrap(.Conditional, m);
+    try p.expect(.End);
+    try p.wrap(.Conditional, m);
 }
 
 /// Parse parameters in a function declaration
-fn parseParams(p: *Parser) void {
+fn parseParams(p: *Parser) Allocator.Error!void {
     const m = p.marker();
 
-    p.expect(.LeftParen);
-    if (!p.eatIf(.RightParen)) {
+    try p.expect(.LeftParen);
+    if (!try p.eatIf(.RightParen)) {
         while (true) {
-            p.expect(.Ident);
-            if (!p.eatIf(.Comma)) {
+            try p.expect(.Ident);
+            if (!try p.eatIf(.Comma)) {
                 break;
             }
         }
-        p.expect(.RightParen);
+        try p.expect(.RightParen);
     }
 
-    p.wrap(.FunctionParameters, m);
+    try p.wrap(.FunctionParameters, m);
 }
 
 /// Parse a function declaration
-fn parseFunctionDef(p: *Parser) void {
+fn parseFunctionDef(p: *Parser) Allocator.Error!void {
     const m = p.marker();
     // Parse first line of declaration
-    p.assert(.Function);
-    p.expect(.Ident);
-    parseParams(p);
-    p.expect(.Newline);
+    try p.assert(.Function);
+    try p.expect(.Ident);
+    try parseParams(p);
+    try p.expect(.Newline);
 
     // Set things up for parsing body
     const old_end = p.finish_on_end;
     p.finish_on_end = true;
     const mode = p.mode();
-    p.set_mode(.TopLevelText);
+    p.setMode(.TopLevelText);
 
     // Parse the body
     p.reparse(); // Reparse the last token since we just switched modes
-    parseText(p);
+    try parseText(p);
 
     p.setMode(mode);
     p.finish_on_end = old_end;
 
-    p.expect(.End);
-    p.wrap(.FunctionDef, m);
+    try p.expect(.End);
+    try p.wrap(.FunctionDef, m);
 }
 
 /// Parses a variable declaration `let foo = 10`
-fn parseLetExpr(p: *Parser) void {
+fn parseLetExpr(p: *Parser) Allocator.Error!void {
     const m = p.marker();
 
-    p.assert(.Let);
-    p.expect(.Ident);
-    p.expect(.Eq);
-    parseExpr(p, 0, false);
+    try p.assert(.Let);
+    try p.expect(.Ident);
+    try p.expect(.Eq);
+    try parseExpr(p, 0, false);
 
-    p.wrap(.LetExpr, m);
+    try p.wrap(.LetExpr, m);
 }
 
 const Parser = struct {
@@ -364,19 +369,23 @@ const Parser = struct {
         return self.nodes.items.len;
     }
 
-    fn eat(self: *Parser) void {
-        self.stack.append(self.current.node);
-        self.current = parseToken(self.l);
+    fn eat(self: *Parser) Allocator.Error!void {
+        try self.stack.append(self.current.node);
+        self.current = parseToken(&self.l);
     }
 
-    fn eatGet(self: *Parser) *SyntaxNode {
-        self.eat();
-        return self.stack.items[self.stack.items.len - 1];
+    fn reparse(self: *Parser) void {
+        self.l.reparse(self.current.node);
     }
 
-    fn assert(self: *Parser, kind: SyntaxKind) void {
+    fn eatGet(self: *Parser) Allocator.Error!*SyntaxNode {
+        try self.eat();
+        return &self.stack.items[self.stack.items.len - 1];
+    }
+
+    fn assert(self: *Parser, kind: SyntaxKind) Allocator.Error!void {
         std.debug.assert(self.current.kind == kind);
-        self.eat();
+        try self.eat();
     }
 
     fn at(self: Parser, kind: SyntaxKind) bool {
@@ -387,29 +396,30 @@ const Parser = struct {
         return if (self.stack.getLastOrNull()) |v| v.kind() else .Newline;
     }
 
-    fn eatIf(self: *Parser, kind: SyntaxKind) bool {
+    fn eatIf(self: *Parser, kind: SyntaxKind) Allocator.Error!bool {
         if (self.at(kind)) {
-            self.eat();
+            try self.eat();
             return true;
         }
         return false;
     }
 
-    fn expect(self: *Parser, kind: SyntaxKind) void {
-        const tok = self.eatGet();
+    fn expect(self: *Parser, kind: SyntaxKind) Allocator.Error!void {
+        const tok = try self.eatGet();
         if (tok.kind() != kind) {
             tok.unexpected();
         }
     }
 
-    fn unexpected(self: *Parser) void {
-        self.eatGet().unexpected();
+    fn unexpected(self: *Parser) Allocator.Error!void {
+        try self.eatGet().unexpected();
     }
 
-    fn wrap(self: *Parser, kind: SyntaxKind, m: Marker) void {
+    fn wrap(self: *Parser, kind: SyntaxKind, m: Marker) Allocator.Error!void {
         const start = self.nodes.len;
-        self.nodes.appendSlice(self.stack[m..]);
-        self.nodes.resize(self.stack.items.len - m);
+        try self.nodes.appendSlice(self.stack[m..]);
+        // Sizing down, so can't get an allocation error
+        self.nodes.resize(self.stack.items.len - m) catch unreachable;
 
         // TODO use indexes into nodes so that the pointers don't become invalidated
 
@@ -440,7 +450,7 @@ const Parser = struct {
         return Token{
             .node = node,
             .kind = kind,
-            .whitespace = whitespace,
+            .preceding_whitespace = whitespace,
         };
     }
 };
