@@ -6,38 +6,38 @@ hello
 > world
 
 $$$
-TextNode [
-	Newline,
-	Text,
-	Newline,
-	Code [
-		CodeBegin,
-		FunctionDef [
-			Function,
-			Ident,
-			FunctionParameters [ 
-				LeftParen, 
-				Ident, 
-				Comma,
-				Ident,
-				RightParen 
+text_node [
+	newline,
+	text,
+	newline,
+	code [
+		code_begin,
+		function_def [
+			function,
+			ident,
+			function_parameters [ 
+				left_paren, 
+				ident, 
+				comma,
+				ident,
+				right_paren 
 			],
-			Newline,
-			TextNode [
-				Code [
-					CodeBegin,
-					ReturnExpr [ 
-						Return,
-						Number
+			newline,
+			text_node [
+				code [
+					code_begin,
+					return_expr [ 
+						return,
+						number
 					]
-					Newline,
-					CodeBegin
+					newline,
+					code_begin
 				]
 			],
-			End,
+			end,
 		],
-		Newline
+		newline
 	],
-	Text,
-	Newline
+	text,
+	newline
 ]

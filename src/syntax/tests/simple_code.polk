@@ -1,24 +1,24 @@
 #* foo.bar.bar(4, 10)
 $$$
-TextNode [
-	Code [
-		CodeBegin,
-		FunctionCall [
-			DotAccess [
-				DotAccess [
-					Ident,
-					Dot,
-					Ident
+text_node [
+	code [
+		code_begin,
+		function_call [
+			dot_access [
+				dot_access [
+					ident,
+					dot,
+					ident
 				]
-				Dot,
-				Ident
+				dot,
+				ident
 			],
-			ArgumentList [
-				LeftParen,
-				Number,
-				Comma,
-				Number,
-				RightParen
+			argument_list [
+				left_paren,
+				number,
+				comma,
+				number,
+				right_paren
 			]
 		]
 	]

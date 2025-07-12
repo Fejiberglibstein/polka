@@ -7,41 +7,41 @@ color: #*color.bar foo
 foo
 
 $$$
-TextNode [
-	Newline,
-	Text,
-	Newline,
-	Text,
-	Newline,
-	Code [
-		CodeBegin,
-		ForLoop [
-			For,
-			Ident,
-			In,
-			Ident,
-			Do,
-			Newline,
-			TextNode [
-				Text,
-				Code [
-					CodeBegin,
-					DotAccess [ 
-						Ident,
-						Dot,
-						Ident
+text_node [
+	newline,
+	text,
+	newline,
+	text,
+	newline,
+	code [
+		code_begin,
+		for_loop [
+			for,
+			ident,
+			in,
+			ident,
+			do,
+			newline,
+			text_node [
+				text,
+				code [
+					code_begin,
+					dot_access [ 
+						ident,
+						dot,
+						ident
 					],
 				],
-				Text,
-				Newline,
-				Code [ 
-					CodeBegin
+				text,
+				newline,
+				code [ 
+					code_begin
 				]
 			],
-			End
+			end
 		],
-		Newline
+		newline
 	],
-	Text,
-	Newline
+	text,
+	newline
 ]

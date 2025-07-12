@@ -1,11 +1,11 @@
 foreground = \"#*foo.baz\"
 $$$
-TextNode [
-	Text,
-	Code [
-		CodeBegin,
-		DotAccess [ Ident, Dot, Ident ]
+text_node [
+	text,
+	code [
+		code_begin,
+		dot_access [ ident, dot, ident ]
 	],
-	Text
+	text
 ]
 

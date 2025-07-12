@@ -1,17 +1,17 @@
 #* let foo = 10 
 #* foo 
 $$$
-TextNode [
-	Code [
-		CodeBegin,
-		LetExpr [ 
-			Let,
-			Ident,
-			Eq,
-			Number 
+text_node [
+	code [
+		code_begin,
+		let_expr [ 
+			let,
+			ident,
+			eq,
+			number 
 		],
-		Newline,
-		CodeBegin,
-		Ident
+		newline,
+		code_begin,
+		ident
 	]
 ]

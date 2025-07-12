@@ -31,21 +31,21 @@ fn parseText(p: *Parser) Allocator.Error!void {
         }
 
         switch (p.current.kind) {
-            .Text => try p.eat(),
-            .Newline => try p.eat(),
-            .CodeblockBegin => {
+            .text => try p.eat(),
+            .newline => try p.eat(),
+            .codeblock_begin => {
                 p.setMode(.CodeBlock);
                 // TODO
                 break;
             },
-            .CodeBegin => {
+            .code_begin => {
                 // Save current mode, will be either top level text or normal text
                 const old_mode = p.mode();
 
-                p.setMode(if (p.lastKind() == .Newline) .CodeLine else .CodeExpr);
+                p.setMode(if (p.lastKind() == .newline) .CodeLine else .CodeExpr);
 
                 const m2 = p.marker();
-                try p.assert(.CodeBegin);
+                try p.assert(.code_begin);
 
                 if (p.mode() == .CodeLine) {
                     try parseCode(p);
@@ -53,7 +53,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
                     try parseExpr(p, 0, true);
                 }
 
-                try p.wrap(.Code, m2);
+                try p.wrap(.code, m2);
                 p.setMode(old_mode);
 
                 if (!p.isEndingKind(p.current.kind)) {
@@ -68,7 +68,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
         }
     }
 
-    try p.wrap(.TextNode, m);
+    try p.wrap(.text_node, m);
 }
 
 fn parseCode(p: *Parser) Allocator.Error!void {
@@ -79,10 +79,10 @@ fn parseCode(p: *Parser) Allocator.Error!void {
         }
 
         switch (p.current.kind) {
-            .Newline => {
+            .newline => {
                 try p.eat();
                 switch (p.mode()) {
-                    .CodeLine => if (p.current.kind == .CodeBegin) {
+                    .CodeLine => if (p.current.kind == .code_begin) {
                         try p.eat();
                     } else {
                         break;
@@ -94,17 +94,17 @@ fn parseCode(p: *Parser) Allocator.Error!void {
                     .TopLevelText, .Text, .CodeExpr => try p.unexpected(),
                 }
             },
-            .Export => try parseExportExpr(p),
-            .Let => try parseLetExpr(p),
-            .If => try parseIfExpr(p),
-            .For => try parseForExpr(p),
-            .While => try parseWhileExpr(p),
-            .Function => try parseFunctionDef(p),
-            .Return => {
+            .@"export" => try parseExportExpr(p),
+            .let => try parseLetExpr(p),
+            .@"if" => try parseIfExpr(p),
+            .@"for" => try parseForExpr(p),
+            .@"while" => try parseWhileExpr(p),
+            .function => try parseFunctionDef(p),
+            .@"return" => {
                 const m = p.marker();
-                try p.assert(.Return);
+                try p.assert(.@"return");
                 try parseExpr(p, 0, false);
-                try p.wrap(.ReturnExpr, m);
+                try p.wrap(.return_expr, m);
             },
             else => try parseExpr(p, 0, false),
         }
@@ -115,18 +115,18 @@ fn parseCode(p: *Parser) Allocator.Error!void {
 fn parseArgs(p: *Parser) Allocator.Error!void {
     const m = p.marker();
 
-    try p.expect(.LeftParen);
-    if (!p.at(.RightParen)) {
+    try p.expect(.left_paren);
+    if (!p.at(.right_paren)) {
         while (true) {
             try parseExpr(p, 0, false);
-            if (!try p.eatIf(.Comma)) {
+            if (!try p.eatIf(.comma)) {
                 break;
             }
         }
     }
 
-    try p.expect(.RightParen);
-    try p.wrap(.ArgumentList, m);
+    try p.expect(.right_paren);
+    try p.wrap(.argument_list, m);
 }
 
 /// Parse an expression
@@ -144,15 +144,15 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
             break;
         }
 
-        if (p.current.kind == .LeftParen) {
+        if (p.current.kind == .left_paren) {
             try parseArgs(p);
-            try p.wrap(.FunctionCall, m);
+            try p.wrap(.function_call, m);
             continue;
         }
 
-        if (try p.eatIf(.Dot)) {
-            try p.expect(.Ident);
-            try p.wrap(.DotAccess, m);
+        if (try p.eatIf(.dot)) {
+            try p.expect(.ident);
+            try p.wrap(.dot_access, m);
             continue;
         }
 
@@ -169,11 +169,11 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
 /// Primaries are strings, numbers, bools, identifiers (variables), and lua-like tables
 fn parsePrimary(p: *Parser) Allocator.Error!void {
     switch (p.current.kind) {
-        .Ident, .String, .Number, .Bool => try p.eat(),
-        .LeftParen => {
-            try p.assert(.LeftParen);
+        .ident, .string, .number, .bool => try p.eat(),
+        .left_paren => {
+            try p.assert(.left_paren);
             try parseExpr(p, 0, false);
-            try p.expect(.RightParen);
+            try p.expect(.right_paren);
         },
         else => {},
     }
@@ -182,24 +182,24 @@ fn parsePrimary(p: *Parser) Allocator.Error!void {
 /// Parse an exported variable or function
 fn parseExportExpr(p: *Parser) Allocator.Error!void {
     const m = p.marker();
-    try p.assert(.Export);
+    try p.assert(.@"export");
     switch (p.current.kind) {
-        .Let => try parseLetExpr(p),
-        .Function => try parseFunctionDef(p),
+        .let => try parseLetExpr(p),
+        .function => try parseFunctionDef(p),
         else => try p.unexpected(),
     }
 
-    try p.wrap(.ExportExpr, m);
+    try p.wrap(.export_expr, m);
 }
 
 /// Parse a `while x do ... end`
 fn parseWhileExpr(p: *Parser) Allocator.Error!void {
     const m = p.marker();
     // Parse first line of while loop
-    try p.assert(.While);
+    try p.assert(.@"while");
     try parseExpr(p, 0, false);
-    try p.expect(.Do);
-    try p.expect(.Newline);
+    try p.expect(.do);
+    try p.expect(.newline);
 
     // Set things up for parsing body
     const old_end = p.finish_on_end;
@@ -214,20 +214,20 @@ fn parseWhileExpr(p: *Parser) Allocator.Error!void {
     p.setMode(mode);
     p.finish_on_end = old_end;
 
-    try p.expect(.End);
-    try p.wrap(.WhileLoop, m);
+    try p.expect(.end);
+    try p.wrap(.while_loop, m);
 }
 
 /// Parse a `for x in y do ... end`
 fn parseForExpr(p: *Parser) Allocator.Error!void {
     const m = p.marker();
     // Parse first line of for loop
-    try p.assert(.For);
-    try p.expect(.Ident);
-    try p.expect(.In);
+    try p.assert(.@"for");
+    try p.expect(.ident);
+    try p.expect(.in);
     try parseExpr(p, 0, false);
-    try p.expect(.Do);
-    try p.expect(.Newline);
+    try p.expect(.do);
+    try p.expect(.newline);
 
     // Set things up for parsing body
     const old_end = p.finish_on_end;
@@ -242,18 +242,18 @@ fn parseForExpr(p: *Parser) Allocator.Error!void {
     p.setMode(mode);
     p.finish_on_end = old_end;
 
-    try p.expect(.End);
-    try p.wrap(.ForLoop, m);
+    try p.expect(.end);
+    try p.wrap(.for_loop, m);
 }
 
 /// Parse a `if x then ... end`
 fn parseIfExpr(p: *Parser) Allocator.Error!void {
     const m = p.marker();
     // Parse first line of if
-    try p.assert(.If);
+    try p.assert(.@"if");
     try parseExpr(p, 0, false);
-    try p.expect(.Then);
-    try p.expect(.Newline);
+    try p.expect(.then);
+    try p.expect(.newline);
 
     // Set things up for parsing body
     const old_end = p.finish_on_end;
@@ -266,47 +266,47 @@ fn parseIfExpr(p: *Parser) Allocator.Error!void {
     try parseText(p);
 
     // TODO: add else if
-    if (p.at(.Else)) {
-        if (try p.eatIf(.If)) {
+    if (p.at(.@"else")) {
+        if (try p.eatIf(.@"if")) {
             @panic("unimplemented");
         }
-        try p.expect(.Newline);
+        try p.expect(.newline);
         try parseText(p);
     }
 
     p.setMode(mode);
     p.finish_on_end = old_end;
 
-    try p.expect(.End);
-    try p.wrap(.Conditional, m);
+    try p.expect(.end);
+    try p.wrap(.conditional, m);
 }
 
 /// Parse parameters in a function declaration
 fn parseParams(p: *Parser) Allocator.Error!void {
     const m = p.marker();
 
-    try p.expect(.LeftParen);
-    if (!try p.eatIf(.RightParen)) {
+    try p.expect(.left_paren);
+    if (!try p.eatIf(.right_paren)) {
         while (true) {
-            try p.expect(.Ident);
-            if (!try p.eatIf(.Comma)) {
+            try p.expect(.ident);
+            if (!try p.eatIf(.comma)) {
                 break;
             }
         }
-        try p.expect(.RightParen);
+        try p.expect(.right_paren);
     }
 
-    try p.wrap(.FunctionParameters, m);
+    try p.wrap(.function_parameters, m);
 }
 
 /// Parse a function declaration
 fn parseFunctionDef(p: *Parser) Allocator.Error!void {
     const m = p.marker();
     // Parse first line of declaration
-    try p.assert(.Function);
-    try p.expect(.Ident);
+    try p.assert(.function);
+    try p.expect(.ident);
     try parseParams(p);
-    try p.expect(.Newline);
+    try p.expect(.newline);
 
     // Set things up for parsing body
     const old_end = p.finish_on_end;
@@ -321,20 +321,20 @@ fn parseFunctionDef(p: *Parser) Allocator.Error!void {
     p.setMode(mode);
     p.finish_on_end = old_end;
 
-    try p.expect(.End);
-    try p.wrap(.FunctionDef, m);
+    try p.expect(.end);
+    try p.wrap(.function_def, m);
 }
 
 /// Parses a variable declaration `let foo = 10`
 fn parseLetExpr(p: *Parser) Allocator.Error!void {
     const m = p.marker();
 
-    try p.assert(.Let);
-    try p.expect(.Ident);
-    try p.expect(.Eq);
+    try p.assert(.let);
+    try p.expect(.ident);
+    try p.expect(.eq);
     try parseExpr(p, 0, false);
 
-    try p.wrap(.LetExpr, m);
+    try p.wrap(.let_expr, m);
 }
 
 const Parser = struct {
@@ -346,7 +346,7 @@ const Parser = struct {
     nodes: std.ArrayList(SyntaxNode),
     /// Current token we're looking at
     current: Token,
-    /// If `SyntaxKind.End` should be considered an ending character
+    /// If `SyntaxKind.end` should be considered an ending character
     finish_on_end: bool,
 
     const Marker = usize;
@@ -394,7 +394,7 @@ const Parser = struct {
     }
 
     fn lastKind(self: *Parser) SyntaxKind {
-        return if (self.stack.getLastOrNull()) |v| v.kind() else .Newline;
+        return if (self.stack.getLastOrNull()) |v| v.kind() else .newline;
     }
 
     fn eatIf(self: *Parser, kind: SyntaxKind) Allocator.Error!bool {
@@ -432,7 +432,7 @@ const Parser = struct {
     }
 
     fn isEndingKind(self: Parser, kind: SyntaxKind) bool {
-        return (self.finish_on_end and kind == .End) or kind == .EOF;
+        return (self.finish_on_end and kind == .end) or kind == .eof;
     }
 
     fn init(t: []const u8, allocator: std.mem.Allocator) Parser {

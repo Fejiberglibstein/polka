@@ -10,6 +10,10 @@ const SyntaxKind = @import("node.zig").SyntaxKind;
 const Scanner = @import("Scanner.zig");
 const parser = @import("parser.zig");
 
+inline fn isKind(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or c == '_';
+}
+
 fn parseFile(
     comptime text: []const u8,
 ) !struct { SyntaxNode, std.BoundedArray(SyntaxNode, 500) } {
@@ -31,7 +35,7 @@ fn parseFile(
         const m = s.cursor;
 
         // Eat the identifier and get the kind, if any
-        _ = s.eatAlpha();
+        s.eatWhile(isKind);
         if (m != s.cursor and !@hasField(SyntaxKind, s.from(m))) {
             @compileError("SyntaxKind " ++ s.from(m) ++ " does not exist");
         }
@@ -63,6 +67,7 @@ fn parseFile(
                 .offset = offset,
             }));
         }
+
         s.eatWhitespace();
         _ = s.eatIf(',');
         s.eatWhitespace();
@@ -90,8 +95,8 @@ fn nodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []const SyntaxNode, all2: []con
             },
             else => try expect(false),
         },
-        .Error => switch (n2) {
-            .Error => {},
+        .@"error" => switch (n2) {
+            .@"error" => {},
             else => try expect(false),
         },
     }
@@ -133,7 +138,7 @@ fn printNode(node: SyntaxNode, all_nodes: []const SyntaxNode, indent: usize) voi
     }
 
     switch (node) {
-        .Error => |e| std.debug.print("{s},\n", .{@tagName(e.err)}),
+        .@"error" => |e| std.debug.print("{s},\n", .{@tagName(e.err)}),
         .Leaf => |l| std.debug.print("{s},\n", .{@tagName(l.kind)}),
         .Tree => |t| {
             std.debug.print("{s} [\n", .{@tagName(t.kind)});

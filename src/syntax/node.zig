@@ -2,256 +2,255 @@ pub const std = @import("std");
 
 pub const SyntaxKind = enum(u8) {
     /// Error node
-    Error,
+    err,
     /// End of file
-    EOF,
-
+    eof,
     /// Begins code `#*`
-    CodeBegin,
+    code_begin,
     /// Begins code block `#**`
-    CodeblockBegin,
+    codeblock_begin,
     /// Ends code block `**#`
-    CodeblockEnd,
+    codeblock_end,
 
     /// Body of text, either a line not beginning with `#*`, or content inside `
-    Text,
-    /// Code body, either an entire codeblock or multiple sequential lines of #*
-    Code,
+    text,
+    /// code body, either an entire codeblock or multiple sequential lines of #*
+    code,
 
     // Tokens
     /// Addition `+`
-    Plus,
+    plus,
     /// Subtraction `-`
-    Minus,
+    minus,
     /// Multiplication `*`
-    Star,
+    star,
     /// Division `/`
-    Slash,
+    slash,
     /// Modulo `%`
-    Perc,
+    perc,
     /// Begins array/object access `[`
-    LeftBracket,
+    left_bracket,
     /// Terminates array/object access `]`
-    RightBracket,
+    right_bracket,
     /// Begins grouped expression or function/arguments `(`
-    LeftParen,
+    left_paren,
     /// Terminates grouped expression or function/arguments `)`
-    RightParen,
+    right_paren,
     /// Begins object initialization `{`
-    LeftBrace,
+    left_brace,
     /// Terminates object initialization `}`
-    RightBrace,
+    right_brace,
     /// Field access/function calling `.`
-    Dot,
+    dot,
     /// Expression separator in a sequence `,`
-    Comma,
+    comma,
     /// Assignment `=`
-    Eq,
+    eq,
     /// Equality `==`.
-    EqEq,
+    eq_eq,
     /// Inequality `!=`.
-    NotEq,
+    not_eq,
     /// Less than `<`.
-    Lt,
+    lt,
     /// Less than or equal `<=`.
-    LtEq,
+    lt_eq,
     /// Greater than `>`.
-    Gt,
+    gt,
     /// Greater than or equal `>=`.
-    GtEq,
+    gt_eq,
 
     // Keywords
     /// `let` keyword
-    Let,
+    let,
     /// `export` keyword
-    Export,
+    @"export",
     /// `if` keyword
-    If,
+    @"if",
     /// 'then' keyword
-    Then,
+    then,
     /// 'do' keyword
-    Do,
+    do,
     /// `in` keyword
-    In,
+    in,
     /// `for` keyword
-    For,
+    @"for",
     /// `while` keyword
-    While,
+    @"while",
     /// `function` keyword
-    Function,
+    function,
     /// `else` keyword
-    Else,
+    @"else",
     /// `end` keyword
-    End,
+    end,
     /// `or` keyword
-    Or,
+    @"or",
     /// `and` keyword
-    And,
+    @"and",
     /// `true` or `false` keyword
-    Bool,
+    bool,
     /// `nil` keyword
-    Nil,
+    nil,
     /// `return` keyword
-    Return,
+    @"return",
     /// `continue` keyword
-    Continue,
+    @"continue",
     /// `break` keyword
-    Break,
+    @"break",
 
     // Nodes
     /// Identifier `foo`
-    Ident,
+    ident,
     /// Either an integer or floating point number
-    Number,
+    number,
     /// String with quotes `"..."`
-    String,
+    string,
     /// Expression inside parenthesis
-    Grouping,
+    grouping,
 
     /// Export
     ///
     /// Can be either `export function foo() ... end` or `export let foo = 10`
     ///
     /// [`Export`, (`FunctionDef` | `LetExpr`)]
-    ExportExpr,
+    export_expr,
     /// Function declaration `function foo() ... end`
     ///
-    /// [`Function`, `Ident`, `LeftParen`, `FunctionParameters`, `RightParen`, `Code`, `End`]
-    FunctionDef,
+    /// [`Function`, `Ident`, `LeftParen`, `FunctionParameters`, `right_paren`, `Code`, `End`]
+    function_def,
     /// Function Parameters
     ///
     /// [`Ident`...]
-    FunctionParameters,
+    function_parameters,
     /// When a function returns
     ///
     /// [`Return`, `Expr`]
-    ReturnExpr,
+    return_expr,
     /// If conditional `if (foo == nil) foo = 10 else foo = foo - 10 end`
     ///
     /// [`If`, `Expr`, `Then`, `Code`, (`End` | `Else`, (`If` `Expr` `Then`)?, `Code`, `End`)]
-    Conditional,
+    conditional,
     /// For loop `for (i in range(4)) ... end`
     ///
     /// [`For`, `Ident`, `In`, `Expr`, `Do`, `Code`, `End`]
-    ForLoop,
+    for_loop,
     /// While loop `while (true) ... end`
     ///
     /// [`While`, `Expr`, `Do`, `Code`, `End`]
-    WhileLoop,
+    while_loop,
     /// Variable declaration `let foo = 10`
     ///
-    /// [`Let`, `Ident`, `Eq`, `Expr`]
-    LetExpr,
+    /// [`Let`, `Ident`, `eq`, `Expr`]
+    let_expr,
     /// Variable (re)assignment `foo = foo * 2`
     ///
-    /// [`Ident`, `Eq`, `Expr`]
-    Assignment,
+    /// [`Ident`, `eq`, `Expr`]
+    assignment,
     /// Binary Operatoion
-    Binary,
+    binary,
     /// Unary Operatoion
-    Unary,
+    unary,
     /// Function calling `foo()`
     ///
-    /// [`Access`, `LeftParen`, `ArgumentList`, `RightParen`]
-    FunctionCall,
+    /// [`Access`, `LeftParen`, `ArgumentList`, `right_paren`]
+    function_call,
     /// Argument list in a function call
     ///
     /// [`Ident`, `Comma`, ...]
-    ArgumentList,
+    argument_list,
     /// Expression accessing by `.`
     ///
     /// [`Dot`, `Ident`, (`DotAccess` | `BracketAccess`)]
-    DotAccess,
+    dot_access,
     /// Expression accessing by `["foo"]`
     ///
     /// [`LeftBracket`, `Expr`, `RightBracket`, (`DotAccess` | `BracketAccess`)]
-    BracketAccess,
+    bracket_access,
     /// Encompasses multiple text and code nodes into one. For example,
     ///
     /// `foo #*bar baz`
     ///
     /// would be one text node with three children, foo (text), bar (code), and baz (text)
-    TextNode,
+    text_node,
 
     /// Begins text mode while in code mode ```
-    Backtick,
+    backtick,
 
     /// Newline, a literal `\n`.
-    Newline,
+    newline,
 
     pub fn isBinaryOp(self: SyntaxKind) bool {
-        return self == .Plus or self == .Minus or self == .Perc or self == .Star or self == .Slash;
+        return self == .plus or self == .minus or self == .perc or self == .star or self == .slash;
     }
 
     pub fn name(self: SyntaxKind) []const u8 {
         return switch (self) {
-            .Error => "Syntax error",
-            .EOF => "EOF",
-            .CodeBegin => "#*",
-            .CodeblockBegin => "#**",
-            .CodeblockEnd => "**#",
-            .Text => "text block",
-            .Code => "code block",
-            .Plus => "+",
-            .Minus => "-",
-            .Star => "*",
-            .Slash => "/",
-            .Perc => "%",
-            .LeftBracket => "[",
-            .RightBracket => "]",
-            .LeftParen => "(",
-            .RightParen => ")",
-            .LeftBrace => "{",
-            .RightBrace => "}",
-            .Dot => ".",
-            .Comma => ",",
-            .Eq => "=",
-            .EqEq => "==",
-            .NotEq => "!=",
-            .Lt => "<",
-            .LtEq => "<=",
-            .Gt => ">",
-            .GtEq => ">=",
-            .Let => "`let` keyword",
-            .Export => "`export` keyword",
-            .If => "`if` keyword",
-            .Then => "`then` keyword",
-            .Do => "`do` keyword",
-            .In => "`in` keyword",
-            .For => "`for` keyword",
-            .While => "`while` keyword",
-            .Function => "`function` keyword",
-            .Else => "`else` keyword",
-            .End => "`end` keyword",
-            .Or => "`or` keyword",
-            .And => "`and` keyword",
-            .Bool => "boolean",
-            .Nil => "`nil` keyword",
-            .Return => "`return` keyword",
-            .Continue => "`continue` keyword",
-            .Break => "`break` keyword",
-            .Ident => "identifier",
-            .Number => "number",
+            .err => "Syntax error",
+            .eof => "eof",
+            .code_begin => "#*",
+            .codeblock_begin => "#**",
+            .codeblock_end => "**#",
+            .text => "text block",
+            .code => "code block",
+            .plus => "+",
+            .minus => "-",
+            .star => "*",
+            .slash => "/",
+            .perc => "%",
+            .left_bracket => "[",
+            .right_bracket => "]",
+            .left_paren => "(",
+            .right_paren => ")",
+            .left_brace => "{",
+            .right_brace => "}",
+            .dot => ".",
+            .comma => ",",
+            .eq => "=",
+            .eq_eq => "==",
+            .not_eq => "!=",
+            .lt => "<",
+            .lt_eq => "<=",
+            .gt => ">",
+            .gt_eq => ">=",
+            .let => "`let` keyword",
+            .@"export" => "`export` keyword",
+            .@"if" => "`if` keyword",
+            .then => "`then` keyword",
+            .do => "`do` keyword",
+            .in => "`in` keyword",
+            .@"for" => "`for` keyword",
+            .@"while" => "`while` keyword",
+            .function => "`function` keyword",
+            .@"else" => "`else` keyword",
+            .end => "`end` keyword",
+            .@"or" => "`or` keyword",
+            .@"and" => "`and` keyword",
+            .bool => "boolean",
+            .nil => "`nil` keyword",
+            .@"return" => "`return` keyword",
+            .@"continue" => "`continue` keyword",
+            .@"break" => "`break` keyword",
+            .ident => "identifier",
+            .number => "number",
             .string => "string",
-            .Grouping => "grouping",
-            .FunctionDef => "function definition",
-            .FunctionParameters => "function parameters",
-            .ReturnExpr => "return expression",
-            .Conditional => "`if then` expression",
-            .ForLoop => "`for in` expression",
-            .WhileLoop => "`while` expression",
-            .ExportExpr => "`export` expression",
-            .LetExpr => "variable declaration",
-            .Assignment => "variable assignment",
-            .Binary => "binary expression",
-            .Unary => "unary expression",
-            .FunctionCall => "function call",
-            .ArgumentList => "argument list",
-            .DotAccess => "field access via .",
-            .BracketAccess => "field access via []",
-            .TextNode => "text",
-            .Backtick => "`",
-            .Newline => "newline",
+            .grouping => "grouping",
+            .function_def => "function definition",
+            .function_parameters => "function parameters",
+            .return_expr => "return expression",
+            .conditional => "`if then` expression",
+            .for_loop => "`for in` expression",
+            .while_loop => "`while` expression",
+            .export_expr => "`export` expression",
+            .let_expr => "variable declaration",
+            .assignment => "variable assignment",
+            .binary => "binary expression",
+            .unary => "unary expression",
+            .function_call => "function call",
+            .argument_list => "argument list",
+            .dot_access => "field access via .",
+            .bracket_access => "field access via []",
+            .text_node => "text",
+            .backtick => "`",
+            .newline => "newline",
         };
     }
 };
@@ -259,7 +258,7 @@ pub const SyntaxKind = enum(u8) {
 pub const SyntaxNode = union(enum) {
     Leaf: LeafNode,
     Tree: TreeNode,
-    Error: ErrorNode,
+    @"error": ErrorNode,
 
     const PLACEHOLDER_SOURCE = " ";
 
@@ -285,7 +284,7 @@ pub const SyntaxNode = union(enum) {
     }
 
     pub fn err(e: SyntaxError, text_length: usize, preceding_whitespace: u16) SyntaxNode {
-        return SyntaxNode{ .Error = ErrorNode{
+        return SyntaxNode{ .@"error" = ErrorNode{
             .err = e,
             .text_length = text_length,
             .preceding_whitespace = preceding_whitespace,
@@ -295,7 +294,7 @@ pub const SyntaxNode = union(enum) {
     pub fn length(self: SyntaxNode) usize {
         return switch (self) {
             .Tree => |v| v.text_length,
-            .Error => |v| v.text_length + v.preceding_whitespace,
+            .@"error" => |v| v.text_length + v.preceding_whitespace,
             .Leaf => |v| v.text_length + v.preceding_whitespace,
         };
     }
@@ -304,7 +303,7 @@ pub const SyntaxNode = union(enum) {
         return switch (self) {
             .Leaf => |v| v.kind,
             .Tree => |v| v.kind,
-            .Error => |_| .Error,
+            .@"error" => |_| .err,
         };
     }
 
@@ -317,16 +316,16 @@ pub const SyntaxNode = union(enum) {
 
     pub fn intoError(self: *SyntaxNode, e: SyntaxError) void {
         switch (self.*) {
-            .Error => {},
+            .@"error" => {},
             .Leaf => |v| {
-                self.* = SyntaxNode{ .Error = ErrorNode{
+                self.* = SyntaxNode{ .@"error" = ErrorNode{
                     .err = e,
                     .preceding_whitespace = v.preceding_whitespace,
                     .text_length = v.text_length,
                 } };
             },
             .Tree => |v| {
-                self.* = SyntaxNode{ .Error = ErrorNode{
+                self.* = SyntaxNode{ .@"error" = ErrorNode{
                     .err = e,
                     .preceding_whitespace = 0,
                     .text_length = v.text_length,

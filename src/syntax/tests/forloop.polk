@@ -4,33 +4,33 @@ hi
 #* end
 
 $$$
-TextNode [
-	Newline,
-	Code [
-		CodeBegin,
-		ForLoop [
-			For,
-			Ident,
-			In,
-			FunctionCall [
-				Ident,
-				ArgumentList [ 
-					LeftParen,
-					Number,
-					RightParen
+text_node [
+	newline,
+	code [
+		code_begin,
+		for_loop [
+			for,
+			ident,
+			in,
+			function_call [
+				ident,
+				argument_list [ 
+					left_paren,
+					number,
+					right_paren
 				]
 			],
-			Do,
-			Newline,
-			TextNode [
-				Text,
-				Newline,
-				Code [ 
-					CodeBegin
+			do,
+			newline,
+			text_node [
+				text,
+				newline,
+				code [ 
+					code_begin
 				]
 			],
-			End
+			end
 		],
-		Newline
+		newline
 	]
 ]

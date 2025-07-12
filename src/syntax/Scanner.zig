@@ -108,17 +108,6 @@ pub fn peek(self: *Scanner) ?u8 {
     return self.source[self.cursor];
 }
 
-inline fn isAlpha(c: u8) bool {
-    return (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z');
-}
-
-pub fn eatAlpha(self: *Scanner) bool {
-    const start = self.cursor;
-    self.eatWhile(isAlpha);
-
-    return start != self.cursor;
-}
-
 /// https://github.com/ziglang/zig/commit/d5e21a4f1a2920ef7bbe3c54feab1a3b5119bf77#diff-adfee52549c345d50c3acbd67802c959e2ba7d46f7c747844035b898c8510888L405
 ///
 /// Used to be in stdlib but was removed

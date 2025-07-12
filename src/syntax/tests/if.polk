@@ -6,38 +6,38 @@ hello there
 #* end
 
 $$$
-TextNode [
-	Newline,
-	Code [
-		CodeBegin,
-		Conditional [
-			If,
-			Bool,
-			Then,
-			Newline,
-			TextNode [
-				Code [
-					CodeBegin,
-					Conditional [
-						If,
-						Bool,
-						Then,
-						Newline,
-						TextNode [
-							Text,
-							Newline,
-							Code [ 
-								CodeBegin 
+text_node [
+	newline,
+	code [
+		code_begin,
+		conditional [
+			if,
+			bool,
+			then,
+			newline,
+			text_node [
+				code [
+					code_begin,
+					conditional [
+						if,
+						bool,
+						then,
+						newline,
+						text_node [
+							text,
+							newline,
+							code [ 
+								code_begin 
 							],
 						],
-						End
+						end
 					],
-					Newline,
-					CodeBegin
+					newline,
+					code_begin
 				],
 			],
-			End
+			end
 		],
-		Newline
+		newline
 	]
 ]

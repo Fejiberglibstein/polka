@@ -27,9 +27,9 @@ pub fn next(self: *Lexer) struct { SyntaxNode, SyntaxKind, Whitespace } {
     const whitespace: u16 = @intCast(start - before_spaces);
 
     const kind = if (self.s.eatNewline())
-        .Newline
+        .newline
     else if (self.s.peek() == null)
-        .EOF
+        .eof
     else switch (self.mode) {
         .CodeLine, .CodeExpr, .CodeBlock => self.code(),
         .TopLevelText, .Text => self.text(),
@@ -53,36 +53,36 @@ fn setErr(self: *Lexer, err: SyntaxError) SyntaxKind {
     if (self.currentError == null) {
         self.currentError = err;
     }
-    return .Error;
+    return .err;
 }
 
 fn code(self: *Lexer) SyntaxKind {
     const c = self.s.eat() orelse unreachable;
 
     return sw: switch (c) {
-        '#' => if (self.s.eatIf('*')) .CodeBegin else continue :sw 0,
-        '[' => .LeftBracket,
-        ']' => .RightBracket,
-        '(' => .LeftParen,
-        ')' => .RightParen,
-        '{' => .LeftBrace,
-        '}' => .RightBrace,
-        '+' => .Plus,
-        '%' => .Perc,
-        '/' => .Slash,
+        '#' => if (self.s.eatIf('*')) .code_begin else continue :sw 0,
+        '[' => .left_bracket,
+        ']' => .right_bracket,
+        '(' => .left_paren,
+        ')' => .right_paren,
+        '{' => .left_brace,
+        '}' => .right_brace,
+        '+' => .plus,
+        '%' => .perc,
+        '/' => .slash,
         // TODO: Fix this and make `self.eat_codeblockend`
         '*' => if (self.s.eatIf("*#"))
-            .CodeblockEnd
+            .codeblock_end
         else
-            .Star,
-        '-' => .Minus,
-        '.' => .Dot,
-        ',' => .Comma,
-        '`' => .Backtick,
-        '=' => if (self.s.eatIf('=')) .EqEq else .Eq,
-        '!' => if (self.s.eatIf('=')) .NotEq else continue :sw 0,
-        '<' => if (self.s.eatIf('=')) .LtEq else .Lt,
-        '>' => if (self.s.eatIf('=')) .GtEq else .Gt,
+            .star,
+        '-' => .minus,
+        '.' => .dot,
+        ',' => .comma,
+        '`' => .backtick,
+        '=' => if (self.s.eatIf('=')) .eq_eq else .eq,
+        '!' => if (self.s.eatIf('=')) .not_eq else continue :sw 0,
+        '<' => if (self.s.eatIf('=')) .lt_eq else .lt,
+        '>' => if (self.s.eatIf('=')) .gt_eq else .gt,
         '"' => self.string(),
         '0'...'9' => self.number(),
         'a'...'z', 'A'...'Z', '_' => self.ident(),
@@ -106,7 +106,7 @@ fn string(self: *Lexer) SyntaxKind {
         }
     }
 
-    return .String;
+    return .string;
 }
 
 inline fn isDigit(c: u8) bool {
@@ -122,7 +122,7 @@ fn number(self: *Lexer) SyntaxKind {
     if (self.s.eatIf('.')) {
         self.s.eatWhile(isDigit);
     }
-    return .Number;
+    return .number;
 }
 
 fn ident(self: *Lexer) SyntaxKind {
@@ -134,48 +134,48 @@ fn ident(self: *Lexer) SyntaxKind {
     return if (keyword(self.s.from(cursor))) |k|
         k
     else
-        .Ident;
+        .ident;
 }
 
 fn keyword(t: []const u8) ?SyntaxKind {
     return if (std.mem.eql(u8, t, "let"))
-        .Let
+        .let
     else if (std.mem.eql(u8, t, "export"))
-        .Export
+        .@"export"
     else if (std.mem.eql(u8, t, "if"))
-        .If
+        .@"if"
     else if (std.mem.eql(u8, t, "then"))
-        .Then
+        .then
     else if (std.mem.eql(u8, t, "do"))
-        .Do
+        .do
     else if (std.mem.eql(u8, t, "in"))
-        .In
+        .in
     else if (std.mem.eql(u8, t, "for"))
-        .For
+        .@"for"
     else if (std.mem.eql(u8, t, "while"))
-        .While
+        .@"while"
     else if (std.mem.eql(u8, t, "function"))
-        .Function
+        .function
     else if (std.mem.eql(u8, t, "else"))
-        .Else
+        .@"else"
     else if (std.mem.eql(u8, t, "end"))
-        .End
+        .end
     else if (std.mem.eql(u8, t, "or"))
-        .Or
+        .@"or"
     else if (std.mem.eql(u8, t, "and"))
-        .And
+        .@"and"
     else if (std.mem.eql(u8, t, "true"))
-        .Bool
+        .bool
     else if (std.mem.eql(u8, t, "false"))
-        .Bool
+        .bool
     else if (std.mem.eql(u8, t, "nil"))
-        .Nil
+        .nil
     else if (std.mem.eql(u8, t, "return"))
-        .Return
+        .@"return"
     else if (std.mem.eql(u8, t, "continue"))
-        .Continue
+        .@"continue"
     else if (std.mem.eql(u8, t, "break"))
-        .Break
+        .@"break"
     else
         null;
 }
@@ -183,7 +183,7 @@ fn keyword(t: []const u8) ?SyntaxKind {
 /// Parse a token while in text mode
 fn text(self: *Lexer) SyntaxKind {
     if (self.eatCodebegin()) {
-        return .CodeBegin;
+        return .code_begin;
     }
 
     while (true) {
@@ -208,7 +208,7 @@ fn text(self: *Lexer) SyntaxKind {
         self.s = s;
     }
 
-    return .Text;
+    return .text;
 }
 
 fn eatCodebegin(self: *Lexer) bool {

@@ -4,12 +4,12 @@ bar
 
 bar
 $$$
-TextNode[
-	Newline,
-	Text,
-	Newline,
-	Text,
-	Newline,
-	Newline,
-	Text
+text_node[
+	newline,
+	text,
+	newline,
+	text,
+	newline,
+	newline,
+	text
 ]
