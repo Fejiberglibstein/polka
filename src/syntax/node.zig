@@ -271,7 +271,7 @@ pub const SyntaxNode = union(enum) {
     }
 
     pub fn treeNode(k: SyntaxKind, all_nodes: []SyntaxNode, c: TreeNode.Children) SyntaxNode {
-        const children_slice = c.slice(all_nodes);
+        const children_slice = c.get(all_nodes);
 
         var len: usize = 0;
         for (children_slice) |child| len += child.length();
@@ -309,9 +309,38 @@ pub const SyntaxNode = union(enum) {
 
     pub fn children(self: SyntaxNode, all_nodes: []const SyntaxNode) []const SyntaxNode {
         return switch (self) {
-            .tree => |v| v.children.slice(all_nodes),
+            .tree => |v| v.children.get(all_nodes),
             else => ([_]SyntaxNode{})[0..],
         };
+    }
+
+    /// Used in the typed AST to get children matching a certain ASTNode type.
+    ///
+    /// If no nodes are found, will return a generic node
+    pub fn lastChild(self: SyntaxNode, all_nodes: []const SyntaxNode, T: type) T {
+        const childs = self.children(all_nodes);
+        var i = childs.len - 1;
+
+        while (i > 0) : (i -= 1) {
+            if (T.toTyped(childs[i])) |c| {
+                return c;
+            }
+        }
+
+        return T{ .v = SyntaxNode.leafNode(T.kind, 0, 0) };
+    }
+
+    /// Used in the typed AST to get children matching a certain ASTNode type.
+    ///
+    /// If no nodes are found, will return a generic node
+    pub fn firstChild(self: SyntaxNode, all_nodes: []const SyntaxNode, T: type) T {
+        for (self.children(all_nodes)) |child| {
+            if (T.toTyped(child)) |c| {
+                return c;
+            }
+        }
+
+        return T{ .v = SyntaxNode.leafNode(T.kind, 0, 0) };
     }
 
     pub fn intoError(self: *SyntaxNode, e: SyntaxError) void {
@@ -359,7 +388,7 @@ pub const TreeNode = struct {
     text_length: usize,
 
     pub fn getChildren(self: TreeNode, all_nodes: []const SyntaxNode) []const SyntaxNode {
-        return self.children.slice(all_nodes);
+        return self.children.get(all_nodes);
     }
 
     /// A range of nodes inside the AST. `offset` acts as an index into the list of all the nodes
@@ -367,7 +396,7 @@ pub const TreeNode = struct {
         offset: u32,
         len: u32,
 
-        pub fn slice(self: @This(), all_nodes: []const SyntaxNode) []const SyntaxNode {
+        pub fn get(self: @This(), all_nodes: []const SyntaxNode) []const SyntaxNode {
             return all_nodes[self.offset..(self.offset + self.len)];
         }
     };
