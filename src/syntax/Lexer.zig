@@ -37,9 +37,9 @@ pub fn next(self: *Lexer) struct { SyntaxNode, SyntaxKind, Whitespace } {
 
     const range = self.s.cursor - start;
     const node: SyntaxNode = if (self.currentError) |err|
-        .err(err, range, whitespace)
+        .errorNode(err, range, whitespace)
     else
-        .leaf(kind, range, whitespace);
+        .leafNode(kind, range, whitespace);
     self.currentError = null;
 
     return .{ node, kind, if (whitespace != 0) .PrecedingWhitespace else .None };

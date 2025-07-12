@@ -49,7 +49,7 @@ fn parseFile(
                 // kind.
                 try ind_stack.append(.{ stack.slice().len, kind });
             } else {
-                try stack.append(SyntaxNode.leaf(kind, 0, 0));
+                try stack.append(SyntaxNode.leafNode(kind, 0, 0));
             }
         } else if (s.eatIf(']')) {
             // Close the tree node
@@ -62,7 +62,7 @@ fn parseFile(
             stack.resize(ind.@"0") catch unreachable;
             const len = nodes.len - offset;
 
-            try stack.append(SyntaxNode.tree(ind.@"1", nodes.slice(), .{
+            try stack.append(SyntaxNode.treeNode(ind.@"1", nodes.slice(), .{
                 .len = len,
                 .offset = offset,
             }));
@@ -82,12 +82,12 @@ fn parseFile(
 fn nodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []const SyntaxNode, all2: []const SyntaxNode) !void {
     try expectEqual(n1.kind(), n2.kind());
     switch (n1) {
-        .Leaf => switch (n2) {
-            .Leaf => {},
+        .leaf => switch (n2) {
+            .leaf => {},
             else => try expect(false),
         },
-        .Tree => switch (n2) {
-            .Tree => {
+        .tree => switch (n2) {
+            .tree => {
                 try expectEqual(n1.children(all1).len, n2.children(all2).len);
                 for (n1.children(all1), n2.children(all2)) |c1, c2| {
                     try nodeEql(c1, c2, all1, all2);
@@ -139,8 +139,8 @@ fn printNode(node: SyntaxNode, all_nodes: []const SyntaxNode, indent: usize) voi
 
     switch (node) {
         .@"error" => |e| std.debug.print("{s},\n", .{@tagName(e.err)}),
-        .Leaf => |l| std.debug.print("{s},\n", .{@tagName(l.kind)}),
-        .Tree => |t| {
+        .leaf => |l| std.debug.print("{s},\n", .{@tagName(l.kind)}),
+        .tree => |t| {
             std.debug.print("{s} [\n", .{@tagName(t.kind)});
             const children = t.children.slice(all_nodes);
             for (children) |child| {

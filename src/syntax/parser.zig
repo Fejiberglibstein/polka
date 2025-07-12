@@ -424,7 +424,7 @@ const Parser = struct {
         self.stack.resize(m) catch unreachable;
         const len = self.nodes.items.len - offset;
 
-        try self.stack.append(SyntaxNode.tree(
+        try self.stack.append(SyntaxNode.treeNode(
             kind,
             self.nodes.items,
             .{ .len = @intCast(len), .offset = @intCast(offset) },

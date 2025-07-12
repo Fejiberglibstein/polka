@@ -256,34 +256,34 @@ pub const SyntaxKind = enum(u8) {
 };
 
 pub const SyntaxNode = union(enum) {
-    Leaf: LeafNode,
-    Tree: TreeNode,
+    leaf: LeafNode,
+    tree: TreeNode,
     @"error": ErrorNode,
 
     const PLACEHOLDER_SOURCE = " ";
 
-    pub fn leaf(k: SyntaxKind, text_length: usize, preceding_whitespace: u16) SyntaxNode {
-        return SyntaxNode{ .Leaf = LeafNode{
+    pub fn leafNode(k: SyntaxKind, text_length: usize, preceding_whitespace: u16) SyntaxNode {
+        return SyntaxNode{ .leaf = LeafNode{
             .kind = k,
             .text_length = text_length,
             .preceding_whitespace = preceding_whitespace,
         } };
     }
 
-    pub fn tree(k: SyntaxKind, all_nodes: []SyntaxNode, c: TreeNode.Children) SyntaxNode {
+    pub fn treeNode(k: SyntaxKind, all_nodes: []SyntaxNode, c: TreeNode.Children) SyntaxNode {
         const children_slice = c.slice(all_nodes);
 
         var len: usize = 0;
         for (children_slice) |child| len += child.length();
 
-        return SyntaxNode{ .Tree = TreeNode{
+        return SyntaxNode{ .tree = TreeNode{
             .kind = k,
             .children = c,
             .text_length = len,
         } };
     }
 
-    pub fn err(e: SyntaxError, text_length: usize, preceding_whitespace: u16) SyntaxNode {
+    pub fn errorNode(e: SyntaxError, text_length: usize, preceding_whitespace: u16) SyntaxNode {
         return SyntaxNode{ .@"error" = ErrorNode{
             .err = e,
             .text_length = text_length,
@@ -293,23 +293,23 @@ pub const SyntaxNode = union(enum) {
 
     pub fn length(self: SyntaxNode) usize {
         return switch (self) {
-            .Tree => |v| v.text_length,
+            .tree => |v| v.text_length,
             .@"error" => |v| v.text_length + v.preceding_whitespace,
-            .Leaf => |v| v.text_length + v.preceding_whitespace,
+            .leaf => |v| v.text_length + v.preceding_whitespace,
         };
     }
 
     pub fn kind(self: SyntaxNode) SyntaxKind {
         return switch (self) {
-            .Leaf => |v| v.kind,
-            .Tree => |v| v.kind,
+            .leaf => |v| v.kind,
+            .tree => |v| v.kind,
             .@"error" => |_| .err,
         };
     }
 
     pub fn children(self: SyntaxNode, all_nodes: []const SyntaxNode) []const SyntaxNode {
         return switch (self) {
-            .Tree => |v| v.children.slice(all_nodes),
+            .tree => |v| v.children.slice(all_nodes),
             else => ([_]SyntaxNode{})[0..],
         };
     }
@@ -317,14 +317,14 @@ pub const SyntaxNode = union(enum) {
     pub fn intoError(self: *SyntaxNode, e: SyntaxError) void {
         switch (self.*) {
             .@"error" => {},
-            .Leaf => |v| {
+            .leaf => |v| {
                 self.* = SyntaxNode{ .@"error" = ErrorNode{
                     .err = e,
                     .preceding_whitespace = v.preceding_whitespace,
                     .text_length = v.text_length,
                 } };
             },
-            .Tree => |v| {
+            .tree => |v| {
                 self.* = SyntaxNode{ .@"error" = ErrorNode{
                     .err = e,
                     .preceding_whitespace = 0,
