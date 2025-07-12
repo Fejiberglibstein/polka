@@ -40,14 +40,14 @@ fn parseFile(
             const kind: SyntaxKind = @field(SyntaxKind, s.from(m));
             s.eatWhitespace();
 
-            if (s.eatIf(.{ .Char = '[' })) {
+            if (s.eatIf('[')) {
                 // Start a tree node by pushing where the children nodes slice will start and the
                 // kind.
                 try ind_stack.append(.{ stack.slice().len, kind });
             } else {
                 try stack.append(SyntaxNode.leaf(kind, 0, 0));
             }
-        } else if (s.eatIf(.{ .Char = ']' })) {
+        } else if (s.eatIf(']')) {
             // Close the tree node
             const ind = ind_stack.pop() orelse @panic("malformed test data");
 
@@ -64,7 +64,7 @@ fn parseFile(
             }));
         }
         s.eatWhitespace();
-        _ = s.eatIf(.{ .Char = ',' });
+        _ = s.eatIf(',');
         s.eatWhitespace();
     }
 

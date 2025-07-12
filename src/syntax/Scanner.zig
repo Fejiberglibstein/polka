@@ -43,12 +43,16 @@ pub fn from(self: *Scanner, cursor: usize) []const u8 {
 }
 
 /// Check if the cursor is on top of the pattern
-pub fn at(self: *Scanner, pat: Pattern) bool {
+pub fn at(self: *Scanner, comptime pattern: anytype) bool {
+    const pat = Pattern.get(pattern);
+
     if (self.isDone()) return false;
     return pat.matches(self.after());
 }
 
-pub fn eatIf(self: *Scanner, pat: Pattern) bool {
+pub fn eatIf(self: *Scanner, comptime pattern: anytype) bool {
+    const pat = Pattern.get(pattern);
+
     if (self.isDone()) return false;
     if (pat.matches(self.after())) {
         self.cursor += pat.length();
@@ -57,7 +61,9 @@ pub fn eatIf(self: *Scanner, pat: Pattern) bool {
     return false;
 }
 
-pub fn eatUntil(self: *Scanner, pat: Pattern) void {
+pub fn eatUntil(self: *Scanner, comptime pattern: anytype) void {
+    const pat = Pattern.get(pattern);
+
     if (self.isDone()) return;
     while (!pat.matches(self.after())) {
         _ = self.eat();
@@ -65,7 +71,9 @@ pub fn eatUntil(self: *Scanner, pat: Pattern) void {
     }
 }
 
-pub fn eatWhile(self: *Scanner, pat: Pattern) void {
+pub fn eatWhile(self: *Scanner, comptime pattern: anytype) void {
+    const pat = Pattern.get(pattern);
+
     if (self.isDone()) return;
     while (pat.matches(self.after())) {
         self.cursor += pat.length();
@@ -74,19 +82,19 @@ pub fn eatWhile(self: *Scanner, pat: Pattern) void {
 }
 
 pub fn eatSpaces(self: *Scanner) void {
-    self.eatWhile(.{ .Any = &[_]u8{ ' ', '\t' } });
+    self.eatWhile([_]u8{ ' ', '\t' });
 }
 
 pub fn eatWhitespace(self: *Scanner) void {
-    self.eatWhile(.{ .Any = &[_]u8{ ' ', '\t', '\n', '\r' } });
+    self.eatWhile([_]u8{ ' ', '\t', '\n', '\r' });
 }
 
 pub fn eatNewline(self: *Scanner) bool {
     if (self.isDone()) return false;
 
-    if (self.at(.{ .Any = &[_]u8{ '\n', '\r' } })) {
+    if (self.at([_]u8{ '\n', '\r' })) {
         if (self.eat() == '\r') {
-            _ = self.eatIf(.{ .Char = '\n' });
+            _ = self.eatIf('\n');
         }
         return true;
     }
@@ -106,24 +114,75 @@ inline fn isAlpha(c: u8) bool {
 
 pub fn eatAlpha(self: *Scanner) bool {
     const start = self.cursor;
-    self.eatWhile(.{ .Fn = isAlpha });
+    self.eatWhile(isAlpha);
 
     return start != self.cursor;
 }
 
+/// https://github.com/ziglang/zig/commit/d5e21a4f1a2920ef7bbe3c54feab1a3b5119bf77#diff-adfee52549c345d50c3acbd67802c959e2ba7d46f7c747844035b898c8510888L405
+///
+/// Used to be in stdlib but was removed
+fn isZigString(comptime T: type) bool {
+    return comptime blk: {
+        // Only pointer types can be strings, no optionals
+        const info = @typeInfo(T);
+        if (info != .pointer) break :blk false;
+
+        const ptr = &info.pointer;
+        // Check for CV qualifiers that would prevent coerction to []const u8
+        if (ptr.is_volatile or ptr.is_allowzero) break :blk false;
+
+        // If it's already a slice, simple check.
+        if (ptr.size == .slice) {
+            break :blk ptr.child == u8;
+        }
+
+        // Otherwise check if it's an array type that coerces to slice.
+        if (ptr.size == .one) {
+            const child = @typeInfo(ptr.child);
+            if (child == .array) {
+                const arr = &child.array;
+                break :blk arr.child == u8;
+            }
+        }
+
+        break :blk false;
+    };
+}
+
 const Pattern = union(enum) {
-    String: []const u8,
-    Any: []const u8,
-    Char: u8,
-    Fn: fn (u8) callconv(.@"inline") bool,
+    string: []const u8,
+    any: []const u8,
+    char: u8,
+    @"fn": fn (u8) callconv(.@"inline") bool,
+
+    pub fn get(comptime pat: anytype) Pattern {
+        return sw: switch (@typeInfo(@TypeOf(pat))) {
+            .comptime_int => .{ .char = pat },
+            .int => |_| .{ .Char = pat },
+            .pointer => |_| if (isZigString(@TypeOf(pat)))
+                .{ .string = pat }
+            else
+                continue :sw .void,
+            .array => |v| if (v.child == u8)
+                .{ .any = pat[0..] }
+            else
+                continue :sw .void,
+            .@"fn" => |_| if (@TypeOf(pat) == @FieldType(Pattern, "fn"))
+                .{ .@"fn" = pat }
+            else
+                continue :sw .void,
+            else => @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
+        };
+    }
 
     pub fn matches(self: Pattern, source: []const u8) bool {
         switch (self) {
-            .String => |str| {
+            .string => |str| {
                 return std.mem.eql(u8, str, source[0..str.len]);
             },
 
-            .Any => |chars| {
+            .any => |chars| {
                 for (chars) |c| {
                     if (c == source[0]) {
                         return true;
@@ -132,11 +191,11 @@ const Pattern = union(enum) {
                 return false;
             },
 
-            .Char => |c| {
+            .char => |c| {
                 return c == source[0];
             },
 
-            .Fn => |f| {
+            .@"fn" => |f| {
                 return f(source[0]);
             },
         }
@@ -144,7 +203,7 @@ const Pattern = union(enum) {
 
     pub fn length(self: Pattern) usize {
         switch (self) {
-            .String => |str| return str.len,
+            .string => |str| return str.len,
             else => return 1,
         }
     }
@@ -160,24 +219,24 @@ test "scanner" {
     try expect(s.eat() == 'h');
     try expectEql(s.cursor, 1);
 
-    try expect(!s.eatIf(.{ .Char = 'h' }));
+    try expect(!s.eatIf('h'));
     try expectEql(s.cursor, 1);
 
-    try expect(s.eatIf(.{ .Char = 'e' }));
+    try expect(s.eatIf('e'));
     try expectEql(s.cursor, 2);
 
-    s.eatWhile(.{ .Char = 'l' });
+    s.eatWhile('l');
     try expectEql(s.cursor, 4);
 
-    s.eatUntil(.{ .String = "or" });
+    s.eatUntil("or");
     try expectEql(s.cursor, 7);
 
-    s.eatUntil(.{ .Any = &[_]u8{ 'h', 'b', 'd' } });
+    s.eatUntil([_]u8{ 'h', 'b', 'd' });
     try expectEql(s.cursor, 10);
 
-    try expect(s.at(.{ .Any = &[_]u8{ 'h', 'b', 'd' } }));
+    try expect(s.at([_]u8{ 'h', 'b', 'd' }));
 
-    try expect(s.eatIf(.{ .Char = 'd' }));
+    try expect(s.eatIf('d'));
 
     try expectEql(s.eat(), null);
 }

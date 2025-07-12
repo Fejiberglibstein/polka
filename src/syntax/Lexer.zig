@@ -60,7 +60,7 @@ fn code(self: *Lexer) SyntaxKind {
     const c = self.s.eat() orelse unreachable;
 
     return sw: switch (c) {
-        '#' => if (self.s.eatIf(.{ .Char = '*' })) .CodeBegin else continue :sw 0,
+        '#' => if (self.s.eatIf('*')) .CodeBegin else continue :sw 0,
         '[' => .LeftBracket,
         ']' => .RightBracket,
         '(' => .LeftParen,
@@ -71,7 +71,7 @@ fn code(self: *Lexer) SyntaxKind {
         '%' => .Perc,
         '/' => .Slash,
         // TODO: Fix this and make `self.eat_codeblockend`
-        '*' => if (self.s.eatIf(.{ .String = "*#" }))
+        '*' => if (self.s.eatIf("*#"))
             .CodeblockEnd
         else
             .Star,
@@ -79,10 +79,10 @@ fn code(self: *Lexer) SyntaxKind {
         '.' => .Dot,
         ',' => .Comma,
         '`' => .Backtick,
-        '=' => if (self.s.eatIf(.{ .Char = '=' })) .EqEq else .Eq,
-        '!' => if (self.s.eatIf(.{ .Char = '=' })) .NotEq else continue :sw 0,
-        '<' => if (self.s.eatIf(.{ .Char = '=' })) .LtEq else .Lt,
-        '>' => if (self.s.eatIf(.{ .Char = '=' })) .GtEq else .Gt,
+        '=' => if (self.s.eatIf('=')) .EqEq else .Eq,
+        '!' => if (self.s.eatIf('=')) .NotEq else continue :sw 0,
+        '<' => if (self.s.eatIf('=')) .LtEq else .Lt,
+        '>' => if (self.s.eatIf('=')) .GtEq else .Gt,
         '"' => self.string(),
         '0'...'9' => self.number(),
         'a'...'z', 'A'...'Z', '_' => self.ident(),
@@ -92,14 +92,14 @@ fn code(self: *Lexer) SyntaxKind {
 
 fn string(self: *Lexer) SyntaxKind {
     while (true) {
-        self.s.eatUntil(.{ .Any = &[_]u8{ '\\', '"', '\n', '\r' } });
+        self.s.eatUntil([_]u8{ '\\', '"', '\n', '\r' });
 
         if (self.s.eatNewline()) {
             return self.setErr(.UnterminatedString);
         }
 
         switch (self.s.eat() orelse 0) {
-            '\\' => if (self.s.eatIf(.{ .Char = '"' })) {},
+            '\\' => if (self.s.eatIf('"')) {},
             '"' => break,
 
             else => {},
@@ -118,9 +118,9 @@ inline fn isIdentChar(c: u8) bool {
 }
 
 fn number(self: *Lexer) SyntaxKind {
-    self.s.eatWhile(.{ .Fn = isDigit });
-    if (self.s.eatIf(.{ .Char = '.' })) {
-        self.s.eatWhile(.{ .Fn = isDigit });
+    self.s.eatWhile(isDigit);
+    if (self.s.eatIf('.')) {
+        self.s.eatWhile(isDigit);
     }
     return .Number;
 }
@@ -129,7 +129,7 @@ fn ident(self: *Lexer) SyntaxKind {
     // we already parsed the first character of the ident
     const cursor = self.s.cursor - 1;
 
-    self.s.eatWhile(.{ .Fn = isIdentChar });
+    self.s.eatWhile(isIdentChar);
 
     return if (keyword(self.s.from(cursor))) |k|
         k
@@ -187,13 +187,13 @@ fn text(self: *Lexer) SyntaxKind {
     }
 
     while (true) {
-        self.s.eatUntil(.{ .Any = &[_]u8{ '\r', '\n', '\\', '`', '#' } });
+        self.s.eatUntil([_]u8{ '\r', '\n', '\\', '`', '#' });
 
         var s = self.s;
 
         switch (s.eat() orelse 0) {
-            '\\' => _ = s.eatIf(.{ .Char = '`' }),
-            '#' => if (s.at(.{ .Char = '*' })) {
+            '\\' => _ = s.eatIf('`'),
+            '#' => if (s.at('*')) {
                 break;
             },
 
@@ -213,7 +213,7 @@ fn text(self: *Lexer) SyntaxKind {
 
 fn eatCodebegin(self: *Lexer) bool {
     return if (self.mode != .CodeBlock)
-        self.s.eatIf(.{ .String = "#*" }) or self.s.eatIf(.{ .String = ";*" })
+        self.s.eatIf("#*") or self.s.eatIf(";*")
     else
         true;
 }
