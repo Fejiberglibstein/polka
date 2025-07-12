@@ -358,6 +358,10 @@ pub const TreeNode = struct {
     /// included.
     text_length: usize,
 
+    pub fn getChildren(self: TreeNode, all_nodes: []const SyntaxNode) []const SyntaxNode {
+        return self.children.slice(all_nodes);
+    }
+
     /// A range of nodes inside the AST. `offset` acts as an index into the list of all the nodes
     pub const Children = struct {
         offset: u32,

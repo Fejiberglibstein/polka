@@ -18,9 +18,6 @@ fn parseFile(
     comptime text: []const u8,
 ) !struct { SyntaxNode, std.BoundedArray(SyntaxNode, 500) } {
     // list of all nodes
-    //
-    // Make both nodes and stack 500 capacity so that the list won't be resized ever and our
-    // pointers won't be invalidated
     var nodes = try std.BoundedArray(SyntaxNode, 500).init(0);
     // stack to append on
     var stack = try std.BoundedArray(SyntaxNode, 500).init(0);
@@ -53,12 +50,11 @@ fn parseFile(
             }
         } else if (s.eatIf(']')) {
             // Close the tree node
+
             const ind = ind_stack.pop() orelse @panic("malformed test data");
 
             const offset = nodes.len;
-
             try nodes.appendSlice(stack.slice()[ind.@"0"..]);
-
             stack.resize(ind.@"0") catch unreachable;
             const len = nodes.len - offset;
 
@@ -142,7 +138,7 @@ fn printNode(node: SyntaxNode, all_nodes: []const SyntaxNode, indent: usize) voi
         .leaf => |l| std.debug.print("{s},\n", .{@tagName(l.kind)}),
         .tree => |t| {
             std.debug.print("{s} [\n", .{@tagName(t.kind)});
-            const children = t.children.slice(all_nodes);
+            const children = t.getChildren(all_nodes);
             for (children) |child| {
                 printNode(child, all_nodes, indent + 1);
             }
