@@ -1,4 +1,5 @@
-#* let foo = 10 \n#* foo 
+#* let foo = 10 
+#* foo 
 $$$
 TextNode [
 	Code [

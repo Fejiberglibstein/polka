@@ -40,6 +40,7 @@ pub fn next(self: *Lexer) struct { SyntaxNode, SyntaxKind, Whitespace } {
         .err(err, range, whitespace)
     else
         .leaf(kind, range, whitespace);
+    self.currentError = null;
 
     return .{ node, kind, if (whitespace != 0) .PrecedingWhitespace else .None };
 }

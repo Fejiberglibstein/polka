@@ -124,7 +124,7 @@ fn testParser(comptime path: []const u8, allocator: std.mem.Allocator) !void {
         printNode(parsed_node, parsed_nodes.items, 0);
     };
 
-    std.debug.print("test " ++ path ++ " passed", .{});
+    std.debug.print("test " ++ path ++ " passed\n", .{});
 }
 
 fn printNode(node: SyntaxNode, all_nodes: []const SyntaxNode, indent: usize) void {
@@ -153,20 +153,13 @@ fn printNode(node: SyntaxNode, all_nodes: []const SyntaxNode, indent: usize) voi
 test "testParser" {
     @setEvalBranchQuota(100000);
     var allocator = std.heap.DebugAllocator(.{}).init;
+    defer _ = allocator.deinit();
     try testParser("complex_text", allocator.allocator());
-    _ = allocator.deinit();
     try testParser("forloop", allocator.allocator());
-    _ = allocator.deinit();
     try testParser("function", allocator.allocator());
-    _ = allocator.deinit();
     try testParser("if", allocator.allocator());
-    _ = allocator.deinit();
     try testParser("inline_expressions", allocator.allocator());
-    _ = allocator.deinit();
     try testParser("multiline_code", allocator.allocator());
-    _ = allocator.deinit();
     try testParser("simple_code", allocator.allocator());
-    _ = allocator.deinit();
     try testParser("simple_text", allocator.allocator());
-    _ = allocator.deinit();
 }

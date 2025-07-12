@@ -376,6 +376,7 @@ const Parser = struct {
 
     fn reparse(self: *Parser) void {
         self.l.reparse(self.current.node);
+        self.current = parseToken(&self.l);
     }
 
     fn eatGet(self: *Parser) Allocator.Error!*SyntaxNode {
