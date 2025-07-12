@@ -27,46 +27,41 @@ fn parseFile(
     var s = Scanner.init(text);
 
     while (!s.isDone()) {
-        const m = s.cursor;
         s.eatWhitespace();
+        const m = s.cursor;
 
         // Eat the identifier and get the kind, if any
         _ = s.eatAlpha();
-
         if (m != s.cursor and !@hasField(SyntaxKind, s.from(m))) {
             @compileError("SyntaxKind " ++ s.from(m) ++ " does not exist");
         }
-        const kind: ?SyntaxKind = if (m != s.cursor) @field(SyntaxKind, s.from(m)) else null;
 
-        s.eatWhitespace();
+        if (m != s.cursor) {
+            const kind: SyntaxKind = @field(SyntaxKind, s.from(m));
+            s.eatWhitespace();
 
-        if (s.eatIf(.{ .Char = '[' })) {
-            // Start a tree node
-            if (kind) |k| {
-                try ind_stack.append(.{ stack.slice().len, k });
+            if (s.eatIf(.{ .Char = '[' })) {
+                // Start a tree node by pushing where the children nodes slice will start and the
+                // kind.
+                try ind_stack.append(.{ stack.slice().len, kind });
             } else {
-                @panic("malformed test data");
+                try stack.append(SyntaxNode.leaf(kind, 0, 0));
             }
         } else if (s.eatIf(.{ .Char = ']' })) {
             // Close the tree node
             const ind = ind_stack.pop() orelse @panic("malformed test data");
 
-            const offset = nodes.slice().len;
+            const offset = nodes.len;
+
             try nodes.appendSlice(stack.slice()[ind.@"0"..]);
-            try stack.resize(ind.@"0");
-            const len = nodes.slice().len - offset;
+
+            stack.resize(ind.@"0") catch unreachable;
+            const len = nodes.len - offset;
 
             try stack.append(SyntaxNode.tree(ind.@"1", nodes.slice(), .{
                 .len = len,
                 .offset = offset,
             }));
-        } else {
-            // If neither [ nor ], then it's a leaf node
-            if (kind) |k| {
-                try stack.append(SyntaxNode.leaf(k, 0, 0));
-            } else {
-                @panic("malformed test data");
-            }
         }
         s.eatWhitespace();
         _ = s.eatIf(.{ .Char = ',' });
@@ -121,14 +116,38 @@ fn testParser(comptime path: []const u8, allocator: std.mem.Allocator) !void {
     defer parsed_nodes.deinit();
 
     nodeEql(parsed_node, expected_node, parsed_nodes.items, expected_nodes.slice()) catch {
+        std.debug.print("{s}\n", .{source});
         std.debug.print("Expected \n", .{});
-        try std.json.stringify(expected_node, .{}, std.io.getStdErr().writer());
+        printNode(expected_node, expected_nodes.slice(), 0);
 
-        std.debug.print("\n\nGot \n", .{});
-        try std.json.stringify(parsed_node, .{}, std.io.getStdErr().writer());
+        std.debug.print("\nGot \n", .{});
+        printNode(parsed_node, parsed_nodes.items, 0);
     };
 
     std.debug.print("test " ++ path ++ " passed", .{});
+}
+
+fn printNode(node: SyntaxNode, all_nodes: []const SyntaxNode, indent: usize) void {
+    for (0..indent) |_| {
+        std.debug.print("    ", .{});
+    }
+
+    switch (node) {
+        .Error => |e| std.debug.print("{s},\n", .{@tagName(e.err)}),
+        .Leaf => |l| std.debug.print("{s},\n", .{@tagName(l.kind)}),
+        .Tree => |t| {
+            std.debug.print("{s} [\n", .{@tagName(t.kind)});
+            const children = t.children.slice(all_nodes);
+            for (children) |child| {
+                printNode(child, all_nodes, indent + 1);
+            }
+
+            for (0..indent) |_| {
+                std.debug.print("    ", .{});
+            }
+            std.debug.print("],\n", .{});
+        },
+    }
 }
 
 test "testParser" {
