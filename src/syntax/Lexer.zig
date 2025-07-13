@@ -1,10 +1,10 @@
 const std = @import("std");
 
-const Scanner = @import("Scanner.zig");
 const ErrorNode = @import("node.zig").ErrorNode;
+const Scanner = @import("Scanner.zig");
 const SyntaxError = @import("node.zig").SyntaxError;
-const SyntaxNode = @import("node.zig").SyntaxNode;
 const SyntaxKind = @import("node.zig").SyntaxKind;
+const SyntaxNode = @import("node.zig").SyntaxNode;
 
 const Lexer = @This();
 

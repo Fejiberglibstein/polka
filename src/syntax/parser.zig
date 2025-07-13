@@ -1,12 +1,12 @@
 const std = @import("std");
-const SyntaxNode = @import("node.zig").SyntaxNode;
-const SyntaxKind = @import("node.zig").SyntaxKind;
-const TreeNode = @import("node.zig").TreeNode;
+const Allocator = std.mem.Allocator;
+
+const ast = @import("ast.zig");
 const Lexer = @import("Lexer.zig");
 const Mode = @import("Lexer.zig").Mode;
-const ast = @import("ast.zig");
-
-const Allocator = std.mem.Allocator;
+const SyntaxKind = @import("node.zig").SyntaxKind;
+const SyntaxNode = @import("node.zig").SyntaxNode;
+const TreeNode = @import("node.zig").TreeNode;
 
 /// Parses top level text of a file
 pub fn parse(

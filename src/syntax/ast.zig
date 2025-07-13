@@ -29,8 +29,9 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const SyntaxNode = @import("node.zig").SyntaxNode;
+
 const SyntaxKind = @import("node.zig").SyntaxKind;
+const SyntaxNode = @import("node.zig").SyntaxNode;
 
 /// Returns a default value for an ASTNode.
 ///

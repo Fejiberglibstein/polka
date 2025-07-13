@@ -5,10 +5,11 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
-const SyntaxNode = @import("node.zig").SyntaxNode;
-const SyntaxKind = @import("node.zig").SyntaxKind;
-const Scanner = @import("Scanner.zig");
+
 const parser = @import("parser.zig");
+const Scanner = @import("Scanner.zig");
+const SyntaxKind = @import("node.zig").SyntaxKind;
+const SyntaxNode = @import("node.zig").SyntaxNode;
 
 inline fn isKind(c: u8) bool {
     return (c >= 'a' and c <= 'z') or c == '_';
