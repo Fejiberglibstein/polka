@@ -1,4 +1,4 @@
-//! Provides a typed inerface to access the CST (Concrete syntax tree) that `parser.zig` produces.
+//! Provides a typed interface to access the CST (Concrete syntax tree) that `parser.zig` produces.
 //!
 //! Usually this would be implemented by having struct data inside each variant of the SyntaxKind.
 //! However, we want the CST to remain concrete (meaning that the source code can be entirely
@@ -16,54 +16,31 @@
 //! ```
 //! #* h.foo // produces "hello\n" from the previous example
 //! ```
+//!
+//! ## Implementation
+//!
+//! A node of the AST has a `toTyped` method that converts a SyntaxNode into itself, and a `kind`
+//! indicating what the kind of the node is.
+//!
+//! Some derived nodes are not rooted in the CST, such as `Access`; there is a `dot_access` and
+//! `bracket_access` SyntaxKind but no `access` SyntaxKind. These derived nodes simplify the AST to
+//! not worry about the specific kind.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const SyntaxNode = @import("node.zig").SyntaxNode;
 const SyntaxKind = @import("node.zig").SyntaxKind;
 
-pub const ASTNode = union(enum) {
-    text: Text,
-    code: Code,
-    ident: Ident,
-    number: Number,
-    string: String,
-    grouping: Grouping,
-    export_expr: ExportExpr,
-    function_def: FunctionDef,
-    function_parameters: FunctionParameters,
-    return_expr: ReturnExpr,
-    conditional: Conditional,
-    for_loop: ForLoop,
-    while_loop: WhileLoop,
-    let_expr: LetExpr,
-    assignment: Assignment,
-    binary_operator: BinaryOperator,
-    binary: Binary,
-    unary: Unary,
-    function_call: FunctionCall,
-    argument_list: ArgumentList,
-    dot_access: DotAccess,
-    bracket_access: BracketAccess,
-    text_node: TextNode,
-    bool: Bool,
-
-    pub fn value(self: ASTNode) SyntaxNode {
-        switch (self) {
-            inline else => |v| {
-                return v.v;
-            },
-        }
-    }
-};
-
 /// Returns a default value for an ASTNode.
 ///
-/// Because the CST can be improperly created by having syntax errors, the ast must not panic and
+/// Because the CST can be improperly created by having syntax errors, the ast must not error and
 /// instead just use default values. If there are errors, the AST won't be evaluated so it is fine
 /// that there are meaningless values
-inline fn default(ast: anytype) @TypeOf(ast) {
-    return @TypeOf(ast){ .v = SyntaxNode.leafNode(ast.kind, "") };
+fn default(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .@"struct" => T{ .v = SyntaxNode.leafNode(T.kind, "") },
+        else => @compileError("`default` not implemented for non-struct nodes"),
+    };
 }
 
 /// Iterator to yield all the child nodes that coerce to an AST type
@@ -73,10 +50,7 @@ pub fn ASTIterator(comptime T: type) type {
         nodes: []const SyntaxNode,
 
         pub fn init(node: SyntaxNode, all_nodes: []const SyntaxNode) @This() {
-            return .{
-                .index = 0,
-                .nodes = node.children(all_nodes),
-            };
+            return .{ .index = 0, .nodes = node.children(all_nodes) };
         }
 
         pub fn next(self: *@This()) ?T {
@@ -95,7 +69,7 @@ fn castLastChild(node: SyntaxNode, all_nodes: []const SyntaxNode, T: type) ?T {
     const childs = node.children(all_nodes);
     var i = childs.len - 1;
 
-    while (i > 0) : (i -= 1) {
+    while (i >= 0) : (i -= 1) {
         if (T.toTyped(childs[i])) |c| {
             return c;
         }
@@ -133,8 +107,6 @@ pub const TextPart = union(enum(u8)) {
     code: Code,
     newline: void,
 
-    pub const kind: SyntaxKind = .text;
-
     pub fn toTyped(n: SyntaxNode) ?TextPart {
         return switch (n.kind()) {
             .text => .{ .text = Text.toTyped(n) orelse unreachable },
@@ -169,7 +141,6 @@ pub const Expr = union(enum(u8)) {
     function_call: FunctionCall,
     access: Access,
 
-    pub const kind: SyntaxKind = .nil;
     pub inline fn toTyped(n: SyntaxNode) ?Expr {
         return switch (n.kind()) {
             .ident => .{ .ident = Ident.toTyped(n) orelse unreachable },
