@@ -152,8 +152,8 @@ pub const Code = struct {
     pub const kind: SyntaxKind = .code;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    pub fn statements(self: Code, all_nodes: []const SyntaxNode) []const SyntaxNode {
-        return self.v.children(all_nodes);
+    pub fn statements(self: Code, all_nodes: []const SyntaxNode) ASTIterator(Statement) {
+        return ASTIterator(Statement).init(self.v, all_nodes);
     }
 };
 
@@ -161,6 +161,31 @@ pub const Newline = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .newline;
     pub const toTyped = toTypedTemplate(@This(), kind);
+};
+
+pub const Statement = union(enum(u8)) {
+    expr: Expr,
+    for_loop: ForLoop,
+    let_expr: LetExpr,
+    while_loop: WhileLoop,
+    export_expr: ExportExpr,
+    return_expr: ReturnExpr,
+    conditional: Conditional,
+    function_def: FunctionDef,
+
+    pub inline fn toTyped(n: SyntaxNode) ?Statement {
+        return switch (n.kind()) {
+            .for_loop => .{ .for_loop = ForLoop{ .v = n } },
+            .let_expr => .{ .let_expr = LetExpr{ .v = n } },
+            .while_loop => .{ .while_loop = WhileLoop{ .v = n } },
+            .export_expr => .{ .export_expr = ExportExpr{ .v = n } },
+            .return_expr => .{ .return_expr = ReturnExpr{ .v = n } },
+            .conditional => .{ .conditional = Conditional{ .v = n } },
+            .function_def => .{ .function_def = FunctionDef{ .v = n } },
+
+            else => Expr.toTyped(n),
+        };
+    }
 };
 
 pub const Expr = union(enum(u8)) {
@@ -250,10 +275,28 @@ pub const Grouping = struct {
     }
 };
 
+pub const ExportInner = union(enum(u8)) {
+    let_expr: LetExpr,
+    function_def: FunctionDef,
+
+    pub inline fn toTyped(n: SyntaxNode) ?ExportInner {
+        return switch (n.kind()) {
+            .let_expr => .{ .let_expr = LetExpr{ .v = n } },
+            .function_def => .{ .function_def = FunctionDef{ .v = n } },
+
+            else => null,
+        };
+    }
+};
+
 pub const ExportExpr = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .export_expr;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn getInner(self: ExportExpr, all_nodes: []const SyntaxNode) ExportInner {
+        return castFirstChild(self.v, all_nodes, ExportInner) catch unreachable;
+    }
 };
 
 pub const FunctionDef = struct {
@@ -400,10 +443,7 @@ pub const UnaryOperator = struct {
     pub const kind: SyntaxKind = .plus;
 
     pub fn toTyped(node: SyntaxNode) ?UnaryOperator {
-        _ = node;
-        // todo
-        return undefined;
-        // return if (node.kind().isBinaryOp()) UnaryOperator{ .v = node } else null;
+        return if (node.kind().isUnaryOp()) UnaryOperator{ .v = node } else null;
     }
 };
 
