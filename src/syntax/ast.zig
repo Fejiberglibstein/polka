@@ -108,6 +108,17 @@ fn toTypedTemplate(
     }.toTyped;
 }
 
+pub const TextNode = struct {
+    v: SyntaxNode,
+    pub const kind: SyntaxKind = .text_node;
+    pub const toTyped = toTypedTemplate(@This(), kind);
+
+    /// Get all the expressions that are either a `Text`, `Newline`, or `Code`.
+    pub fn text(self: TextNode, all_nodes: []const SyntaxNode) ASTIterator(TextPart) {
+        return ASTIterator(TextPart).init(self, all_nodes);
+    }
+};
+
 /// A part of a text that can be evaluated. Can be any of `Text`, `Newline`, or `Code`
 pub const TextPart = union(enum(u8)) {
     text: Text,
@@ -125,15 +136,31 @@ pub const TextPart = union(enum(u8)) {
     }
 };
 
-pub const TextNode = struct {
+pub const Text = struct {
     v: SyntaxNode,
-    pub const kind: SyntaxKind = .text_node;
+    pub const kind: SyntaxKind = .text;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    /// Get all the expressions that are either a `Text`, `Newline`, or `Code`.
-    pub fn text(self: TextNode, all_nodes: []const SyntaxNode) ASTIterator(TextPart) {
-        return ASTIterator(TextPart).init(self, all_nodes);
+    pub fn get(self: Text) Allocator.Error![]const u8 {
+        // TODO make this clean the text by removing backslashes and such
+        return self.v.range;
     }
+};
+
+pub const Code = struct {
+    v: SyntaxNode,
+    pub const kind: SyntaxKind = .code;
+    pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn statements(self: Code, all_nodes: []const SyntaxNode) []const SyntaxNode {
+        return self.v.children(all_nodes);
+    }
+};
+
+pub const Newline = struct {
+    v: SyntaxNode,
+    pub const kind: SyntaxKind = .newline;
+    pub const toTyped = toTypedTemplate(@This(), kind);
 };
 
 pub const Expr = union(enum(u8)) {
@@ -166,53 +193,10 @@ pub const Expr = union(enum(u8)) {
     }
 };
 
-pub const Access = union(enum(u8)) {
-    bracket_access: BracketAccess,
-    dot_access: DotAccess,
-
-    pub inline fn toTyped(n: SyntaxNode) Access {
-        return switch (n.kind()) {
-            .bracket_access => .{ .bracket_access = BracketAccess{ .v = n } },
-            .dot_access => .{ .dot_access = DotAccess{ .v = n } },
-
-            else => null,
-        };
-    }
-
-    /// What is on the left side of the access, e.g. "foo" in `foo.bar`
-    pub fn lhs(self: Access, all_nodes: []const SyntaxNode) Expr {
-        return switch (self) {
-            inline else => |v| castFirstChild(v.v, all_nodes, Expr) orelse unreachable,
-        };
-    }
-
-    /// What is on the right side of the access, e.g. "bar" in `foo.bar`
-    pub fn rhs(self: Access, all_nodes: []const SyntaxNode) Expr {
-        return switch (self) {
-            inline else => |v| castLastChild(v.v, all_nodes, Expr) orelse unreachable,
-        };
-    }
-};
-
-pub const Text = struct {
+pub const Nil = struct {
     v: SyntaxNode,
-    pub const kind: SyntaxKind = .text;
+    pub const kind: SyntaxKind = .nil;
     pub const toTyped = toTypedTemplate(@This(), kind);
-
-    pub fn get(self: Text) Allocator.Error![]const u8 {
-        // TODO make this clean the text by removing backslashes and such
-        return self.v.range;
-    }
-};
-
-pub const Code = struct {
-    v: SyntaxNode,
-    pub const kind: SyntaxKind = .code;
-    pub const toTyped = toTypedTemplate(@This(), kind);
-
-    pub fn statements(self: Code, all_nodes: []const SyntaxNode) []const SyntaxNode {
-        return self.v.children(all_nodes);
-    }
 };
 
 pub const Ident = struct {
@@ -384,20 +368,6 @@ pub const LetExpr = struct {
     }
 };
 
-pub const Assignment = struct {
-    v: SyntaxNode,
-    pub const kind: SyntaxKind = .assignment;
-    pub const toTyped = toTypedTemplate(@This(), kind);
-
-    pub fn binding(self: Assignment, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self.v, all_nodes, Ident) catch unreachable;
-    }
-
-    pub fn value(self: Assignment, all_nodes: []const SyntaxNode) Expr {
-        return castLastChild(self.v, all_nodes, Expr) catch unreachable;
-    }
-};
-
 pub const BinaryOperator = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .plus;
@@ -475,6 +445,34 @@ pub const ArgumentList = struct {
     }
 };
 
+pub const Access = union(enum(u8)) {
+    bracket_access: BracketAccess,
+    dot_access: DotAccess,
+
+    pub inline fn toTyped(n: SyntaxNode) Access {
+        return switch (n.kind()) {
+            .bracket_access => .{ .bracket_access = BracketAccess{ .v = n } },
+            .dot_access => .{ .dot_access = DotAccess{ .v = n } },
+
+            else => null,
+        };
+    }
+
+    /// What is on the left side of the access, e.g. "foo" in `foo.bar`
+    pub fn lhs(self: Access, all_nodes: []const SyntaxNode) Expr {
+        return switch (self) {
+            inline else => |v| castFirstChild(v.v, all_nodes, Expr) orelse unreachable,
+        };
+    }
+
+    /// What is on the right side of the access, e.g. "bar" in `foo.bar`
+    pub fn rhs(self: Access, all_nodes: []const SyntaxNode) Expr {
+        return switch (self) {
+            inline else => |v| castLastChild(v.v, all_nodes, Expr) orelse unreachable,
+        };
+    }
+};
+
 pub const DotAccess = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .dot_access;
@@ -489,16 +487,4 @@ pub const BracketAccess = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     // Implementation handled in `Access`
-};
-
-pub const Newline = struct {
-    v: SyntaxNode,
-    pub const kind: SyntaxKind = .newline;
-    pub const toTyped = toTypedTemplate(@This(), kind);
-};
-
-pub const Nil = struct {
-    v: SyntaxNode,
-    pub const kind: SyntaxKind = .nil;
-    pub const toTyped = toTypedTemplate(@This(), kind);
 };

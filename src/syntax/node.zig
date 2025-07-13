@@ -141,10 +141,6 @@ pub const SyntaxKind = enum(u8) {
     ///
     /// [`Let`, `Ident`, `eq`, `Expr`]
     let_expr,
-    /// Variable (re)assignment `foo = foo * 2`
-    ///
-    /// [`Ident`, `eq`, `Expr`]
-    assignment,
     /// Binary Operatoion
     binary,
     /// Unary Operatoion
