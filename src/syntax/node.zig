@@ -372,27 +372,29 @@ pub const SyntaxNode = struct {
     }
 
     pub fn expected(self: *SyntaxNode, exp: SyntaxKind) void {
-        self.intoError(.{ .ExpectedToken = exp });
+        self.intoError(.{ .expected_token = exp });
     }
 
     pub fn unexpected(self: *SyntaxNode) void {
-        self.intoError(.{ .UnexpectedToken = self.kind() });
+        self.intoError(.{ .unexpected_token = self.kind() });
     }
 };
 
 pub const SyntaxError = union(enum(u8)) {
-    UnterminatedString: void,
-    ExpectedToken: SyntaxKind,
-    UnexpectedToken: SyntaxKind,
-    UnexpectedCharacter: u8,
+    unterminated_string: void,
+    expected_token: SyntaxKind,
+    unexpected_token: SyntaxKind,
+    unexpected_character: u8,
+    other: []const u8,
 
     fn toString(self: SyntaxError, a: std.mem.Allocator) []const u8 {
         // TODO perhaps make this do comptime string concatenation instead of `allocPrint`ing ?
         switch (self) {
-            .UnterminatedString => "Unterminated string",
-            .ExpectedToken => |k| std.fmt.allocPrint(a, "Expected token {s}", .{k.name()}),
-            .UnexpectedToken => |k| std.fmt.allocPrint(a, "Unexpected token {s}", .{k.name()}),
-            .UnexpectedCharacter => |c| std.fmt.allocPrint(a, "Unexpected character {c}", .{c}),
+            .unterminated_string => std.fmt.allocPrint(a, "Unterminated string", .{}),
+            .expected_token => |k| std.fmt.allocPrint(a, "Expected token {s}", .{k.name()}),
+            .unexpected_token => |k| std.fmt.allocPrint(a, "Unexpected token {s}", .{k.name()}),
+            .unexpected_character => |c| std.fmt.allocPrint(a, "Unexpected character {c}", .{c}),
+            .other => |s| std.fmt.allocPrint(a, "{s}", .{s}),
         }
     }
 };

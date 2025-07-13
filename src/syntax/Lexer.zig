@@ -88,7 +88,7 @@ fn code(self: *Lexer) SyntaxKind {
         '"' => self.string(),
         '0'...'9' => self.number(),
         'a'...'z', 'A'...'Z', '_' => self.ident(),
-        else => self.setErr(.{ .UnexpectedCharacter = c }),
+        else => self.setErr(.{ .unexpected_character = c }),
     };
 }
 
@@ -97,7 +97,7 @@ fn string(self: *Lexer) SyntaxKind {
         self.s.eatUntil([_]u8{ '\\', '"', '\n', '\r' });
 
         if (self.s.eatNewline()) {
-            return self.setErr(.UnterminatedString);
+            return self.setErr(.unterminated_string);
         }
 
         switch (self.s.eat() orelse 0) {
