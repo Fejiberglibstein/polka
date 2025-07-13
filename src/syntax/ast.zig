@@ -38,6 +38,7 @@ pub const ASTNode = union(enum) {
     while_loop: WhileLoop,
     let_expr: LetExpr,
     assignment: Assignment,
+    binary_operator: BinaryOperator,
     binary: Binary,
     unary: Unary,
     function_call: FunctionCall,
@@ -45,6 +46,7 @@ pub const ASTNode = union(enum) {
     dot_access: DotAccess,
     bracket_access: BracketAccess,
     text_node: TextNode,
+    bool: Bool,
 
     pub fn value(self: ASTNode) SyntaxNode {
         switch (self) {
@@ -55,17 +57,14 @@ pub const ASTNode = union(enum) {
     }
 };
 
-pub const Context = struct {
-    /// Source code of the entire file
-    src_file: []const u8,
-
-    /// All of the parsed nodes
-    all_nodes: std.ArrayList(SyntaxNode),
-
-    inline fn nodes(self: Context) []const SyntaxNode {
-        return self.all_nodes.items;
-    }
-};
+/// Returns a default value for an ASTNode.
+///
+/// Because the CST can be improperly created by having syntax errors, the ast must not panic and
+/// instead just use default values. If there are errors, the AST won't be evaluated so it is fine
+/// that there are meaningless values
+inline fn default(ast: anytype) @TypeOf(ast) {
+    return @TypeOf(ast){ .v = SyntaxNode.leafNode(ast.kind, "") };
+}
 
 /// Iterator to yield all the child nodes that coerce to an AST type
 pub fn ASTIterator(comptime T: type) type {
@@ -92,9 +91,7 @@ pub fn ASTIterator(comptime T: type) type {
 }
 
 /// Used in the typed AST to get children matching a certain ASTNode type.
-///
-/// If no nodes are found, will return a generic node
-fn lastChild(node: SyntaxNode, all_nodes: []const SyntaxNode, T: type) T {
+fn castLastChild(node: SyntaxNode, all_nodes: []const SyntaxNode, T: type) ?T {
     const childs = node.children(all_nodes);
     var i = childs.len - 1;
 
@@ -103,34 +100,122 @@ fn lastChild(node: SyntaxNode, all_nodes: []const SyntaxNode, T: type) T {
             return c;
         }
     }
-
-    return T{ .v = SyntaxNode.leafNode(T.kind, "") };
+    return null;
 }
 
 /// Used in the typed AST to get children matching a certain ASTNode type.
-///
-/// If no nodes are found, will return a generic node
-fn firstChild(node: SyntaxNode, all_nodes: []const SyntaxNode, T: type) T {
+fn castFirstChild(node: SyntaxNode, all_nodes: []const SyntaxNode, T: type) ?T {
     for (node.children(all_nodes)) |child| {
         if (T.toTyped(child)) |c| {
             return c;
         }
     }
-
-    return T{ .v = SyntaxNode.leafNode(T.kind, "") };
+    return null;
 }
 
-fn toTypedTemplate(comptime T: type, comptime k: SyntaxKind) fn (SyntaxNode) ?T {
+fn toTypedTemplate(
+    comptime T: type,
+    comptime k: SyntaxKind,
+) fn (SyntaxNode) callconv(.@"inline") ?T {
     return struct {
-        fn toTyped(n: SyntaxNode) ?T {
-            if (n.kind() == k) {
-                return T{ .v = n };
-            } else {
-                return null;
-            }
+        inline fn toTyped(n: SyntaxNode) ?T {
+            return if (n.kind() == k)
+                T{ .v = n }
+            else
+                null;
         }
     }.toTyped;
 }
+
+/// A part of a text that can be evaluated. Can be any of `Text`, `Newline`, or `Code`
+pub const TextPart = union(enum(u8)) {
+    text: Text,
+    code: Code,
+    newline: void,
+
+    pub const kind: SyntaxKind = .text;
+
+    pub fn toTyped(n: SyntaxNode) ?TextPart {
+        return switch (n.kind()) {
+            .text => .{ .text = Text.toTyped(n) orelse unreachable },
+            .code => .{ .code = Code.toTyped(n) orelse unreachable },
+            .newline => .newline,
+
+            else => null,
+        };
+    }
+};
+
+pub const TextNode = struct {
+    v: SyntaxNode,
+    pub const kind: SyntaxKind = .text_node;
+    pub const toTyped = toTypedTemplate(@This(), kind);
+
+    /// Get all the expressions that are either a `Text`, `Newline`, or `Code`.
+    pub fn text(self: TextNode, all_nodes: []const SyntaxNode) ASTIterator(TextPart) {
+        return ASTIterator(TextPart).init(self, all_nodes);
+    }
+};
+
+pub const Expr = union(enum(u8)) {
+    ident: Ident,
+    number: Number,
+    string: String,
+    nil: void,
+    bool: Bool,
+    binary_op: Binary,
+    unary_op: Unary,
+    grouping: Grouping,
+    function_call: FunctionCall,
+    access: Access,
+
+    pub const kind: SyntaxKind = .nil;
+    pub inline fn toTyped(n: SyntaxNode) ?Expr {
+        return switch (n.kind()) {
+            .ident => .{ .ident = Ident.toTyped(n) orelse unreachable },
+            .number => .{ .number = Number.toTyped(n) orelse unreachable },
+            .string => .{ .string = String.toTyped(n) orelse unreachable },
+            .bool => .{ .bool = Bool.toTyped(n) orelse unreachable },
+            .binary_op => .{ .binary_op = Binary.toTyped(n) orelse unreachable },
+            .unary_op => .{ .unary_op = Unary.toTyped(n) orelse unreachable },
+            .grouping => .{ .grouping = Grouping.toTyped(n) orelse unreachable },
+            .function_call => .{ .function_call = FunctionCall.toTyped(n) orelse unreachable },
+            .dot_access, .bracket_access => Access.toTyped(n) orelse unreachable,
+            .nil => .nil,
+
+            else => null,
+        };
+    }
+};
+
+pub const Access = union(enum(u8)) {
+    bracket_access: BracketAccess,
+    dot_access: DotAccess,
+
+    pub const kind: SyntaxKind = .dot_access;
+    pub inline fn toTyped(n: SyntaxNode) ?Access {
+        return switch (n.kind()) {
+            .bracket_access => .{ .bracket_access = n },
+            .dot_access => .{ .dot_access = n },
+
+            else => null,
+        };
+    }
+
+    /// What is on the left side of the access, e.g. "foo" in `foo.bar`
+    pub fn lhs(self: Access, all_nodes: []const SyntaxNode) Expr {
+        return switch (self) {
+            inline else => |v| castFirstChild(v.v, all_nodes, Expr) orelse unreachable,
+        };
+    }
+
+    /// What is on the right side of the access, e.g. "bar" in `foo.bar`
+    pub fn rhs(self: Access, all_nodes: []const SyntaxNode) Expr {
+        return switch (self) {
+            inline else => |v| castLastChild(v.v, all_nodes, Expr) orelse unreachable,
+        };
+    }
+};
 
 pub const Text = struct {
     v: SyntaxNode,
@@ -146,6 +231,10 @@ pub const Code = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .code;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn statements(self: Code, all_nodes: []const SyntaxNode) []const SyntaxNode {
+        return self.v.children(all_nodes);
+    }
 };
 
 pub const Ident = struct {
@@ -178,10 +267,24 @@ pub const String = struct {
     }
 };
 
+pub const Bool = struct {
+    v: SyntaxNode,
+    pub const kind: SyntaxKind = .bool;
+    pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn get(self: Bool) bool {
+        return std.mem.eql(u8, self.v.range, "true");
+    }
+};
+
 pub const Grouping = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .grouping;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn get(self: Grouping, all_nodes: []const SyntaxNode) Expr {
+        return castFirstChild(self, all_nodes, Expr) catch unreachable;
+    }
 };
 
 pub const ExportExpr = struct {
@@ -194,88 +297,223 @@ pub const FunctionDef = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .function_def;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn name(self: FunctionDef, all_nodes: []const SyntaxNode) ?Ident {
+        return castFirstChild(self, all_nodes, Ident);
+    }
+
+    pub fn params(self: FunctionDef, all_nodes: []const SyntaxNode) FunctionParameters {
+        return castFirstChild(self, all_nodes, FunctionParameters) orelse unreachable;
+    }
+
+    pub fn body(self: FunctionDef, all_nodes: []const SyntaxNode) TextNode {
+        return castFirstChild(self, all_nodes, TextNode) orelse unreachable;
+    }
 };
 
 pub const FunctionParameters = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .function_parameters;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn get(self: FunctionParameters, all_nodes: []const SyntaxNode) ASTIterator(Ident) {
+        return ASTIterator(Ident).init(self, all_nodes);
+    }
 };
 
 pub const ReturnExpr = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .return_expr;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn body(self: ReturnExpr, all_nodes: []const SyntaxNode) ?Expr {
+        return castLastChild(self.v, all_nodes, Expr);
+    }
 };
 
 pub const Conditional = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .conditional;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn condition(self: Conditional, all_nodes: []const SyntaxNode) Expr {
+        return castFirstChild(self.v, all_nodes, Expr) orelse unreachable;
+    }
+
+    pub fn ifBody(self: Conditional, all_nodes: []const SyntaxNode) TextNode {
+        return castFirstChild(self.v, all_nodes, TextNode) orelse unreachable;
+    }
+
+    pub fn elseBody(self: Conditional, all_nodes: []const SyntaxNode) ?TextNode {
+        var iter = ASTIterator(TextNode).init(self, all_nodes);
+
+        // Skip past the if body
+        _ = iter.next();
+
+        return iter.next();
+    }
 };
 
 pub const ForLoop = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .for_loop;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn binding(self: ForLoop, all_nodes: []const SyntaxNode) Ident {
+        return castFirstChild(self, all_nodes, Ident) orelse unreachable;
+    }
+
+    pub fn iterator(self: ForLoop, all_nodes: []const SyntaxNode) Expr {
+        var iter = ASTIterator(Expr).init(self, all_nodes);
+
+        // Skip past the ident binding
+        _ = iter.next();
+
+        return iter.next() orelse unreachable;
+    }
+
+    pub fn body(self: SyntaxNode, all_nodes: []const SyntaxNode) TextNode {
+        return castFirstChild(self, all_nodes, TextNode) orelse unreachable;
+    }
 };
 
 pub const WhileLoop = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .while_loop;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn condition(self: WhileLoop, all_nodes: []const SyntaxNode) Expr {
+        return castFirstChild(self, all_nodes, Expr) orelse unreachable;
+    }
+
+    pub fn body(self: WhileLoop, all_nodes: []const SyntaxNode) TextNode {
+        return castFirstChild(self, all_nodes, TextNode) catch unreachable;
+    }
 };
 
 pub const LetExpr = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .let_expr;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn binding(self: SyntaxNode, all_nodes: []const SyntaxNode) Ident {
+        return castFirstChild(self, all_nodes, Ident) catch unreachable;
+    }
+
+    pub fn value(self: SyntaxNode, all_nodes: []const SyntaxNode) Expr {
+        return castLastChild(self, all_nodes, Expr) catch unreachable;
+    }
 };
 
 pub const Assignment = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .assignment;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn binding(self: SyntaxNode, all_nodes: []const SyntaxNode) Ident {
+        return castFirstChild(self, all_nodes, Ident) catch unreachable;
+    }
+
+    pub fn value(self: SyntaxNode, all_nodes: []const SyntaxNode) Expr {
+        return castLastChild(self, all_nodes, Expr) catch unreachable;
+    }
+};
+
+pub const BinaryOperator = struct {
+    v: SyntaxNode,
+    pub const kind: SyntaxKind = .plus;
+
+    pub fn toTyped(node: SyntaxNode) ?BinaryOperator {
+        return if (node.kind().isBinaryOp()) BinaryOperator{ .v = node } else null;
+    }
 };
 
 pub const Binary = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .binary;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn lhs(self: SyntaxNode, all_nodes: []const SyntaxNode) Ident {
+        return castFirstChild(self, all_nodes, Expr) catch unreachable;
+    }
+
+    pub fn rhs(self: SyntaxNode, all_nodes: []const SyntaxNode) Ident {
+        return castLastChild(self, all_nodes, Expr) catch unreachable;
+    }
+
+    pub fn op(self: SyntaxNode, all_nodes: []const SyntaxNode) BinaryOperator {
+        return castFirstChild(self, all_nodes, BinaryOperator) catch unreachable;
+    }
+};
+
+pub const UnaryOperator = struct {
+    v: SyntaxNode,
+    pub const kind: SyntaxKind = .plus;
+
+    pub fn toTyped(node: SyntaxNode) ?UnaryOperator {
+        _ = node;
+        // todo
+        return undefined;
+        // return if (node.kind().isBinaryOp()) UnaryOperator{ .v = node } else null;
+    }
 };
 
 pub const Unary = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .unary;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn rhs(self: SyntaxNode, all_nodes: []const SyntaxNode) Expr {
+        return castFirstChild(self, all_nodes, Expr) catch unreachable;
+    }
+
+    pub fn op(self: SyntaxNode, all_nodes: []const SyntaxNode) UnaryOperator {
+        return castFirstChild(self, all_nodes, UnaryOperator) catch unreachable;
+    }
 };
 
 pub const FunctionCall = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .function_call;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn name(self: SyntaxNode, all_nodes: []const SyntaxNode) Ident {
+        return castFirstChild(self, all_nodes, Ident) catch unreachable;
+    }
+
+    pub fn arguments(self: SyntaxNode, all_nodes: []const SyntaxNode) ArgumentList {
+        return castFirstChild(self, all_nodes, ArgumentList) catch unreachable;
+    }
 };
 
 pub const ArgumentList = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .argument_list;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn get(self: ArgumentList, all_nodes: []const SyntaxNode) ASTIterator(Expr) {
+        return ASTIterator(Expr).init(self, all_nodes);
+    }
 };
 
 pub const DotAccess = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .dot_access;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    // Implementation handled in `Access`
 };
 
 pub const BracketAccess = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .bracket_access;
     pub const toTyped = toTypedTemplate(@This(), kind);
+
+    // Implementation handled in `Access`
 };
 
-pub const TextNode = struct {
+pub const Newline = struct {
     v: SyntaxNode,
-    pub const kind: SyntaxKind = .text_node;
+    pub const kind: SyntaxKind = .newline;
     pub const toTyped = toTypedTemplate(@This(), kind);
 };
