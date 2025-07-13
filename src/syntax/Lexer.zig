@@ -24,7 +24,10 @@ pub fn next(self: *Lexer) struct { SyntaxNode, SyntaxKind, Whitespace } {
     const before_spaces = self.s.cursor;
     self.s.eatSpaces();
     const start = self.s.cursor;
-    const whitespace: u16 = @intCast(start - before_spaces);
+    const whitespace: Whitespace = if (start - before_spaces != 0)
+        .PrecedingWhitespace
+    else
+        .None;
 
     const kind = if (self.s.eatNewline())
         .newline
@@ -35,18 +38,17 @@ pub fn next(self: *Lexer) struct { SyntaxNode, SyntaxKind, Whitespace } {
         .TopLevelText, .Text => self.text(),
     };
 
-    const range = self.s.cursor - start;
     const node: SyntaxNode = if (self.currentError) |err|
-        .errorNode(err, range, whitespace)
+        .errorNode(err, self.s.from(start))
     else
-        .leafNode(kind, range, whitespace);
+        .leafNode(kind, self.s.from(start));
     self.currentError = null;
 
-    return .{ node, kind, if (whitespace != 0) .PrecedingWhitespace else .None };
+    return .{ node, kind, whitespace };
 }
 
 pub fn reparse(self: *Lexer, node: SyntaxNode) void {
-    self.s.moveTo(self.s.cursor - node.length());
+    self.s.moveTo(self.s.cursor - node.range.len);
 }
 
 fn setErr(self: *Lexer, err: SyntaxError) SyntaxKind {

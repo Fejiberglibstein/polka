@@ -255,52 +255,79 @@ pub const SyntaxKind = enum(u8) {
     }
 };
 
-pub const SyntaxNode = union(enum) {
-    leaf: LeafNode,
-    tree: TreeNode,
-    @"error": ErrorNode,
+pub const SyntaxNode = struct {
+    range: []const u8,
 
-    const PLACEHOLDER_SOURCE = " ";
+    inner: union(enum(u8)) {
+        leaf: LeafNode,
+        tree: TreeNode,
+        @"error": ErrorNode,
+    },
 
-    pub fn leafNode(k: SyntaxKind, text_length: usize, preceding_whitespace: u16) SyntaxNode {
-        return SyntaxNode{ .leaf = LeafNode{
-            .kind = k,
-            .text_length = text_length,
-            .preceding_whitespace = preceding_whitespace,
-        } };
+    pub const ErrorNode = struct { err: SyntaxError };
+    pub const LeafNode = struct { kind: SyntaxKind };
+    pub const TreeNode = struct {
+        kind: SyntaxKind,
+        children: Children,
+
+        pub fn getChildren(self: TreeNode, all_nodes: []const SyntaxNode) []const SyntaxNode {
+            return all_nodes[self.children.offset..(self.children.offset + self.children.len)];
+        }
+
+        /// A range of nodes inside the AST. `offset` acts as an index into the list of all the
+        /// nodes
+        pub const Children = struct { offset: u32, len: u32 };
+    };
+
+    pub fn leafNode(k: SyntaxKind, range: []const u8) SyntaxNode {
+        return SyntaxNode{
+            .range = range,
+            .inner = .{
+                .leaf = LeafNode{ .kind = k },
+            },
+        };
     }
 
     pub fn treeNode(k: SyntaxKind, all_nodes: []SyntaxNode, c: TreeNode.Children) SyntaxNode {
-        const children_slice = c.get(all_nodes);
-
-        var len: usize = 0;
-        for (children_slice) |child| len += child.length();
-
-        return SyntaxNode{ .tree = TreeNode{
+        const tree = TreeNode{
             .kind = k,
             .children = c,
-            .text_length = len,
-        } };
+        };
+
+        // Get the range that this tree node encompasses
+        const childSlice = tree.getChildren(all_nodes);
+        const start = childSlice[0].range;
+        const end = childSlice[childSlice.len - 1].range;
+        const range = if (@inComptime())
+            " " // Ensure everything works in our tests since pointer math doesnt work at comptime
+        else
+            start.ptr[0..(&end[end.len - 1] - start.ptr)];
+
+        return SyntaxNode{
+            .range = range,
+            .inner = .{ .tree = tree },
+        };
     }
 
-    pub fn errorNode(e: SyntaxError, text_length: usize, preceding_whitespace: u16) SyntaxNode {
-        return SyntaxNode{ .@"error" = ErrorNode{
-            .err = e,
-            .text_length = text_length,
-            .preceding_whitespace = preceding_whitespace,
-        } };
+    pub fn errorNode(e: SyntaxError, range: []const u8) SyntaxNode {
+        return SyntaxNode{
+            .range = range,
+            .inner = .{
+                .@"error" = ErrorNode{ .err = e },
+            },
+        };
     }
 
-    pub fn length(self: SyntaxNode) usize {
+    pub fn precedingWhitespace(self: SyntaxNode) u16 {
         return switch (self) {
-            .tree => |v| v.text_length,
-            .@"error" => |v| v.text_length + v.preceding_whitespace,
-            .leaf => |v| v.text_length + v.preceding_whitespace,
+            .tree => |_| 0,
+            .leaf => |v| v.preceding_whitespace,
+            .@"error" => |v| v.preceding_whitespace,
         };
     }
 
     pub fn kind(self: SyntaxNode) SyntaxKind {
-        return switch (self) {
+        return switch (self.inner) {
             .leaf => |v| v.kind,
             .tree => |v| v.kind,
             .@"error" => |_| .err,
@@ -308,8 +335,8 @@ pub const SyntaxNode = union(enum) {
     }
 
     pub fn children(self: SyntaxNode, all_nodes: []const SyntaxNode) []const SyntaxNode {
-        return switch (self) {
-            .tree => |v| v.children.get(all_nodes),
+        return switch (self.inner) {
+            .tree => |v| v.getChildren(all_nodes),
             else => ([_]SyntaxNode{})[0..],
         };
     }
@@ -327,7 +354,7 @@ pub const SyntaxNode = union(enum) {
             }
         }
 
-        return T{ .v = SyntaxNode.leafNode(T.kind, 0, 0) };
+        return T{ .v = SyntaxNode.leafNode(T.kind, "") };
     }
 
     /// Used in the typed AST to get children matching a certain ASTNode type.
@@ -340,25 +367,15 @@ pub const SyntaxNode = union(enum) {
             }
         }
 
-        return T{ .v = SyntaxNode.leafNode(T.kind, 0, 0) };
+        return T{ .v = SyntaxNode.leafNode(T.kind, "") };
     }
 
     pub fn intoError(self: *SyntaxNode, e: SyntaxError) void {
-        switch (self.*) {
+        switch (self.inner) {
             .@"error" => {},
-            .leaf => |v| {
-                self.* = SyntaxNode{ .@"error" = ErrorNode{
-                    .err = e,
-                    .preceding_whitespace = v.preceding_whitespace,
-                    .text_length = v.text_length,
-                } };
-            },
-            .tree => |v| {
-                self.* = SyntaxNode{ .@"error" = ErrorNode{
-                    .err = e,
-                    .preceding_whitespace = 0,
-                    .text_length = v.text_length,
-                } };
+            else => self.* = SyntaxNode{
+                .range = self.range,
+                .inner = .{ .@"error" = ErrorNode{ .err = e } },
             },
         }
     }
@@ -370,44 +387,6 @@ pub const SyntaxNode = union(enum) {
     pub fn unexpected(self: *SyntaxNode) void {
         self.intoError(.{ .UnexpectedToken = self.kind() });
     }
-};
-
-pub const LeafNode = struct {
-    kind: SyntaxKind,
-    /// Length of the range in the source text that this node takes up
-    text_length: usize,
-    /// Whitespace that came before this node
-    preceding_whitespace: u16,
-};
-
-pub const TreeNode = struct {
-    kind: SyntaxKind,
-    children: Children,
-    /// Length of the range in the source text that this node takes up, with preceding whitespace
-    /// included.
-    text_length: usize,
-
-    pub fn getChildren(self: TreeNode, all_nodes: []const SyntaxNode) []const SyntaxNode {
-        return self.children.get(all_nodes);
-    }
-
-    /// A range of nodes inside the AST. `offset` acts as an index into the list of all the nodes
-    pub const Children = struct {
-        offset: u32,
-        len: u32,
-
-        pub fn get(self: @This(), all_nodes: []const SyntaxNode) []const SyntaxNode {
-            return all_nodes[self.offset..(self.offset + self.len)];
-        }
-    };
-};
-
-pub const ErrorNode = struct {
-    err: SyntaxError,
-    /// Length of the range in the source text that this node takes up
-    text_length: usize,
-    /// Whitespace that came before this node
-    preceding_whitespace: u16,
 };
 
 pub const SyntaxError = union(enum(u8)) {

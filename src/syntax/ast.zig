@@ -34,6 +34,18 @@ pub const ASTNode = union(enum) {
     }
 };
 
+pub const Context = struct {
+    /// Source code of the entire file
+    src_file: []const u8,
+
+    /// All of the parsed nodes
+    all_nodes: std.ArrayList(SyntaxNode),
+
+    inline fn nodes(self: Context) []const SyntaxNode {
+        return self.all_nodes.items;
+    }
+};
+
 fn toTypedTemplate(comptime T: type, comptime k: SyntaxKind) fn (SyntaxNode) ?T {
     return struct {
         fn toTyped(n: SyntaxNode) ?T {
