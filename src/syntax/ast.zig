@@ -425,6 +425,44 @@ pub const BinaryOperator = struct {
     pub fn toTyped(node: SyntaxNode) ?BinaryOperator {
         return if (node.kind().isBinaryOp()) BinaryOperator{ .v = node } else null;
     }
+
+    pub fn precedence(self: BinaryOperator) usize {
+        return switch (self.v.kind()) {
+            .eq => 1,
+            .@"or" => 2,
+            .@"and" => 3,
+            .not_eq, .eq_eq => 4,
+            .lt_eq, .lt, .gt_eq, .gt => 5,
+            .plus, .minus, .perc => 6,
+            .star, .slash => 7,
+
+            else => unreachable,
+        };
+    }
+
+    pub const Associativity = enum(u8) { left, right };
+
+    pub fn associativity(self: BinaryOperator) BinaryOperator.Associativity {
+        return switch (self.v.kind()) {
+            .@"or",
+            .@"and",
+            .not_eq,
+            .eq_eq,
+            .lt_eq,
+            .lt,
+            .gt_eq,
+            .gt,
+            .plus,
+            .minus,
+            .perc,
+            .star,
+            .slash,
+            => .left,
+            .eq => .right,
+
+            else => unreachable,
+        };
+    }
 };
 
 pub const Binary = struct {

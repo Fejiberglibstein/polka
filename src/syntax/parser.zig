@@ -4,6 +4,7 @@ const SyntaxKind = @import("node.zig").SyntaxKind;
 const TreeNode = @import("node.zig").TreeNode;
 const Lexer = @import("Lexer.zig");
 const Mode = @import("Lexer.zig").Mode;
+const ast = @import("ast.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -131,7 +132,6 @@ fn parseArgs(p: *Parser) Allocator.Error!void {
 
 /// Parse an expression
 fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
-    _ = prec;
     if (expr and p.current.whitespace == .PrecedingWhitespace) {
         return;
     }
@@ -156,8 +156,18 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
             continue;
         }
 
-        if (p.current.kind.isBinaryOp()) {
-            @panic("unimplemented");
+        if (ast.BinaryOperator.toTyped(p.current.node)) |op| {
+            // If we have a higher precedence than the current precedence
+            if (op.precedence() >= prec) {
+                const new_prec = switch (op.associativity()) {
+                    .left => op.precedence() + 1,
+                    .right => op.precedence(),
+                };
+                try p.eat();
+                try parseExpr(p, new_prec, expr);
+                try p.wrap(.binary, m);
+                continue;
+            }
         }
 
         break;
@@ -171,9 +181,11 @@ fn parsePrimary(p: *Parser) Allocator.Error!void {
     switch (p.current.kind) {
         .ident, .string, .number, .bool => try p.eat(),
         .left_paren => {
+            const m = p.marker();
             try p.assert(.left_paren);
             try parseExpr(p, 0, false);
             try p.expect(.right_paren);
+            try p.wrap(.grouping, m);
         },
         else => {},
     }

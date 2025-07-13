@@ -155,6 +155,7 @@ test "testParser" {
     @setEvalBranchQuota(100000);
     var allocator = std.heap.DebugAllocator(.{}).init;
     defer _ = allocator.deinit();
+    try testParser("binary_expr", allocator.allocator());
     try testParser("complex_text", allocator.allocator());
     try testParser("forloop", allocator.allocator());
     try testParser("function", allocator.allocator());

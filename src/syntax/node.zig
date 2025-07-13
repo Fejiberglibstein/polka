@@ -189,6 +189,8 @@ pub const SyntaxKind = enum(u8) {
             .eq,
             .perc,
             .not_eq,
+            .@"and",
+            .@"or",
             => true,
 
             else => false,
