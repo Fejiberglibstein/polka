@@ -20,7 +20,8 @@
 //! ## Implementation
 //!
 //! A node of the AST has a `toTyped` method that converts a SyntaxNode into itself, and a `kind`
-//! indicating what the kind of the node is.
+//! indicating what the kind of the node is. The kind is only necessary when you need to call
+//! `default` on the node.
 //!
 //! Some derived nodes are not rooted in the CST, such as `Access`; there is a `dot_access` and
 //! `bracket_access` SyntaxKind but no `access` SyntaxKind. These derived nodes simplify the AST to
@@ -53,6 +54,12 @@ pub fn ASTIterator(comptime T: type) type {
             return .{ .index = 0, .nodes = node.children(all_nodes) };
         }
 
+        pub fn skip(self: *@This(), n: usize) void {
+            for (0..n) |_| {
+                _ = self.next();
+            }
+        }
+
         pub fn next(self: *@This()) ?T {
             while (self.index < self.nodes.len) : (self.index += 1) {
                 if (T.toTyped(self.nodes[self.index])) |c| {
@@ -66,11 +73,11 @@ pub fn ASTIterator(comptime T: type) type {
 
 /// Used in the typed AST to get children matching a certain ASTNode type.
 fn castLastChild(node: SyntaxNode, all_nodes: []const SyntaxNode, T: type) ?T {
-    const childs = node.children(all_nodes);
-    var i = childs.len - 1;
+    const children = node.children(all_nodes);
+    var i = children.len - 1;
 
     while (i >= 0) : (i -= 1) {
-        if (T.toTyped(childs[i])) |c| {
+        if (T.toTyped(children[i])) |c| {
             return c;
         }
     }
@@ -109,8 +116,8 @@ pub const TextPart = union(enum(u8)) {
 
     pub fn toTyped(n: SyntaxNode) ?TextPart {
         return switch (n.kind()) {
-            .text => .{ .text = Text.toTyped(n) orelse unreachable },
-            .code => .{ .code = Code.toTyped(n) orelse unreachable },
+            .text => .{ .text = Text{ .v = n } },
+            .code => .{ .code = Code{ .v = n } },
             .newline => .newline,
 
             else => null,
@@ -130,29 +137,29 @@ pub const TextNode = struct {
 };
 
 pub const Expr = union(enum(u8)) {
+    nil: Nil,
+    bool: Bool,
     ident: Ident,
     number: Number,
     string: String,
-    nil: void,
-    bool: Bool,
-    binary_op: Binary,
+    access: Access,
     unary_op: Unary,
+    binary_op: Binary,
     grouping: Grouping,
     function_call: FunctionCall,
-    access: Access,
 
     pub inline fn toTyped(n: SyntaxNode) ?Expr {
         return switch (n.kind()) {
-            .ident => .{ .ident = Ident.toTyped(n) orelse unreachable },
-            .number => .{ .number = Number.toTyped(n) orelse unreachable },
-            .string => .{ .string = String.toTyped(n) orelse unreachable },
-            .bool => .{ .bool = Bool.toTyped(n) orelse unreachable },
-            .binary_op => .{ .binary_op = Binary.toTyped(n) orelse unreachable },
-            .unary_op => .{ .unary_op = Unary.toTyped(n) orelse unreachable },
-            .grouping => .{ .grouping = Grouping.toTyped(n) orelse unreachable },
-            .function_call => .{ .function_call = FunctionCall.toTyped(n) orelse unreachable },
+            .nil => .{ .nil = Nil{ .v = n } },
+            .bool => .{ .bool = Bool{ .v = n } },
+            .ident => .{ .ident = Ident{ .v = n } },
+            .number => .{ .number = Number{ .v = n } },
+            .string => .{ .string = String{ .v = n } },
+            .unary_op => .{ .unary_op = Unary{ .v = n } },
+            .grouping => .{ .grouping = Grouping{ .v = n } },
+            .binary_op => .{ .binary_op = Binary{ .v = n } },
+            .function_call => .{ .function_call = FunctionCall{ .v = n } },
             .dot_access, .bracket_access => Access.toTyped(n) orelse unreachable,
-            .nil => .nil,
 
             else => null,
         };
@@ -163,11 +170,10 @@ pub const Access = union(enum(u8)) {
     bracket_access: BracketAccess,
     dot_access: DotAccess,
 
-    pub const kind: SyntaxKind = .dot_access;
-    pub inline fn toTyped(n: SyntaxNode) ?Access {
+    pub inline fn toTyped(n: SyntaxNode) Access {
         return switch (n.kind()) {
-            .bracket_access => .{ .bracket_access = n },
-            .dot_access => .{ .dot_access = n },
+            .bracket_access => .{ .bracket_access = BracketAccess{ .v = n } },
+            .dot_access => .{ .dot_access = DotAccess{ .v = n } },
 
             else => null,
         };
@@ -193,8 +199,9 @@ pub const Text = struct {
     pub const kind: SyntaxKind = .text;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    pub fn get(self: Text, allocator: Allocator) Allocator.Error![]const u8 {
-        return std.mem.replacementSize(u8, allocator, self.v.range, "\\`", "`");
+    pub fn get(self: Text) Allocator.Error![]const u8 {
+        // TODO make this clean the text by removing backslashes and such
+        return self.v.range;
     }
 };
 
@@ -234,6 +241,7 @@ pub const String = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn get(self: Text) []const u8 {
+        // TODO make this clean the text by removing backslashes and such
         return self.v.range;
     }
 };
@@ -254,7 +262,7 @@ pub const Grouping = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn get(self: Grouping, all_nodes: []const SyntaxNode) Expr {
-        return castFirstChild(self, all_nodes, Expr) catch unreachable;
+        return castFirstChild(self.v, all_nodes, Expr) catch unreachable;
     }
 };
 
@@ -270,15 +278,15 @@ pub const FunctionDef = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn name(self: FunctionDef, all_nodes: []const SyntaxNode) ?Ident {
-        return castFirstChild(self, all_nodes, Ident);
+        return castFirstChild(self.v, all_nodes, Ident);
     }
 
     pub fn params(self: FunctionDef, all_nodes: []const SyntaxNode) FunctionParameters {
-        return castFirstChild(self, all_nodes, FunctionParameters) orelse unreachable;
+        return castFirstChild(self.v, all_nodes, FunctionParameters) orelse unreachable;
     }
 
     pub fn body(self: FunctionDef, all_nodes: []const SyntaxNode) TextNode {
-        return castFirstChild(self, all_nodes, TextNode) orelse unreachable;
+        return castFirstChild(self.v, all_nodes, TextNode) orelse unreachable;
     }
 };
 
@@ -288,7 +296,7 @@ pub const FunctionParameters = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn get(self: FunctionParameters, all_nodes: []const SyntaxNode) ASTIterator(Ident) {
-        return ASTIterator(Ident).init(self, all_nodes);
+        return ASTIterator(Ident).init(self.v, all_nodes);
     }
 };
 
@@ -319,7 +327,7 @@ pub const Conditional = struct {
         var iter = ASTIterator(TextNode).init(self, all_nodes);
 
         // Skip past the if body
-        _ = iter.next();
+        iter.skip(1);
 
         return iter.next();
     }
@@ -331,20 +339,20 @@ pub const ForLoop = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn binding(self: ForLoop, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self, all_nodes, Ident) orelse unreachable;
+        return castFirstChild(self.v, all_nodes, Ident) orelse unreachable;
     }
 
     pub fn iterator(self: ForLoop, all_nodes: []const SyntaxNode) Expr {
-        var iter = ASTIterator(Expr).init(self, all_nodes);
+        var iter = ASTIterator(Expr).init(self.v, all_nodes);
 
         // Skip past the ident binding
-        _ = iter.next();
+        iter.skip(1);
 
         return iter.next() orelse unreachable;
     }
 
-    pub fn body(self: SyntaxNode, all_nodes: []const SyntaxNode) TextNode {
-        return castFirstChild(self, all_nodes, TextNode) orelse unreachable;
+    pub fn body(self: ForLoop, all_nodes: []const SyntaxNode) TextNode {
+        return castFirstChild(self.v, all_nodes, TextNode) orelse unreachable;
     }
 };
 
@@ -354,11 +362,11 @@ pub const WhileLoop = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn condition(self: WhileLoop, all_nodes: []const SyntaxNode) Expr {
-        return castFirstChild(self, all_nodes, Expr) orelse unreachable;
+        return castFirstChild(self.v, all_nodes, Expr) orelse unreachable;
     }
 
     pub fn body(self: WhileLoop, all_nodes: []const SyntaxNode) TextNode {
-        return castFirstChild(self, all_nodes, TextNode) catch unreachable;
+        return castFirstChild(self.v, all_nodes, TextNode) catch unreachable;
     }
 };
 
@@ -367,12 +375,12 @@ pub const LetExpr = struct {
     pub const kind: SyntaxKind = .let_expr;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    pub fn binding(self: SyntaxNode, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self, all_nodes, Ident) catch unreachable;
+    pub fn binding(self: LetExpr, all_nodes: []const SyntaxNode) Ident {
+        return castFirstChild(self.v, all_nodes, Ident) catch unreachable;
     }
 
-    pub fn value(self: SyntaxNode, all_nodes: []const SyntaxNode) Expr {
-        return castLastChild(self, all_nodes, Expr) catch unreachable;
+    pub fn value(self: LetExpr, all_nodes: []const SyntaxNode) Expr {
+        return castLastChild(self.v, all_nodes, Expr) catch unreachable;
     }
 };
 
@@ -381,12 +389,12 @@ pub const Assignment = struct {
     pub const kind: SyntaxKind = .assignment;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    pub fn binding(self: SyntaxNode, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self, all_nodes, Ident) catch unreachable;
+    pub fn binding(self: Assignment, all_nodes: []const SyntaxNode) Ident {
+        return castFirstChild(self.v, all_nodes, Ident) catch unreachable;
     }
 
-    pub fn value(self: SyntaxNode, all_nodes: []const SyntaxNode) Expr {
-        return castLastChild(self, all_nodes, Expr) catch unreachable;
+    pub fn value(self: Assignment, all_nodes: []const SyntaxNode) Expr {
+        return castLastChild(self.v, all_nodes, Expr) catch unreachable;
     }
 };
 
@@ -404,16 +412,16 @@ pub const Binary = struct {
     pub const kind: SyntaxKind = .binary;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    pub fn lhs(self: SyntaxNode, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self, all_nodes, Expr) catch unreachable;
+    pub fn lhs(self: Binary, all_nodes: []const SyntaxNode) Ident {
+        return castFirstChild(self.v, all_nodes, Expr) catch unreachable;
     }
 
-    pub fn rhs(self: SyntaxNode, all_nodes: []const SyntaxNode) Ident {
-        return castLastChild(self, all_nodes, Expr) catch unreachable;
+    pub fn rhs(self: Binary, all_nodes: []const SyntaxNode) Ident {
+        return castLastChild(self.v, all_nodes, Expr) catch unreachable;
     }
 
-    pub fn op(self: SyntaxNode, all_nodes: []const SyntaxNode) BinaryOperator {
-        return castFirstChild(self, all_nodes, BinaryOperator) catch unreachable;
+    pub fn op(self: Binary, all_nodes: []const SyntaxNode) BinaryOperator {
+        return castFirstChild(self.v, all_nodes, BinaryOperator) catch unreachable;
     }
 };
 
@@ -434,12 +442,12 @@ pub const Unary = struct {
     pub const kind: SyntaxKind = .unary;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    pub fn rhs(self: SyntaxNode, all_nodes: []const SyntaxNode) Expr {
-        return castFirstChild(self, all_nodes, Expr) catch unreachable;
+    pub fn rhs(self: Unary, all_nodes: []const SyntaxNode) Expr {
+        return castFirstChild(self.v, all_nodes, Expr) catch unreachable;
     }
 
-    pub fn op(self: SyntaxNode, all_nodes: []const SyntaxNode) UnaryOperator {
-        return castFirstChild(self, all_nodes, UnaryOperator) catch unreachable;
+    pub fn op(self: Unary, all_nodes: []const SyntaxNode) UnaryOperator {
+        return castFirstChild(self.v, all_nodes, UnaryOperator) catch unreachable;
     }
 };
 
@@ -448,12 +456,12 @@ pub const FunctionCall = struct {
     pub const kind: SyntaxKind = .function_call;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    pub fn name(self: SyntaxNode, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self, all_nodes, Ident) catch unreachable;
+    pub fn name(self: FunctionCall, all_nodes: []const SyntaxNode) Ident {
+        return castFirstChild(self.v, all_nodes, Ident) catch unreachable;
     }
 
-    pub fn arguments(self: SyntaxNode, all_nodes: []const SyntaxNode) ArgumentList {
-        return castFirstChild(self, all_nodes, ArgumentList) catch unreachable;
+    pub fn arguments(self: FunctionCall, all_nodes: []const SyntaxNode) ArgumentList {
+        return castFirstChild(self.v, all_nodes, ArgumentList) catch unreachable;
     }
 };
 
@@ -463,7 +471,7 @@ pub const ArgumentList = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn get(self: ArgumentList, all_nodes: []const SyntaxNode) ASTIterator(Expr) {
-        return ASTIterator(Expr).init(self, all_nodes);
+        return ASTIterator(Expr).init(self.v, all_nodes);
     }
 };
 
@@ -486,5 +494,11 @@ pub const BracketAccess = struct {
 pub const Newline = struct {
     v: SyntaxNode,
     pub const kind: SyntaxKind = .newline;
+    pub const toTyped = toTypedTemplate(@This(), kind);
+};
+
+pub const Nil = struct {
+    v: SyntaxNode,
+    pub const kind: SyntaxKind = .nil;
     pub const toTyped = toTypedTemplate(@This(), kind);
 };
