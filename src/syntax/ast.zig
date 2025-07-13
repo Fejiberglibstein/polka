@@ -200,6 +200,9 @@ pub const Expr = union(enum(u8)) {
     grouping: Grouping,
     function_call: FunctionCall,
 
+    // Default value to use when `default(Expr)` is called
+    pub const kind: SyntaxKind = .nil;
+
     pub inline fn toTyped(n: SyntaxNode) ?Expr {
         return switch (n.kind()) {
             .nil => .{ .nil = Nil{ .v = n } },
@@ -271,7 +274,7 @@ pub const Grouping = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn get(self: Grouping, all_nodes: []const SyntaxNode) Expr {
-        return castFirstChild(self.v, all_nodes, Expr) catch unreachable;
+        return castFirstChild(self.v, all_nodes, Expr) catch default(Expr);
     }
 };
 
@@ -295,7 +298,7 @@ pub const ExportExpr = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn getInner(self: ExportExpr, all_nodes: []const SyntaxNode) ExportInner {
-        return castFirstChild(self.v, all_nodes, ExportInner) catch unreachable;
+        return castFirstChild(self.v, all_nodes, ExportInner) catch default(LetExpr);
     }
 };
 
@@ -309,11 +312,15 @@ pub const FunctionDef = struct {
     }
 
     pub fn params(self: FunctionDef, all_nodes: []const SyntaxNode) FunctionParameters {
-        return castFirstChild(self.v, all_nodes, FunctionParameters) orelse unreachable;
+        return castFirstChild(
+            self.v,
+            all_nodes,
+            FunctionParameters,
+        ) orelse default(FunctionParameters);
     }
 
     pub fn body(self: FunctionDef, all_nodes: []const SyntaxNode) TextNode {
-        return castFirstChild(self.v, all_nodes, TextNode) orelse unreachable;
+        return castFirstChild(self.v, all_nodes, TextNode) orelse default(TextNode);
     }
 };
 
@@ -343,11 +350,11 @@ pub const Conditional = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn condition(self: Conditional, all_nodes: []const SyntaxNode) Expr {
-        return castFirstChild(self.v, all_nodes, Expr) orelse unreachable;
+        return castFirstChild(self.v, all_nodes, Expr) orelse default(Expr);
     }
 
     pub fn ifBody(self: Conditional, all_nodes: []const SyntaxNode) TextNode {
-        return castFirstChild(self.v, all_nodes, TextNode) orelse unreachable;
+        return castFirstChild(self.v, all_nodes, TextNode) orelse default(TextNode);
     }
 
     pub fn elseBody(self: Conditional, all_nodes: []const SyntaxNode) ?TextNode {
@@ -366,7 +373,7 @@ pub const ForLoop = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn binding(self: ForLoop, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self.v, all_nodes, Ident) orelse unreachable;
+        return castFirstChild(self.v, all_nodes, Ident) orelse default(Ident);
     }
 
     pub fn iterator(self: ForLoop, all_nodes: []const SyntaxNode) Expr {
@@ -375,11 +382,11 @@ pub const ForLoop = struct {
         // Skip past the ident binding
         iter.skip(1);
 
-        return iter.next() orelse unreachable;
+        return iter.next() orelse default(Expr);
     }
 
     pub fn body(self: ForLoop, all_nodes: []const SyntaxNode) TextNode {
-        return castFirstChild(self.v, all_nodes, TextNode) orelse unreachable;
+        return castFirstChild(self.v, all_nodes, TextNode) orelse default(TextNode);
     }
 };
 
@@ -389,11 +396,11 @@ pub const WhileLoop = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn condition(self: WhileLoop, all_nodes: []const SyntaxNode) Expr {
-        return castFirstChild(self.v, all_nodes, Expr) orelse unreachable;
+        return castFirstChild(self.v, all_nodes, Expr) orelse default(Expr);
     }
 
     pub fn body(self: WhileLoop, all_nodes: []const SyntaxNode) TextNode {
-        return castFirstChild(self.v, all_nodes, TextNode) catch unreachable;
+        return castFirstChild(self.v, all_nodes, TextNode) catch default(TextNode);
     }
 };
 
@@ -403,11 +410,11 @@ pub const LetExpr = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn binding(self: LetExpr, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self.v, all_nodes, Ident) catch unreachable;
+        return castFirstChild(self.v, all_nodes, Ident) catch default(Ident);
     }
 
     pub fn value(self: LetExpr, all_nodes: []const SyntaxNode) Expr {
-        return castLastChild(self.v, all_nodes, Expr) catch unreachable;
+        return castLastChild(self.v, all_nodes, Expr) catch default(Expr);
     }
 };
 
@@ -425,16 +432,16 @@ pub const Binary = struct {
     pub const kind: SyntaxKind = .binary;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    pub fn lhs(self: Binary, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self.v, all_nodes, Expr) catch unreachable;
+    pub fn lhs(self: Binary, all_nodes: []const SyntaxNode) Expr {
+        return castFirstChild(self.v, all_nodes, Expr) catch default(Expr);
     }
 
-    pub fn rhs(self: Binary, all_nodes: []const SyntaxNode) Ident {
-        return castLastChild(self.v, all_nodes, Expr) catch unreachable;
+    pub fn rhs(self: Binary, all_nodes: []const SyntaxNode) Expr {
+        return castLastChild(self.v, all_nodes, Expr) catch default(Expr);
     }
 
     pub fn op(self: Binary, all_nodes: []const SyntaxNode) BinaryOperator {
-        return castFirstChild(self.v, all_nodes, BinaryOperator) catch unreachable;
+        return castFirstChild(self.v, all_nodes, BinaryOperator) catch default(BinaryOperator);
     }
 };
 
@@ -453,11 +460,11 @@ pub const Unary = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn rhs(self: Unary, all_nodes: []const SyntaxNode) Expr {
-        return castFirstChild(self.v, all_nodes, Expr) catch unreachable;
+        return castFirstChild(self.v, all_nodes, Expr) catch default(Expr);
     }
 
     pub fn op(self: Unary, all_nodes: []const SyntaxNode) UnaryOperator {
-        return castFirstChild(self.v, all_nodes, UnaryOperator) catch unreachable;
+        return castFirstChild(self.v, all_nodes, UnaryOperator) catch default(UnaryOperator);
     }
 };
 
@@ -467,11 +474,11 @@ pub const FunctionCall = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn name(self: FunctionCall, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self.v, all_nodes, Ident) catch unreachable;
+        return castFirstChild(self.v, all_nodes, Ident) catch default(Ident);
     }
 
     pub fn arguments(self: FunctionCall, all_nodes: []const SyntaxNode) ArgumentList {
-        return castFirstChild(self.v, all_nodes, ArgumentList) catch unreachable;
+        return castFirstChild(self.v, all_nodes, ArgumentList) catch default(ArgumentList);
     }
 };
 
@@ -501,14 +508,14 @@ pub const Access = union(enum(u8)) {
     /// What is on the left side of the access, e.g. "foo" in `foo.bar`
     pub fn lhs(self: Access, all_nodes: []const SyntaxNode) Expr {
         return switch (self) {
-            inline else => |v| castFirstChild(v.v, all_nodes, Expr) orelse unreachable,
+            inline else => |v| castFirstChild(v.v, all_nodes, Expr) orelse default(Expr),
         };
     }
 
     /// What is on the right side of the access, e.g. "bar" in `foo.bar`
     pub fn rhs(self: Access, all_nodes: []const SyntaxNode) Expr {
         return switch (self) {
-            inline else => |v| castLastChild(v.v, all_nodes, Expr) orelse unreachable,
+            inline else => |v| castLastChild(v.v, all_nodes, Expr) orelse default(Expr),
         };
     }
 };

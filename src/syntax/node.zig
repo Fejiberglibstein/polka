@@ -176,12 +176,28 @@ pub const SyntaxKind = enum(u8) {
 
     pub fn isBinaryOp(self: SyntaxKind) bool {
         // TODO add `in` binary op. ("foo" in {"bar", "foo"})
-        return self == .plus or self == .minus or self == .perc or self == .star or self == .slash;
+        return switch (self) {
+            .plus,
+            .minus,
+            .slash,
+            .star,
+            .eq_eq,
+            .lt_eq,
+            .lt,
+            .gt_eq,
+            .gt,
+            .eq,
+            .perc,
+            .not_eq,
+            => true,
+
+            else => false,
+        };
     }
 
     pub fn isUnaryOp(self: SyntaxKind) bool {
         // TODO add `not` unary op
-        return self == .minus;
+        return self == .minus or self == .plus;
     }
 
     pub fn name(self: SyntaxKind) []const u8 {
