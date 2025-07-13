@@ -341,35 +341,6 @@ pub const SyntaxNode = struct {
         };
     }
 
-    /// Used in the typed AST to get children matching a certain ASTNode type.
-    ///
-    /// If no nodes are found, will return a generic node
-    pub fn lastChild(self: SyntaxNode, all_nodes: []const SyntaxNode, T: type) T {
-        const childs = self.children(all_nodes);
-        var i = childs.len - 1;
-
-        while (i > 0) : (i -= 1) {
-            if (T.toTyped(childs[i])) |c| {
-                return c;
-            }
-        }
-
-        return T{ .v = SyntaxNode.leafNode(T.kind, "") };
-    }
-
-    /// Used in the typed AST to get children matching a certain ASTNode type.
-    ///
-    /// If no nodes are found, will return a generic node
-    pub fn firstChild(self: SyntaxNode, all_nodes: []const SyntaxNode, T: type) T {
-        for (self.children(all_nodes)) |child| {
-            if (T.toTyped(child)) |c| {
-                return c;
-            }
-        }
-
-        return T{ .v = SyntaxNode.leafNode(T.kind, "") };
-    }
-
     pub fn intoError(self: *SyntaxNode, e: SyntaxError) void {
         switch (self.inner) {
             .@"error" => {},
