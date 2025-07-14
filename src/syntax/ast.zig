@@ -142,7 +142,7 @@ pub const Text = struct {
     pub const kind: SyntaxKind = .text;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    pub fn get(self: Text) Allocator.Error![]const u8 {
+    pub fn get(self: Text) []const u8 {
         // TODO make this clean the text by removing backslashes and such
         return self.v.range;
     }

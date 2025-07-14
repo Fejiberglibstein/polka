@@ -10,11 +10,18 @@ const SyntaxKind = @import("syntax/node.zig").SyntaxKind;
 const parse = @import("syntax/parser.zig");
 const Scanner = @import("syntax/Scanner.zig");
 const syntax_tests = @import("syntax/test.zig");
+const Vm = @import("eval/Vm.zig");
 
 pub fn main() !void {
-    const node, const nodes = try parse.parse("", std.heap.page_allocator);
-    _ = ast.TextNode.toTyped(node) orelse unreachable;
-    _ = nodes;
+    const allocator = std.heap.page_allocator;
+
+    const node, const nodes = try parse.parse("", allocator);
+    var vm = Vm.init(allocator, nodes.items);
+
+    const stdout = std.io.getStdOut().writer();
+
+    const result = try vm.eval(node);
+    try stdout.print("{s}", .{result});
 }
 
 test "all" {

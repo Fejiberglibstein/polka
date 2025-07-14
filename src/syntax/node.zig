@@ -308,7 +308,7 @@ pub const SyntaxNode = struct {
         };
     }
 
-    pub fn treeNode(k: SyntaxKind, all_nodes: []SyntaxNode, c: TreeNode.Children) SyntaxNode {
+    pub fn treeNode(k: SyntaxKind, all_nodes: []const SyntaxNode, c: TreeNode.Children) SyntaxNode {
         const tree = TreeNode{
             .kind = k,
             .children = c,
@@ -385,7 +385,6 @@ pub const SyntaxError = union(enum(u8)) {
     expected_token: SyntaxKind,
     unexpected_token: SyntaxKind,
     unexpected_character: u8,
-    other: []const u8,
 
     fn toString(self: SyntaxError, a: std.mem.Allocator) []const u8 {
         // TODO perhaps make this do comptime string concatenation instead of `allocPrint`ing ?
@@ -394,7 +393,6 @@ pub const SyntaxError = union(enum(u8)) {
             .expected_token => |k| std.fmt.allocPrint(a, "Expected token {s}", .{k.name()}),
             .unexpected_token => |k| std.fmt.allocPrint(a, "Unexpected token {s}", .{k.name()}),
             .unexpected_character => |c| std.fmt.allocPrint(a, "Unexpected character {c}", .{c}),
-            .other => |s| std.fmt.allocPrint(a, "{s}", .{s}),
         }
     }
 };
