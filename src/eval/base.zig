@@ -45,11 +45,40 @@ pub fn evalCode(node: ast.Code, vm: *Vm) !void {
 }
 
 pub fn evalExpr(node: ast.Expr, vm: *Vm) !Value {
-    _ = vm;
     return switch (node) {
         .bool => |v| Value{ .bool = v.get() },
         .nil => .nil,
         .number => |v| Value{ .number = v.get() },
+        .string => |_| unreachable, // TODO
+        .access => |_| unreachable, // TODO
+        .function_call => |_| unreachable, // TODO
+        .grouping => |v| try evalExpr(v.get(vm.nodes), vm),
+        .ident => |_| unreachable, // TODO
+        .unary_op => |v| 
+        else => unreachable,
+    };
+}
+
+pub fn evalBinary(lhs: Value, rhs: Value, op: SyntaxKind, vm: *Vm) !Value {
+    return switch (op) {
+        .plus => switch (lhs) {
+            .number => |l| switch (rhs) {
+                .number => |r| Value{ .number = l + r },
+                inline else => |r| invalidOps(.number, r, vm),
+            },
+            .bool => try invalidOps(.number, lhs, vm),
+
+            else => unreachable, // TODO
+        },
+
+        .eq => 1,
+        .@"or" => 2,
+        .@"and" => 3,
+        .not_eq, .eq_eq => 4,
+        .lt_eq, .lt, .gt_eq, .gt => 5,
+        .plus, .minus, .perc => 6,
+        .star, .slash => 7,
+
         else => unreachable,
     };
 }
