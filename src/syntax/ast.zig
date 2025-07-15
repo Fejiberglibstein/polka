@@ -428,38 +428,71 @@ pub const BinaryOperator = struct {
     }
 
     pub fn precedence(self: BinaryOperator) usize {
-        return switch (self.v.kind()) {
-            .eq => 1,
+        return switch (self.getOp()) {
+            .assign => 1,
             .@"or" => 2,
             .@"and" => 3,
-            .not_eq, .eq_eq => 4,
-            .lt_eq, .lt, .gt_eq, .gt => 5,
-            .plus, .minus, .perc => 6,
-            .star, .slash => 7,
-
-            else => unreachable,
+            .not_equal, .equal => 4,
+            .less_than, .less_than_equal, .greater_than_equal, .greater_than => 5,
+            .add, .subtract => 6,
+            .multiply, .divide, .modulo => 7,
         };
     }
 
     pub const Associativity = enum(u8) { left, right };
-
     pub fn associativity(self: BinaryOperator) BinaryOperator.Associativity {
-        return switch (self.v.kind()) {
+        return switch (self.getOp()) {
             .@"or",
             .@"and",
-            .not_eq,
-            .eq_eq,
-            .lt_eq,
-            .lt,
-            .gt_eq,
-            .gt,
-            .plus,
-            .minus,
-            .perc,
-            .star,
-            .slash,
+            .not_equal,
+            .equal,
+            .less_than_equal,
+            .less_than,
+            .greater_than_equal,
+            .greater_than,
+            .add,
+            .subtract,
+            .modulo,
+            .multiply,
+            .divide,
             => .left,
-            .eq => .right,
+            .assign => .right,
+        };
+    }
+
+    pub const Op = enum(u8) {
+        add,
+        subtract,
+        divide,
+        multiply,
+        modulo,
+        greater_than,
+        less_than,
+        greater_than_equal,
+        less_than_equal,
+        equal,
+        not_equal,
+        assign,
+        @"and",
+        @"or",
+    };
+
+    pub fn getOp(self: BinaryOperator) Op {
+        return switch (self.v.kind()) {
+            .@"or" => .@"or",
+            .@"and" => .@"and",
+            .not_eq => .not_equal,
+            .eq_eq => .equal,
+            .lt_eq => .less_than_equal,
+            .lt => .less_than,
+            .gt_eq => .greater_than_equal,
+            .gt => .greater_than,
+            .plus => .add,
+            .minus => .subtract,
+            .perc => .modulo,
+            .star => .multiply,
+            .slash => .divide,
+            .eq => .assign,
 
             else => unreachable,
         };
