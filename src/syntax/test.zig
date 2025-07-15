@@ -1,6 +1,312 @@
-//! Testing the parser
-//!
-//! Test files are located in tests/
+test "binary_expr" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\#* 3 *4 - foo()
+        \\#* 3 == 2 and 3 - 6 * 2 > (h and 1)
+        \\#* 3 + 3 + 3
+        \\#* 3 = 3 = 3
+    ,
+        \\text_node [
+        \\  code [
+        \\    code_begin,
+        \\    binary [
+        \\      binary [ number, star, number, ],
+        \\      minus,
+        \\      function_call [
+        \\        ident,
+        \\        argument_list [ left_paren, right_paren, ]
+        \\      ]
+        \\    ],
+        \\    newline,
+        \\    code_begin,
+        \\    binary [
+        \\      binary [ number, eq_eq, number ],
+        \\      and,
+        \\      binary [
+        \\        binary [
+        \\          number,
+        \\          minus,
+        \\          binary [ number, star, number, ]
+        \\        ],
+        \\        gt,
+        \\        grouping [
+        \\          left_paren,
+        \\          binary [ ident, and, number ],
+        \\          right_paren,
+        \\        ]
+        \\      ]
+        \\    ],
+        \\    newline,
+        \\    code_begin,
+        \\    binary [
+        \\      binary [ number, plus, number ],
+        \\      plus,
+        \\      number
+        \\    ],
+        \\    newline,
+        \\    code_begin,
+        \\    binary [
+        \\      number,
+        \\      eq,
+        \\      binary [ number, eq, number, ]
+        \\    ]
+        \\  ]
+        \\]
+    );
+}
+
+test "complex_text" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\
+        \\# Colors
+        \\[colors.primary]
+        \\#* for color in colors do
+        \\color: #*color.bar foo
+        \\#* end
+        \\foo
+        \\
+    ,
+        \\text_node [
+        \\  newline,
+        \\  text,
+        \\  newline,
+        \\  text,
+        \\  newline,
+        \\  code [
+        \\    code_begin,
+        \\    for_loop [
+        \\      for,
+        \\      ident,
+        \\      in,
+        \\      ident,
+        \\      do,
+        \\      newline,
+        \\      text_node [
+        \\        text,
+        \\        code [
+        \\          code_begin,
+        \\          dot_access [ ident, dot, ident ],
+        \\        ],
+        \\        text,
+        \\        newline,
+        \\        code [ code_begin ]
+        \\      ],
+        \\      end
+        \\    ],
+        \\    newline
+        \\  ],
+        \\  text,
+        \\  newline
+        \\]
+    );
+}
+
+test "forloop" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\
+        \\#* for i in range(4) do
+        \\hi
+        \\#* end
+        \\
+    ,
+        \\text_node [
+        \\  newline,
+        \\  code [
+        \\    code_begin,
+        \\    for_loop [
+        \\      for,
+        \\      ident,
+        \\      in,
+        \\      function_call [
+        \\        ident,
+        \\        argument_list [ left_paren, number, right_paren ]
+        \\      ],
+        \\      do,
+        \\      newline,
+        \\      text_node [
+        \\        text,
+        \\        newline,
+        \\        code [ code_begin ]
+        \\      ],
+        \\      end
+        \\    ],
+        \\    newline
+        \\  ]
+        \\]
+    );
+}
+
+test "function" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\
+        \\hello
+        \\#* function foo(bar, baz) 
+        \\#*     return 4
+        \\#* end
+        \\> world
+        \\
+    ,
+        \\text_node [
+        \\  newline,
+        \\  text,
+        \\  newline,
+        \\  code [
+        \\    code_begin,
+        \\    function_def [
+        \\      function,
+        \\      ident,
+        \\      function_parameters [ left_paren, ident, comma, ident, right_paren ],
+        \\      newline,
+        \\      text_node [
+        \\        code [
+        \\          code_begin,
+        \\          return_expr [ return, number ]
+        \\          newline,
+        \\          code_begin
+        \\        ]
+        \\      ],
+        \\      end,
+        \\    ],
+        \\    newline
+        \\  ],
+        \\  text,
+        \\  newline
+        \\]
+    );
+}
+
+test "if" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\
+        \\#* if true then 
+        \\#*     if false then
+        \\hello there
+        \\#*     end
+        \\#* end
+        \\
+    ,
+        \\text_node [
+        \\  newline,
+        \\  code [
+        \\    code_begin,
+        \\    conditional [
+        \\      if,
+        \\      bool,
+        \\      then,
+        \\      newline,
+        \\      text_node [
+        \\        code [
+        \\          code_begin,
+        \\          conditional [
+        \\            if,
+        \\            bool,
+        \\            then,
+        \\            newline,
+        \\            text_node [
+        \\              text,
+        \\              newline,
+        \\              code [ code_begin ],
+        \\            ],
+        \\            end
+        \\          ],
+        \\          newline,
+        \\          code_begin
+        \\        ],
+        \\      ],
+        \\      end
+        \\    ],
+        \\    newline
+        \\  ]
+        \\]
+    );
+}
+
+test "inline_expressions" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\foreground = \"#*foo.baz\"
+    ,
+        \\text_node [
+        \\  text,
+        \\  code [
+        \\    code_begin,
+        \\    dot_access [ ident, dot, ident ]
+        \\  ],
+        \\  text
+        \\]
+        \\
+    );
+}
+
+test "multiline_code" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\#* let foo = 10 
+        \\#* foo 
+    ,
+        \\text_node [
+        \\  code [
+        \\    code_begin,
+        \\    let_expr [ let, ident, eq, number ],
+        \\    newline,
+        \\    code_begin,
+        \\    ident
+        \\  ]
+        \\]
+    );
+}
+
+test "simple_code" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\#* foo.bar.bar(4, 10)
+    ,
+        \\text_node [
+        \\  code [
+        \\    code_begin,
+        \\    function_call [
+        \\      dot_access [
+        \\        dot_access [ ident, dot, ident ]
+        \\        dot,
+        \\        ident
+        \\      ],
+        \\      argument_list [
+        \\        left_paren,
+        \\        number,
+        \\        comma,
+        \\        number,
+        \\        right_paren
+        \\      ]
+        \\    ]
+        \\  ]
+        \\]
+    );
+}
+
+test "simple_text" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\
+        \\foo
+        \\bar
+        \\
+        \\bar
+    ,
+        \\text_node[
+        \\  newline,
+        \\  text,
+        \\  newline,
+        \\  text,
+        \\  newline,
+        \\  newline,
+        \\  text
+        \\]
+    );
+}
 
 const std = @import("std");
 const expect = std.testing.expect;
@@ -10,12 +316,13 @@ const parser = @import("parser.zig");
 const Scanner = @import("Scanner.zig");
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;
+const printNode = @import("print.zig").printNode;
 
 inline fn isKind(c: u8) bool {
     return (c >= 'a' and c <= 'z') or c == '_';
 }
 
-fn parseFile(
+fn parseTree(
     comptime text: []const u8,
 ) !struct { SyntaxNode, std.BoundedArray(SyntaxNode, 500) } {
     // list of all nodes
@@ -76,7 +383,7 @@ fn parseFile(
     return .{ node, nodes };
 }
 
-fn nodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []const SyntaxNode, all2: []const SyntaxNode) !void {
+fn assertNodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []const SyntaxNode, all2: []const SyntaxNode) !void {
     try expectEqual(n1.kind(), n2.kind());
     switch (n1.inner) {
         .leaf => switch (n2.inner) {
@@ -87,7 +394,7 @@ fn nodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []const SyntaxNode, all2: []con
             .tree => {
                 try expectEqual(n1.children(all1).len, n2.children(all2).len);
                 for (n1.children(all1), n2.children(all2)) |c1, c2| {
-                    try nodeEql(c1, c2, all1, all2);
+                    try assertNodeEql(c1, c2, all1, all2);
                 }
             },
             else => try expect(false),
@@ -99,70 +406,30 @@ fn nodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []const SyntaxNode, all2: []con
     }
 }
 
-fn testParser(comptime path: []const u8, allocator: std.mem.Allocator) !void {
-    const file = @embedFile("tests/" ++ path ++ ".polk");
-    const SEP = "\n$$$\n";
+fn testParser(source: []const u8, comptime expected_source: []const u8) !void {
+    var allocator = std.heap.DebugAllocator(.{}).init;
+    defer {
+        _ = allocator.deinit();
+    } 
 
     const expected_node, const expected_nodes = comptime blk: {
-        const index = std.mem.indexOf(u8, file, SEP).?;
-        const expected_source = file[(index + SEP.len)..];
-
-        break :blk try parseFile(expected_source);
+        break :blk try parseTree(expected_source);
     };
-
-    const index = std.mem.indexOf(u8, file, SEP).?;
-
-    const source = file[0..index];
-
-    const parsed_node, const parsed_nodes = try parser.parse(source, allocator);
+    const parsed_node, const parsed_nodes = try parser.parse(source, allocator.allocator());
     defer parsed_nodes.deinit();
 
-    nodeEql(parsed_node, expected_node, parsed_nodes.items, expected_nodes.slice()) catch {
+    assertNodeEql(
+        parsed_node,
+        expected_node,
+        parsed_nodes.items,
+        expected_nodes.slice(),
+    ) catch |err| {
         std.debug.print("{s}\n", .{source});
         std.debug.print("Expected \n", .{});
         printNode(expected_node, expected_nodes.slice(), 0);
 
         std.debug.print("\nGot \n", .{});
         printNode(parsed_node, parsed_nodes.items, 0);
+        return err;
     };
-
-    std.debug.print("test " ++ path ++ " passed\n", .{});
-}
-
-fn printNode(node: SyntaxNode, all_nodes: []const SyntaxNode, indent: usize) void {
-    for (0..indent) |_| {
-        std.debug.print("    ", .{});
-    }
-
-    switch (node.inner) {
-        .@"error" => |e| std.debug.print("{s},\n", .{@tagName(e.err)}),
-        .leaf => |l| std.debug.print("{s},\n", .{@tagName(l.kind)}),
-        .tree => |t| {
-            std.debug.print("{s} [\n", .{@tagName(t.kind)});
-            const children = t.getChildren(all_nodes);
-            for (children) |child| {
-                printNode(child, all_nodes, indent + 1);
-            }
-
-            for (0..indent) |_| {
-                std.debug.print("    ", .{});
-            }
-            std.debug.print("],\n", .{});
-        },
-    }
-}
-
-test "testParser" {
-    @setEvalBranchQuota(100000);
-    var allocator = std.heap.DebugAllocator(.{}).init;
-    defer _ = allocator.deinit();
-    try testParser("binary_expr", allocator.allocator());
-    try testParser("complex_text", allocator.allocator());
-    try testParser("forloop", allocator.allocator());
-    try testParser("function", allocator.allocator());
-    try testParser("if", allocator.allocator());
-    try testParser("inline_expressions", allocator.allocator());
-    try testParser("multiline_code", allocator.allocator());
-    try testParser("simple_code", allocator.allocator());
-    try testParser("simple_text", allocator.allocator());
 }
