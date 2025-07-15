@@ -1,7 +1,15 @@
 const List = @import("list.zig").List;
 const String = @import("string.zig").String;
 
-pub const Value = union(enum(u8)) {
+pub const ValueType = enum(u8) {
+    nil,
+    bool,
+    number,
+    list,
+    string,
+};
+
+pub const Value = union(ValueType) {
     nil: void,
     bool: bool,
     number: f64,

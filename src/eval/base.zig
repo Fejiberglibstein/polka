@@ -15,11 +15,11 @@ pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
                 last_was_code = true;
             },
             .text => |t| {
-                try vm.writeContent("{s}", .{t.get()});
+                try vm.content.print("{s}", .{t.get()});
                 last_was_code = false;
             },
             .newline => if (!last_was_code)
-                try vm.writeContent("\n", .{})
+                try vm.content.print("\n", .{})
             else {
                 last_was_code = false;
             },

@@ -116,7 +116,7 @@ pub const TextNode = struct {
 
     /// Get all the expressions that are either a `Text`, `Newline`, or `Code`.
     pub fn text(self: TextNode, all_nodes: []const SyntaxNode) ASTIterator(TextPart) {
-        return ASTIterator(TextPart).init(self, all_nodes);
+        return ASTIterator(TextPart).init(self.v, all_nodes);
     }
 };
 
@@ -184,7 +184,7 @@ pub const Statement = union(enum(u8)) {
             .conditional => .{ .conditional = Conditional{ .v = n } },
             .function_def => .{ .function_def = FunctionDef{ .v = n } },
 
-            else => Expr.toTyped(n),
+            else => if (Expr.toTyped(n)) |v| .{ .expr = v } else null,
         };
     }
 };
@@ -211,11 +211,11 @@ pub const Expr = union(enum(u8)) {
             .ident => .{ .ident = Ident{ .v = n } },
             .number => .{ .number = Number{ .v = n } },
             .string => .{ .string = String{ .v = n } },
-            .unary_op => .{ .unary_op = Unary{ .v = n } },
+            .unary => .{ .unary_op = Unary{ .v = n } },
             .grouping => .{ .grouping = Grouping{ .v = n } },
-            .binary_op => .{ .binary_op = Binary{ .v = n } },
+            .binary => .{ .binary_op = Binary{ .v = n } },
             .function_call => .{ .function_call = FunctionCall{ .v = n } },
-            .dot_access, .bracket_access => Access.toTyped(n) orelse unreachable,
+            .dot_access, .bracket_access => .{ .access = Access.toTyped(n) orelse unreachable },
 
             else => null,
         };
@@ -535,7 +535,7 @@ pub const Access = union(enum(u8)) {
     bracket_access: BracketAccess,
     dot_access: DotAccess,
 
-    pub inline fn toTyped(n: SyntaxNode) Access {
+    pub inline fn toTyped(n: SyntaxNode) ?Access {
         return switch (n.kind()) {
             .bracket_access => .{ .bracket_access = BracketAccess{ .v = n } },
             .dot_access => .{ .dot_access = DotAccess{ .v = n } },

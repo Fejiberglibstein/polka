@@ -10,6 +10,7 @@ const SyntaxKind = @import("syntax/node.zig").SyntaxKind;
 const parse = @import("syntax/parser.zig");
 const Scanner = @import("syntax/Scanner.zig");
 const syntax_tests = @import("syntax/test.zig");
+const eval_test = @import("eval/test.zig");
 const Vm = @import("eval/Vm.zig");
 
 pub fn main() !void {
@@ -17,6 +18,7 @@ pub fn main() !void {
 
     const node, const nodes = try parse.parse("", allocator);
     var vm = Vm.init(allocator, nodes.items);
+    defer vm.deinit();
 
     const stdout = std.io.getStdOut().writer();
 
@@ -27,4 +29,5 @@ pub fn main() !void {
 test "all" {
     std.testing.refAllDeclsRecursive(@This());
     _ = syntax_tests;
+    _ = eval_test;
 }
