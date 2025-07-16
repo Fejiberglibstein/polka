@@ -8,14 +8,17 @@ const RuntimeError = @import("error.zig").RuntimeError;
 const std = @import("std");
 
 pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
-    var text_parts = node.text(vm.nodes);
+    vm.stack.pushScope();
 
     // if the last node visited was a code node
     var last_was_code = false;
+
+    var text_parts = node.text(vm.nodes);
     while (text_parts.next()) |part| {
         switch (part) {
             .code => |c| {
                 try evalCode(c, vm);
+                try vm.content.print("\n", .{});
                 last_was_code = true;
             },
             .text => |t| {
@@ -29,19 +32,21 @@ pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
             },
         }
     }
+
+    vm.stack.popScope();
 }
 
 pub fn evalCode(node: ast.Code, vm: *Vm) !void {
     var statements = node.statements(vm.nodes);
     while (statements.next()) |stmt| {
         switch (stmt) {
+            .expr => |v| try vm.writeValue(try evalExpr(v, vm)),
+            .let_expr => |v| try evalLetExpr(v, vm),
             .conditional => |_| @panic("TODO"),
             .export_expr => @panic("TODO"),
             .for_loop => @panic("TODO"),
             .function_def => @panic("TODO"),
             .return_expr => @panic("TODO"),
-            .expr => |v| try vm.writeValue(try evalExpr(v, vm)),
-            .let_expr => |_| @panic("TODO"),
             .while_loop => |_| @panic("TODO"),
         }
     }
@@ -57,9 +62,15 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) !Value {
         .unary_op => |v| try evalUnary(v, vm),
         .string => |_| @panic("TODO"),
         .access => |_| @panic("TODO"),
-        .ident => |_| @panic("TODO"),
+        .ident => |v| try vm.getVar(v.get()),
         .function_call => |_| @panic("TODO"),
     };
+}
+
+pub fn evalLetExpr(node: ast.LetExpr, vm: *Vm) !void {
+    const var_name = node.binding(vm.nodes).get();
+
+    try vm.stack.pushVar(var_name, try evalExpr(node.value(vm.nodes), vm));
 }
 
 pub fn evalUnary(node: ast.Unary, vm: *Vm) RuntimeError!Value {
@@ -102,8 +113,18 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!Value {
             };
         }
     }.err;
-
     return switch (op) {
+        .assign => blk: {
+            const var_name = switch (lhs) {
+                .ident => |v| v.get(),
+                .access => @panic("TODO"),
+                else => try vm.setError(.invalid_assignment),
+            };
+
+            vm.setVar(var_name, try evalExpr(rhs, vm));
+
+            break :blk .nil;
+        },
         .@"and" => blk: {
             const l = try evalExpr(lhs, vm);
             // Return l if l is false.

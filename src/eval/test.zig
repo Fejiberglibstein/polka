@@ -1,42 +1,41 @@
-// test "assignment" {
-//     try testEval(
-//         \\
-//         \\Hello
-//         \\#* let h = 4
-//         \\#* h
-//         \\
-//         \\#* let b = h
-//         \\#* b
-//         \\Bar
-//         \\
-//         \\#* let h = 2
-//         \\#* b
-//         \\#* h
-//         \\
-//         \\this
-//         \\#* let g = 4
-//         \\is great
-//     ,
-//         \\Hello
-//         \\4
-//         \\4
-//         \\Bar
-//         \\
-//         \\4 2
-//         \\
-//         \\this
-//         \\is great
-//     );
-// }
-//
+test "assignment" {
+    try testEval(
+        \\Hello
+        \\#* let h = 4
+        \\#* h
+        \\
+        \\#* let b = h
+        \\#* b
+        \\Bar
+        \\
+        \\#* let h = 2
+        \\#* b
+        \\#* h
+        \\
+        \\this
+        \\#* let g = 4
+        \\is great
+    ,
+        \\Hello
+        \\4
+        \\4
+        \\Bar
+        \\
+        \\4 2
+        \\
+        \\this
+        \\is great
+    );
+}
+
 test "binary" {
     try testEval(
         \\#* 3 - 2
         \\#* 4 * 3 - 6
         \\#* 2.2 + 9
-        \\
     ,
         \\1 6 11.2 
+        \\
     );
 }
 //

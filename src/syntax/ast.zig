@@ -235,7 +235,7 @@ pub const Ident = struct {
     pub const kind: SyntaxKind = .ident;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    fn get(self: Ident) []const u8 {
+    pub fn get(self: Ident) []const u8 {
         return self.v.range;
     }
 };

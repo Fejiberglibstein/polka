@@ -17,6 +17,12 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
         rhs: Value,
         op: ast.UnaryOperator.Op,
     },
+
+    /// Invalid left-hand-side to assignment
+    invalid_assignment: void,
+
+    /// Use of undeclared identifier `<name>`
+    undeclared_ident: []const u8,
 };
 
 pub const RuntimeError = error{Error};
