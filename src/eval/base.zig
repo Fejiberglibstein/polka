@@ -18,15 +18,15 @@ pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
         switch (part) {
             .code => |c| {
                 try evalCode(c, vm);
-                try vm.content.print("\n", .{});
+                try vm.outputPrint("\n", .{});
                 last_was_code = true;
             },
             .text => |t| {
-                try vm.content.print("{s}", .{t.get()});
+                try vm.outputPrint("{s}", .{t.get()});
                 last_was_code = false;
             },
             .newline => if (!last_was_code)
-                try vm.content.print("\n", .{})
+                try vm.outputPrint("\n", .{})
             else {
                 last_was_code = false;
             },

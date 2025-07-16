@@ -1,21 +1,23 @@
 /// List of all nodes in the program
 nodes: []const SyntaxNode,
-/// The resulting text that the language produces
-content: Content,
+
+/// The resulting text that the entire source code will produce. This is what goes inside the file
+/// after program execution finishes
+output: std.ArrayList(u8),
 err: ?RuntimeErrorPayload,
 stack: Stack,
 
 pub fn init(allocator: Allocator, all_nodes: []const SyntaxNode) Vm {
     return Vm{
         .nodes = all_nodes,
-        .content = Content{ .v = .init(allocator) },
+        .output = .init(allocator),
         .stack = Stack.init(allocator),
         .err = null,
     };
 }
 
 pub fn deinit(self: Vm) void {
-    self.content.v.deinit();
+    self.output.deinit();
     self.stack.deinit();
 }
 
@@ -23,7 +25,7 @@ pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
     const root = ast.TextNode.toTyped(start_node).?;
     try base.evalTextNode(root, self);
 
-    return self.content.v.items;
+    return self.output.items;
 }
 
 pub fn setError(self: *Vm, err: RuntimeErrorPayload) RuntimeError!noreturn {
@@ -31,23 +33,18 @@ pub fn setError(self: *Vm, err: RuntimeErrorPayload) RuntimeError!noreturn {
     return RuntimeError.Error;
 }
 
+pub fn outputPrint(self: *Vm, comptime fmt: []const u8, args: anytype) Allocator.Error!void {
+    try self.output.writer().print(fmt, args);
+}
+
 pub fn writeValue(self: *Vm, value: Value) !void {
     switch (value) {
-        .bool => |v| try self.content.print("{} ", .{v}),
-        .number => |v| try self.content.print("{d} ", .{v}),
-        .nil => try self.content.print("nil ", .{}),
+        .bool => |v| try self.outputPrint("{} ", .{v}),
+        .number => |v| try self.outputPrint("{d} ", .{v}),
+        .nil => try self.outputPrint("nil ", .{}),
         else => unreachable, // TODO
     }
 }
-
-/// A heap allocated string buffer
-const Content = struct {
-    v: std.ArrayList(u8),
-
-    pub fn print(self: *Content, comptime fmt: []const u8, args: anytype) Allocator.Error!void {
-        try self.v.writer().print(fmt, args);
-    }
-};
 
 /// Set a local variable on the stack.
 ///
