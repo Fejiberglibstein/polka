@@ -52,8 +52,8 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) !Value {
         .bool => |v| Value{ .bool = v.get() },
         .number => |v| Value{ .number = v.get() },
         .grouping => |v| try evalExpr(v.get(vm.nodes), vm),
-        .binary_op => |v| evalBinary(v, vm),
-        .unary_op => |_| @panic("TODO"),
+        .binary_op => |v| try evalBinary(v, vm),
+        .unary_op => |v| try evalUnary(v, vm),
         .string => |_| @panic("TODO"),
         .access => |_| @panic("TODO"),
         .ident => |_| @panic("TODO"),
@@ -61,14 +61,16 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) !Value {
     };
 }
 
-pub fn evalUnary(node: ast.Unary, vm: *Vm) !Value {
-    const rhs = evalExpr(node.rhs(vm.nodes), vm);
+pub fn evalUnary(node: ast.Unary, vm: *Vm) RuntimeError!Value {
+    const rhs = try evalExpr(node.rhs(vm.nodes), vm);
     const op = node.op(vm.nodes).getOp();
 
     return switch (op) {
         .negate => switch (rhs) {
             .number => |r| Value{ .number = -r },
-            else => try vm.setError(),
+            else => try vm.setError(.{
+                .invalid_unary_operands = .{ .rhs = rhs, .op = op },
+            }),
         },
     };
 }
@@ -91,7 +93,7 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!Value {
             inner_vm: *Vm,
         ) RuntimeError!RuntimeErrorPayload {
             return .{
-                .invalid_operands = .{
+                .invalid_binary_operands = .{
                     .lhs = try evalExpr(lhs_expr, inner_vm),
                     .rhs = try evalExpr(rhs_expr, inner_vm),
                     .op = operator,
