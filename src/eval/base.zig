@@ -2,6 +2,7 @@ const ast = @import("../syntax/ast.zig");
 const SyntaxNode = @import("../syntax/node.zig");
 const Value = @import("../runtime/value.zig").Value;
 const Vm = @import("Vm.zig");
+const RuntimeErrorPayload = @import("../runtime/error.zig").RuntimeErrorPayload;
 
 pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
     var text_parts = node.text(vm.nodes);
@@ -32,53 +33,148 @@ pub fn evalCode(node: ast.Code, vm: *Vm) !void {
 
     while (statements.next()) |stmt| {
         switch (stmt) {
-            .conditional => |_| unreachable, // TODO
-            .export_expr => unreachable, // TODO
-            .for_loop => unreachable, // TODO
-            .function_def => unreachable, // TODO
-            .return_expr => unreachable, // TODO
+            .conditional => |_| @panic("TODO"),
+            .export_expr => @panic("TODO"),
+            .for_loop => @panic("TODO"),
+            .function_def => @panic("TODO"),
+            .return_expr => @panic("TODO"),
             .expr => |v| try vm.writeValue(try evalExpr(v, vm)),
-            .let_expr => |_| unreachable, // TODO
-            .while_loop => |_| unreachable, // TODO
+            .let_expr => |_| @panic("TODO"),
+            .while_loop => |_| @panic("TODO"),
         }
     }
 }
 
 pub fn evalExpr(node: ast.Expr, vm: *Vm) !Value {
     return switch (node) {
-        .bool => |v| Value{ .bool = v.get() },
         .nil => .nil,
+        .bool => |v| Value{ .bool = v.get() },
         .number => |v| Value{ .number = v.get() },
-        .string => |_| unreachable, // TODO
-        .access => |_| unreachable, // TODO
-        .function_call => |_| unreachable, // TODO
         .grouping => |v| try evalExpr(v.get(vm.nodes), vm),
-        .ident => |_| unreachable, // TODO
-        .unary_op => |v| 
-        else => unreachable,
+        .binary_op => |v| evalBinary(v, vm),
+        .unary_op => |_| @panic("TODO"),
+        .string => |_| @panic("TODO"),
+        .access => |_| @panic("TODO"),
+        .ident => |_| @panic("TODO"),
+        .function_call => |_| @panic("TODO"),
     };
 }
 
-pub fn evalBinary(lhs: Value, rhs: Value, op: SyntaxKind, vm: *Vm) !Value {
+pub fn evalBinary(node: ast.Binary, vm: *Vm) !Value {
+    // don't eval these nodes yet so that we can do short circuit evaluation on `and`/`or`
+    const lhs = node.lhs(vm.nodes);
+    const rhs = node.rhs(vm.nodes);
+    const op = node.op(vm.nodes).getOp();
+
+    // Lazily calculate the potential error.
+    //
+    // Since this function evaluates the lhs and rhs, it cannot be called until we definitely have
+    // an error since we need to do short circuit evaluation
+    const invalidOpError = struct {
+        pub fn err(
+            lhs_expr: ast.Expr,
+            rhs_expr: ast.Expr,
+            operator: ast.BinaryOperator.Op,
+            inner_vm: *Vm,
+        ) RuntimeErrorPayload!void {
+            return .{
+                .invalid_operands = struct {
+                    lhs: @intFromEnum(evalExpr(lhs_expr, inner_vm)),
+                    rhs: @intFromEnum(evalExpr(rhs_expr, inner_vm)),
+                    op: operator,
+                },
+            };
+        }
+    }.err;
+
     return switch (op) {
-        .plus => switch (lhs) {
+        .@"and" => blk: {
+            const l = try evalExpr(lhs, vm);
+            // Return l if l is false.
+            if (!l.isTruthy()) {
+                break :blk l;
+            }
+            // otherwise return r
+            break :blk try evalExpr(rhs, vm);
+        },
+        .@"or" => blk: {
+            const l = try evalExpr(lhs, vm);
+            // Return l if l is true.
+            if (l.isTruthy()) {
+                break :blk l;
+            }
+            // otherwise return r
+            break :blk try evalExpr(rhs, vm);
+        },
+        .add => switch (try evalExpr(lhs, vm)) {
             .number => |l| switch (rhs) {
                 .number => |r| Value{ .number = l + r },
-                inline else => |r| invalidOps(.number, r, vm),
+                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
             },
-            .bool => try invalidOps(.number, lhs, vm),
-
-            else => unreachable, // TODO
+            .bool => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            .nil => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            .string => @panic("TODO"),
+            .list => @panic("TODO"),
         },
-
-        .eq => 1,
-        .@"or" => 2,
-        .@"and" => 3,
-        .not_eq, .eq_eq => 4,
-        .lt_eq, .lt, .gt_eq, .gt => 5,
-        .plus, .minus, .perc => 6,
-        .star, .slash => 7,
-
-        else => unreachable,
+        .subtract => switch (try evalExpr(lhs, vm)) {
+            .number => |l| switch (rhs) {
+                .number => |r| Value{ .number = l - r },
+                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            },
+            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+        },
+        .multiply => switch (try evalExpr(lhs, vm)) {
+            .number => |l| switch (rhs) {
+                .number => |r| Value{ .number = l * r },
+                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            },
+            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+        },
+        .divide => switch (try evalExpr(lhs, vm)) {
+            .number => |l| switch (rhs) {
+                .number => |r| Value{ .number = l / r },
+                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            },
+            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+        },
+        .modulo => switch (try evalExpr(lhs, vm)) {
+            .number => |l| switch (rhs) {
+                .number => |r| if (r > 0)
+                    Value{ .number = @rem(l, r) }
+                else
+                    vm.setError(.{ .modulo_error = .{ .rhs = r } }),
+                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            },
+            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+        },
+        .greater_than => switch (try evalExpr(lhs, vm)) {
+            .number => |l| switch (rhs) {
+                .number => |r| Value{ .number = l > r },
+                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            },
+            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+        },
+        .greater_than_equal => switch (try evalExpr(lhs, vm)) {
+            .number => |l| switch (rhs) {
+                .number => |r| Value{ .number = l >= r },
+                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            },
+            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+        },
+        .less_than => switch (try evalExpr(lhs, vm)) {
+            .number => |l| switch (rhs) {
+                .number => |r| Value{ .number = l < r },
+                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            },
+            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+        },
+        .less_than_equal => switch (try evalExpr(lhs, vm)) {
+            .number => |l| switch (rhs) {
+                .number => |r| Value{ .number = l <= r },
+                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            },
+            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+        },
+        else => @panic("TODO"),
     };
 }

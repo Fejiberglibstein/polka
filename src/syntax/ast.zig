@@ -475,6 +475,25 @@ pub const BinaryOperator = struct {
         assign,
         @"and",
         @"or",
+
+        pub fn toString(self: Op) []const u8 {
+            switch (self) {
+                .add => "+",
+                .subtract => "-",
+                .divide => "/",
+                .multiply => "*",
+                .modulo => "%",
+                .greater_than => ">",
+                .less_than => "<",
+                .greater_than_equal => ">=",
+                .less_than_equal => "<=",
+                .equal => "==",
+                .not_equal => "!=",
+                .assign => "=",
+                .@"and" => "and",
+                .@"or" => "or",
+            }
+        }
     };
 
     pub fn getOp(self: BinaryOperator) Op {

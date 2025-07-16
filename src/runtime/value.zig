@@ -15,4 +15,13 @@ pub const Value = union(ValueType) {
     number: f64,
     list: List,
     string: String,
+
+    pub fn isTruthy(self: Value) bool {
+        // Lua-like truthy values.
+        return switch (self) {
+            .nil => false,
+            .bool => |b| b,
+            else => true,
+        };
+    }
 };
