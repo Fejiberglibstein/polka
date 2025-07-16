@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const ValueType = enum(u8) {
     nil,
     bool,
@@ -29,7 +31,7 @@ pub const ObjectType = enum(u8) {
 
 /// Represents a dynamically allocated value on the heap.
 ///
-/// Can be any one of 
+/// Can be any one of
 /// - String
 /// - List
 /// - Dict
