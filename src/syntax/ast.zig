@@ -41,7 +41,8 @@ const SyntaxNode = @import("node.zig").SyntaxNode;
 fn default(comptime T: type) T {
     return switch (@typeInfo(T)) {
         .@"struct" => T{ .v = SyntaxNode.leafNode(T.kind, "") },
-        else => @compileError("`default` not implemented for non-struct nodes"),
+        .@"union" => T.default,
+        else => @compileError("`default` not implemented for non-struct nodes: " ++ @typeName(T)),
     };
 }
 
@@ -202,7 +203,7 @@ pub const Expr = union(enum(u8)) {
     function_call: FunctionCall,
 
     // Default value to use when `default(Expr)` is called
-    pub const kind: SyntaxKind = .nil;
+    pub const default: Expr = .{ .nil = Nil{ .v = .leafNode(.nil, "") } };
 
     pub inline fn toTyped(n: SyntaxNode) ?Expr {
         return switch (n.kind()) {
@@ -275,7 +276,7 @@ pub const Grouping = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn get(self: Grouping, all_nodes: []const SyntaxNode) Expr {
-        return castFirstChild(self.v, all_nodes, Expr) catch default(Expr);
+        return castFirstChild(self.v, all_nodes, Expr) orelse default(Expr);
     }
 };
 
@@ -299,7 +300,7 @@ pub const ExportExpr = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn getInner(self: ExportExpr, all_nodes: []const SyntaxNode) ExportInner {
-        return castFirstChild(self.v, all_nodes, ExportInner) catch default(LetExpr);
+        return castFirstChild(self.v, all_nodes, ExportInner) orelse default(LetExpr);
     }
 };
 
@@ -401,7 +402,7 @@ pub const WhileLoop = struct {
     }
 
     pub fn body(self: WhileLoop, all_nodes: []const SyntaxNode) TextNode {
-        return castFirstChild(self.v, all_nodes, TextNode) catch default(TextNode);
+        return castFirstChild(self.v, all_nodes, TextNode) orelse default(TextNode);
     }
 };
 
@@ -411,11 +412,11 @@ pub const LetExpr = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn binding(self: LetExpr, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self.v, all_nodes, Ident) catch default(Ident);
+        return castFirstChild(self.v, all_nodes, Ident) orelse default(Ident);
     }
 
     pub fn value(self: LetExpr, all_nodes: []const SyntaxNode) Expr {
-        return castLastChild(self.v, all_nodes, Expr) catch default(Expr);
+        return castLastChild(self.v, all_nodes, Expr) orelse default(Expr);
     }
 };
 
@@ -524,15 +525,15 @@ pub const Binary = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn lhs(self: Binary, all_nodes: []const SyntaxNode) Expr {
-        return castFirstChild(self.v, all_nodes, Expr) catch default(Expr);
+        return castFirstChild(self.v, all_nodes, Expr) orelse default(Expr);
     }
 
     pub fn rhs(self: Binary, all_nodes: []const SyntaxNode) Expr {
-        return castLastChild(self.v, all_nodes, Expr) catch default(Expr);
+        return castLastChild(self.v, all_nodes, Expr) orelse default(Expr);
     }
 
     pub fn op(self: Binary, all_nodes: []const SyntaxNode) BinaryOperator {
-        return castFirstChild(self.v, all_nodes, BinaryOperator) catch default(BinaryOperator);
+        return castFirstChild(self.v, all_nodes, BinaryOperator) orelse default(BinaryOperator);
     }
 };
 
@@ -568,11 +569,11 @@ pub const Unary = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn rhs(self: Unary, all_nodes: []const SyntaxNode) Expr {
-        return castFirstChild(self.v, all_nodes, Expr) catch default(Expr);
+        return castFirstChild(self.v, all_nodes, Expr) orelse default(Expr);
     }
 
     pub fn op(self: Unary, all_nodes: []const SyntaxNode) UnaryOperator {
-        return castFirstChild(self.v, all_nodes, UnaryOperator) catch default(UnaryOperator);
+        return castFirstChild(self.v, all_nodes, UnaryOperator) orelse default(UnaryOperator);
     }
 };
 
@@ -582,11 +583,11 @@ pub const FunctionCall = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn name(self: FunctionCall, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self.v, all_nodes, Ident) catch default(Ident);
+        return castFirstChild(self.v, all_nodes, Ident) orelse default(Ident);
     }
 
     pub fn arguments(self: FunctionCall, all_nodes: []const SyntaxNode) ArgumentList {
-        return castFirstChild(self.v, all_nodes, ArgumentList) catch default(ArgumentList);
+        return castFirstChild(self.v, all_nodes, ArgumentList) orelse default(ArgumentList);
     }
 };
 
