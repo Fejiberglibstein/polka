@@ -65,6 +65,7 @@ pub fn ASTIterator(comptime T: type) type {
         pub fn next(self: *@This()) ?T {
             while (self.index < self.nodes.len) : (self.index += 1) {
                 if (T.toTyped(self.nodes[self.index])) |c| {
+                    self.index += 1;
                     return c;
                 }
             }

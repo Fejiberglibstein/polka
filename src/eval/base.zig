@@ -5,6 +5,8 @@ const Vm = @import("Vm.zig");
 const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
 const RuntimeError = @import("error.zig").RuntimeError;
 
+const std = @import("std");
+
 pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
     var text_parts = node.text(vm.nodes);
 
@@ -31,7 +33,6 @@ pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
 
 pub fn evalCode(node: ast.Code, vm: *Vm) !void {
     var statements = node.statements(vm.nodes);
-
     while (statements.next()) |stmt| {
         switch (stmt) {
             .conditional => |_| @panic("TODO"),

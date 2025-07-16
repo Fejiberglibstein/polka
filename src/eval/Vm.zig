@@ -2,8 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Value = @import("../runtime/value.zig").Value;
 const ast = @import("../syntax/ast.zig");
-const RuntimeErrorPayload = @import("../runtime/error.zig").RuntimeErrorPayload;
-const RuntimeError = @import("../runtime/error.zig").RuntimeError;
+const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
+const RuntimeError = @import("error.zig").RuntimeError;
 
 const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
 const base = @import("base.zig");
@@ -35,16 +35,16 @@ pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
     return self.content.v.items;
 }
 
-pub fn setError(self: *Vm, err: RuntimeErrorPayload) RuntimeError!void {
+pub fn setError(self: *Vm, err: RuntimeErrorPayload) RuntimeError!noreturn {
     if (self.err != null) self.err = err;
     return RuntimeError.Error;
 }
 
 pub fn writeValue(self: *Vm, value: Value) !void {
     switch (value) {
-        .bool => |v| try self.content.print("{}", .{v}),
-        .number => |v| try self.content.print("{}", .{v}),
-        .nil => try self.content.print("nil", .{}),
+        .bool => |v| try self.content.print("{} ", .{v}),
+        .number => |v| try self.content.print("{d} ", .{v}),
+        .nil => try self.content.print("nil ", .{}),
         else => unreachable, // TODO
     }
 }
