@@ -2,7 +2,8 @@ const ast = @import("../syntax/ast.zig");
 const SyntaxNode = @import("../syntax/node.zig");
 const Value = @import("../runtime/value.zig").Value;
 const Vm = @import("Vm.zig");
-const RuntimeErrorPayload = @import("../runtime/error.zig").RuntimeErrorPayload;
+const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
+const RuntimeError = @import("error.zig").RuntimeError;
 
 pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
     var text_parts = node.text(vm.nodes);
@@ -60,7 +61,19 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) !Value {
     };
 }
 
-pub fn evalBinary(node: ast.Binary, vm: *Vm) !Value {
+pub fn evalUnary(node: ast.Unary, vm: *Vm) !Value {
+    const rhs = evalExpr(node.rhs(vm.nodes), vm);
+    const op = node.op(vm.nodes).getOp();
+
+    return switch (op) {
+        .negate => switch (rhs) {
+            .number => |r| Value{ .number = -r },
+            else => try vm.setError(),
+        },
+    };
+}
+
+pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!Value {
     // don't eval these nodes yet so that we can do short circuit evaluation on `and`/`or`
     const lhs = node.lhs(vm.nodes);
     const rhs = node.rhs(vm.nodes);
@@ -76,12 +89,12 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) !Value {
             rhs_expr: ast.Expr,
             operator: ast.BinaryOperator.Op,
             inner_vm: *Vm,
-        ) RuntimeErrorPayload!void {
+        ) RuntimeError!RuntimeErrorPayload {
             return .{
-                .invalid_operands = struct {
-                    lhs: @intFromEnum(evalExpr(lhs_expr, inner_vm)),
-                    rhs: @intFromEnum(evalExpr(rhs_expr, inner_vm)),
-                    op: operator,
+                .invalid_operands = .{
+                    .lhs = try evalExpr(lhs_expr, inner_vm),
+                    .rhs = try evalExpr(rhs_expr, inner_vm),
+                    .op = operator,
                 },
             };
         }
@@ -107,73 +120,73 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) !Value {
             break :blk try evalExpr(rhs, vm);
         },
         .add => switch (try evalExpr(lhs, vm)) {
-            .number => |l| switch (rhs) {
+            .number => |l| switch (try evalExpr(rhs, vm)) {
                 .number => |r| Value{ .number = l + r },
-                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+                else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
             },
-            .bool => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
-            .nil => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            .bool => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
+            .nil => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
             .string => @panic("TODO"),
             .list => @panic("TODO"),
         },
         .subtract => switch (try evalExpr(lhs, vm)) {
-            .number => |l| switch (rhs) {
+            .number => |l| switch (try evalExpr(rhs, vm)) {
                 .number => |r| Value{ .number = l - r },
-                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+                else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
             },
-            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
         },
         .multiply => switch (try evalExpr(lhs, vm)) {
-            .number => |l| switch (rhs) {
+            .number => |l| switch (try evalExpr(rhs, vm)) {
                 .number => |r| Value{ .number = l * r },
-                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+                else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
             },
-            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
         },
         .divide => switch (try evalExpr(lhs, vm)) {
-            .number => |l| switch (rhs) {
+            .number => |l| switch (try evalExpr(rhs, vm)) {
                 .number => |r| Value{ .number = l / r },
-                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+                else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
             },
-            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
         },
         .modulo => switch (try evalExpr(lhs, vm)) {
-            .number => |l| switch (rhs) {
+            .number => |l| switch (try evalExpr(rhs, vm)) {
                 .number => |r| if (r > 0)
                     Value{ .number = @rem(l, r) }
                 else
-                    vm.setError(.{ .modulo_error = .{ .rhs = r } }),
-                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+                    try vm.setError(.{ .modulo_error = .{ .rhs = r } }),
+                else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
             },
-            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
         },
         .greater_than => switch (try evalExpr(lhs, vm)) {
-            .number => |l| switch (rhs) {
-                .number => |r| Value{ .number = l > r },
-                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            .number => |l| switch (try evalExpr(rhs, vm)) {
+                .number => |r| Value{ .bool = l > r },
+                else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
             },
-            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
         },
         .greater_than_equal => switch (try evalExpr(lhs, vm)) {
-            .number => |l| switch (rhs) {
-                .number => |r| Value{ .number = l >= r },
-                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            .number => |l| switch (try evalExpr(rhs, vm)) {
+                .number => |r| Value{ .bool = l >= r },
+                else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
             },
-            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
         },
         .less_than => switch (try evalExpr(lhs, vm)) {
-            .number => |l| switch (rhs) {
-                .number => |r| Value{ .number = l < r },
-                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            .number => |l| switch (try evalExpr(rhs, vm)) {
+                .number => |r| Value{ .bool = l < r },
+                else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
             },
-            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
         },
         .less_than_equal => switch (try evalExpr(lhs, vm)) {
-            .number => |l| switch (rhs) {
-                .number => |r| Value{ .number = l <= r },
-                else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            .number => |l| switch (try evalExpr(rhs, vm)) {
+                .number => |r| Value{ .bool = l <= r },
+                else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
             },
-            else => try vm.setError(invalidOpError(lhs, rhs, op, vm)),
+            else => try vm.setError(try invalidOpError(lhs, rhs, op, vm)),
         },
         else => @panic("TODO"),
     };

@@ -538,10 +538,27 @@ pub const Binary = struct {
 
 pub const UnaryOperator = struct {
     v: SyntaxNode,
-    pub const kind: SyntaxKind = .plus;
+    pub const kind: SyntaxKind = .minus;
 
     pub fn toTyped(node: SyntaxNode) ?UnaryOperator {
         return if (node.kind().isUnaryOp()) UnaryOperator{ .v = node } else null;
+    }
+
+    pub const Op = enum {
+        negate,
+
+        pub fn toString(self: Op) []const u8 {
+            return switch (self) {
+                .negate => "-",
+            };
+        }
+    };
+
+    pub fn getOp(self: UnaryOperator) Op {
+        return switch (self.v.kind()) {
+            .minus => .negate,
+            else => unreachable,
+        };
     }
 };
 
