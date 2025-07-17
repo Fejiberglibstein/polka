@@ -5,6 +5,7 @@ nodes: []const SyntaxNode,
 /// after program execution finishes
 output: std.ArrayList(u8),
 err: ?RuntimeErrorPayload,
+stack: Stack,
 locals: LocalVariables,
 
 pub fn init(allocator: Allocator, all_nodes: []const SyntaxNode) Vm {
@@ -13,12 +14,30 @@ pub fn init(allocator: Allocator, all_nodes: []const SyntaxNode) Vm {
         .output = .init(allocator),
         .locals = LocalVariables.init,
         .err = null,
+        .stack = .init,
     };
 }
 
 pub fn deinit(self: Vm) void {
     self.output.deinit();
-    self.locals.deinit();
+}
+
+pub fn stackPush(self: *Vm, value: Value) RuntimeError!void {
+    if (self.stack.count >= Stack.MAX_STACK_SIZE) {
+        try self.setError(.stack_overflow);
+    }
+
+    self.stack.items[self.stack.count] = value;
+    self.stack.count += 1;
+}
+
+pub fn stackPop(self: *Vm) void {
+    self.stack.count -= 1;
+    return self.stack.items[self.stack.count];
+}
+
+pub fn stackPeek(self: *Vm, back: usize) Value {
+    return self.stack.items[self.stack.count - back - 1];
 }
 
 pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
@@ -37,49 +56,29 @@ pub fn outputPrint(self: *Vm, comptime fmt: []const u8, args: anytype) Allocator
     try self.output.writer().print(fmt, args);
 }
 
-pub fn writeValue(self: *Vm, value: Value) !void {
-    switch (value) {
-        .bool => |v| try self.outputPrint("{} ", .{v}),
-        .number => |v| try self.outputPrint("{d} ", .{v}),
-        .nil => try self.outputPrint("nil ", .{}),
-        else => unreachable, // TODO
-    }
-}
+/// Stack containing all values currently in scope
+const Stack = struct {
+    items: [MAX_STACK_SIZE]Value,
+    count: u8,
 
-/// Set a local variable on the stack.
+    pub const MAX_STACK_SIZE = 256;
+    pub const init = Stack{
+        .items = undefined,
+        .count = 0,
+    };
+};
+
+/// All the local variable names.
 ///
-/// If the variable name does not exist on the stack, nothing will happen
-pub fn setVar(self: *Vm, var_name: []const u8, value: Value) void {
-    // Most programs only use variables in the top-most stack, so iterate backwards.
-    var i = self.locals.count;
-    while (i >= 0) {
-        i -= 1;
-        const local = &self.stack.locals.items[i];
-
-        if (std.mem.eql(u8, var_name, local.name)) {
-            local.value = value;
-            return;
-        }
-    }
-    // Do nothing if we didn't find any variable that matched
-}
-
-pub fn getVar(self: *Vm, var_name: []const u8) RuntimeError!Value {
-    // Most programs only use variables in the top-most stack, so iterate backwards.
-    var i = self.stack.locals.items.len;
-    while (i >= 0) {
-        i -= 1;
-        const local = &self.stack.locals.items[i];
-
-        if (std.mem.eql(u8, var_name, local.name)) {
-            return local.value;
-        }
-    }
-
-    try self.setError(.{ .undeclared_ident = var_name });
-}
-
-/// Stack of all local variables
+/// Each local variable matches up with a value on the stack, e.g.
+///
+/// ```
+/// #* let x = 6
+/// #* let b = 4
+/// ```
+///
+/// LOCALS: ["x"]["b"]
+/// STACK:  [ 6 ][ 4 ]
 ///
 /// A new scope is created every time a `TextNode` is visited.
 const LocalVariables = struct {
@@ -120,8 +119,8 @@ const LocalVariables = struct {
     }
 
     pub const init = LocalVariables{
-        .locals = undefined,
-        .locals_count = 0,
+        .items = undefined,
+        .count = 0,
         .scope_depth = 0,
     };
 };

@@ -1,5 +1,5 @@
-const ValueType = @import("../runtime/value.zig").ValueType;
-const Value = @import("../runtime/value.zig").Value;
+const ValueType = @import("value.zig").ValueType;
+const Value = @import("value.zig").Value;
 const ast = @import("../syntax/ast.zig");
 
 pub const RuntimeErrorPayload = union(enum(u8)) {
@@ -23,6 +23,11 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
 
     /// Use of undeclared identifier `<name>`
     undeclared_ident: []const u8,
+
+    /// When the value stack exceeds its limit
+    ///
+    /// Stack overflow
+    stack_overflow: void
 };
 
 pub const RuntimeError = error{Error};
