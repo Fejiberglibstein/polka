@@ -5,20 +5,20 @@ nodes: []const SyntaxNode,
 /// after program execution finishes
 output: std.ArrayList(u8),
 err: ?RuntimeErrorPayload,
-stack: Stack,
+locals: LocalVariables,
 
 pub fn init(allocator: Allocator, all_nodes: []const SyntaxNode) Vm {
     return Vm{
         .nodes = all_nodes,
         .output = .init(allocator),
-        .stack = Stack.init(allocator),
+        .locals = LocalVariables.init,
         .err = null,
     };
 }
 
 pub fn deinit(self: Vm) void {
     self.output.deinit();
-    self.stack.deinit();
+    self.locals.deinit();
 }
 
 pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
@@ -51,7 +51,7 @@ pub fn writeValue(self: *Vm, value: Value) !void {
 /// If the variable name does not exist on the stack, nothing will happen
 pub fn setVar(self: *Vm, var_name: []const u8, value: Value) void {
     // Most programs only use variables in the top-most stack, so iterate backwards.
-    var i = self.stack.locals.items.len;
+    var i = self.locals.count;
     while (i >= 0) {
         i -= 1;
         const local = &self.stack.locals.items[i];
@@ -79,51 +79,51 @@ pub fn getVar(self: *Vm, var_name: []const u8) RuntimeError!Value {
     try self.setError(.{ .undeclared_ident = var_name });
 }
 
-/// Local variable in a scope
-const Local = struct {
-    name: []const u8,
-    value: Value,
-    scope_depth: usize,
-};
+/// Stack of all local variables
+///
+/// A new scope is created every time a `TextNode` is visited.
+const LocalVariables = struct {
+    items: [256]Local,
+    scope_depth: u8,
+    count: u8,
 
-const Stack = struct {
-    /// Stack of all local variables
-    ///
-    /// We create a new stack every time we visit a `TextNode`
-    locals: std.ArrayList(Local),
-    scope_depth: usize,
+    /// Local variable in a scope
+    const Local = struct {
+        name: []const u8,
+        scope_depth: usize,
+    };
 
-    pub fn pushVar(self: *Stack, var_name: []const u8, value: Value) Allocator.Error!void {
-        try self.locals.append(Local{
+    pub fn pushVar(self: *LocalVariables, var_name: []const u8) void {
+        self.items[self.count] = Local{
             .scope_depth = self.scope_depth,
-            .value = value,
             .name = var_name,
-        });
+        };
+        self.count += 1;
     }
 
-    pub fn pushScope(self: *Stack) void {
+    pub fn pushScope(self: *LocalVariables) void {
         self.scope_depth += 1;
     }
 
-    pub fn popScope(self: *Stack) void {
+    pub fn popScope(self: *LocalVariables) void {
         self.scope_depth -= 1;
         // Pop off all locals that have a scope greater than the new scope depth
-        while (self.locals.pop()) |v| {
-            if (v.scope_depth <= self.scope_depth) {
+        while (self.count > 0) {
+            const v = self.items[self.count - 1];
+            if (v.scope_depth > self.scope_depth) {
+                // Pop off the top local
+                self.count -= 1;
+            } else {
                 break;
             }
         }
     }
 
-    pub fn init(allocator: Allocator) Stack {
-        return .{
-            .locals = .init(allocator),
-            .scope_depth = 0,
-        };
-    }
-    pub fn deinit(self: Stack) void {
-        self.locals.deinit();
-    }
+    pub const init = LocalVariables{
+        .locals = undefined,
+        .locals_count = 0,
+        .scope_depth = 0,
+    };
 };
 
 const Vm = @This();
