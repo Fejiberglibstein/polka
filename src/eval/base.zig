@@ -41,10 +41,16 @@ pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
 pub fn evalCode(node: ast.Code, vm: *Vm) !void {
     var statements = node.statements(vm.nodes);
 
+    var i: usize = 0;
     while (statements.next()) |stmt| {
+        if (i != 0) {
+            try vm.outputPrint(" ", .{});
+        }
+
         switch (stmt) {
             .expr => |v| {
                 try evalExpr(v, vm);
+                try vm.stackPop().toString(vm.output.writer());
             },
             .for_loop => @panic("TODO"),
             .let_expr => @panic("TODO"),
@@ -54,20 +60,21 @@ pub fn evalCode(node: ast.Code, vm: *Vm) !void {
             .export_expr => @panic("TODO"),
             .function_def => @panic("TODO"),
         }
+        i += 1;
     }
 }
 
 pub fn evalExpr(node: ast.Expr, vm: *Vm) !void {
     switch (node) {
-        .number => |v| try vm.stackPush(.{ .number = v.get() }),
-        .bool => |v| try vm.stackPush(.{ .bool = v.get() }),
         .nil => |_| try vm.stackPush(.nil),
+        .bool => |v| try vm.stackPush(.{ .bool = v.get() }),
+        .number => |v| try vm.stackPush(.{ .number = v.get() }),
+        .unary_op => |v| try evalUnary(v, vm),
         .binary_op => |v| try evalBinary(v, vm),
         .ident => @panic("TODO"),
         .string => @panic("TODO"),
         .access => @panic("TODO"),
         .grouping => @panic("TODO"),
-        .unary_op => |v| try evalUnary(v, vm),
         .function_call => @panic("TODO"),
     }
 }

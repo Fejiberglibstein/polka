@@ -23,6 +23,15 @@ pub const Value = union(ValueType) {
             else => true,
         };
     }
+
+    pub fn toString(self: Value, buf: std.ArrayList(u8).Writer) !void {
+        switch (self) {
+            .nil => try buf.print("<nil>", .{}),
+            .bool => |v| try buf.print("{}", .{v}),
+            .number => |v| try buf.print("{d}", .{v}),
+            else => @panic("TODO"),
+        }
+    }
 };
 
 pub const ObjectType = enum(u8) {
