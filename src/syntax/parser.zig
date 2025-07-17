@@ -187,6 +187,13 @@ fn parsePrimary(p: *Parser) Allocator.Error!void {
             try p.expect(.right_paren);
             try p.wrap(.grouping, m);
         },
+        .minus => {
+            const m = p.marker();
+            const tok = try p.eatGet();
+            const op = ast.UnaryOperator.toTyped(tok.*).?;
+            try parseExpr(p, op.precedence(), false);
+            try p.wrap(.unary, m);
+        },
         else => {},
     }
 }

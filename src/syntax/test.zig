@@ -3,7 +3,7 @@ test "binary_expr" {
     try testParser(
         \\#* 3 *4 - foo()
         \\#* 3 == 2 and 3 - 6 * 2 > (h and 1)
-        \\#* 3 + 3 + 3
+        \\#* -3 + 3 + 3
         \\#* 3 = 3 = 3
     ,
         \\text_node [
@@ -39,7 +39,11 @@ test "binary_expr" {
         \\    newline,
         \\    code_begin,
         \\    binary [
-        \\      binary [ number, plus, number ],
+        \\      binary [ 
+        \\          unary [ minus, number ]
+        \\          plus,
+        \\          number 
+        \\      ],
         \\      plus,
         \\      number
         \\    ],

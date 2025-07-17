@@ -562,6 +562,12 @@ pub const UnaryOperator = struct {
             else => unreachable,
         };
     }
+
+    pub fn precedence(self: UnaryOperator) usize {
+        return switch (self.getOp()) {
+            .negate => 8,
+        };
+    }
 };
 
 pub const Unary = struct {
