@@ -9,6 +9,7 @@ const std = @import("std");
 
 pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
     vm.stack.pushScope();
+    defer vm.stack.popScope();
 
     // if the last node visited was a code node
     var last_was_code = false;
@@ -32,8 +33,6 @@ pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
             },
         }
     }
-
-    vm.stack.popScope();
 }
 
 pub fn evalCode(node: ast.Code, vm: *Vm) !void {

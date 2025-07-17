@@ -1,4 +1,6 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Vm = @import("Vm.zig");
 
 pub const ValueType = enum(u8) {
     nil,
@@ -35,13 +37,16 @@ pub const ObjectType = enum(u8) {
 /// - String
 /// - List
 /// - Dict
-pub const Object = struct {
+///
+/// Each different object will be implemented through struct inheritance.
+pub const Object = extern struct {
     // Any potential header information that may need to exist
-
+    tag: ObjectType,
 };
 
-pub const String = struct {
-    length: usize,
+pub const String = extern struct {
+    base: Object,
+    length: u32,
     /// Pre-computed hash of the string
     hash: u32,
     // The characters of the string are stored after the length. This struct is the equivalent of

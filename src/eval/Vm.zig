@@ -130,10 +130,10 @@ const Vm = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Value = @import("../runtime/value.zig").Value;
-const ast = @import("../syntax/ast.zig");
-const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
-const RuntimeError = @import("error.zig").RuntimeError;
 
+const ast = @import("../syntax/ast.zig");
 const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
 const base = @import("base.zig");
+const RuntimeError = @import("error.zig").RuntimeError;
+const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
+const Value = @import("value.zig").Value;
