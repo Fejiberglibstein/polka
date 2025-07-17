@@ -31,7 +31,7 @@ pub fn stackPush(self: *Vm, value: Value) RuntimeError!void {
     self.stack.count += 1;
 }
 
-pub fn stackPop(self: *Vm) void {
+pub fn stackPop(self: *Vm) Value {
     self.stack.count -= 1;
     return self.stack.items[self.stack.count];
 }
