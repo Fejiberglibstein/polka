@@ -56,6 +56,56 @@ pub fn outputPrint(self: *Vm, comptime fmt: []const u8, args: anytype) Allocator
     try self.output.writer().print(fmt, args);
 }
 
+pub fn pushVar(self: *Vm, var_name: []const u8) void {
+    self.locals.items[self.locals.count] = LocalVariables.Local{
+        .scope_depth = self.locals.scope_depth,
+        .name = var_name,
+    };
+    self.locals.count += 1;
+}
+
+pub fn pushScope(self: *Vm) void {
+    self.locals.scope_depth += 1;
+}
+
+pub fn popScope(self: *Vm) void {
+    self.locals.scope_depth -= 1;
+    // Pop off all locals that have a scope greater than the new scope depth
+    while (self.locals.count > 0) {
+        const v = self.locals.items[self.locals.count - 1];
+        if (v.scope_depth > self.locals.scope_depth) {
+            // Pop off the top local
+            self.locals.count -= 1;
+            self.stack.count -= 1;
+        } else {
+            break;
+        }
+    }
+}
+
+pub fn setVar(self: *Vm, var_name: []const u8, value: Value) RuntimeError!void {
+    var i = self.locals.count - 1;
+    while (i >= 0) : (i -= 1) {
+        const variable = self.locals.items[i];
+        if (std.mem.eql(u8, var_name, variable.name)) {
+            self.stack.items[i] = value;
+            return;
+        }
+    }
+}
+
+pub fn getVar(self: *Vm, var_name: []const u8) RuntimeError!Value {
+    var i = self.locals.count - 1;
+    while (i >= 0) : (i -= 1) {
+        const variable = self.locals.items[i];
+        if (std.mem.eql(u8, var_name, variable.name)) {
+            return self.stack.items[i];
+        }
+    }
+
+    try self.setError(.{ .undeclared_ident = var_name });
+}
+
 /// Stack containing all values currently in scope
 const Stack = struct {
     items: [MAX_STACK_SIZE]Value,
@@ -91,32 +141,6 @@ const LocalVariables = struct {
         name: []const u8,
         scope_depth: usize,
     };
-
-    pub fn pushVar(self: *LocalVariables, var_name: []const u8) void {
-        self.items[self.count] = Local{
-            .scope_depth = self.scope_depth,
-            .name = var_name,
-        };
-        self.count += 1;
-    }
-
-    pub fn pushScope(self: *LocalVariables) void {
-        self.scope_depth += 1;
-    }
-
-    pub fn popScope(self: *LocalVariables) void {
-        self.scope_depth -= 1;
-        // Pop off all locals that have a scope greater than the new scope depth
-        while (self.count > 0) {
-            const v = self.items[self.count - 1];
-            if (v.scope_depth > self.scope_depth) {
-                // Pop off the top local
-                self.count -= 1;
-            } else {
-                break;
-            }
-        }
-    }
 
     pub const init = LocalVariables{
         .items = undefined,

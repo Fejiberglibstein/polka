@@ -8,8 +8,8 @@ const RuntimeError = @import("error.zig").RuntimeError;
 const std = @import("std");
 
 pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
-    vm.locals.pushScope();
-    defer vm.locals.popScope();
+    vm.pushScope();
+    defer vm.popScope();
 
     // if the last node visited was a code node
     var last_was_code = false;
@@ -42,8 +42,9 @@ pub fn evalCode(node: ast.Code, vm: *Vm) !void {
     var statements = node.statements(vm.nodes);
 
     var i: usize = 0;
+    const output_len = vm.output.items.len;
     while (statements.next()) |stmt| {
-        if (i != 0) {
+        if (output_len != vm.output.items.len) {
             try vm.outputPrint(" ", .{});
         }
 
@@ -53,7 +54,10 @@ pub fn evalCode(node: ast.Code, vm: *Vm) !void {
                 try vm.stackPop().toString(vm.output.writer());
             },
             .for_loop => @panic("TODO"),
-            .let_expr => @panic("TODO"),
+            .let_expr => |v| {
+                vm.pushVar(v.binding(vm.nodes).get());
+                try evalExpr(v.value(vm.nodes), vm);
+            },
             .while_loop => @panic("TODO"),
             .return_expr => @panic("TODO"),
             .conditional => @panic("TODO"),
@@ -71,7 +75,9 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) !void {
         .number => |v| try vm.stackPush(.{ .number = v.get() }),
         .unary_op => |v| try evalUnary(v, vm),
         .binary_op => |v| try evalBinary(v, vm),
-        .ident => @panic("TODO"),
+        .ident => |v| {
+            try vm.stackPush(try vm.getVar(v.get()));
+        },
         .string => @panic("TODO"),
         .access => @panic("TODO"),
         .grouping => @panic("TODO"),
@@ -107,33 +113,63 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
     }.func;
     // Lhs will be pushed first, then rhs
 
-    try evalExpr(lhs, vm);
-    try vm.stackPush(switch (op) {
-        .assign => @panic("TODO"),
-        .@"and" => @panic("TODO"),
-        .@"or" => @panic("TODO"),
-        .add => blk: {
+    switch (op) {
+        .assign => {
+            const var_name = switch (lhs) {
+                .ident => |v| v.get(),
+                else => try invalidOpError(.assign, vm),
+            };
+
+            try vm.setVar(var_name, vm.stackPop());
+        },
+        .@"and" => {
+            try evalExpr(lhs, vm);
+            if (!vm.stackPeek(0).isTruthy()) {
+                // lhs is already on top of the stack, so nothing needs to be done.
+            } else {
+                // Pop off lhs
+                _ = vm.stackPop();
+
+                // Push rhs onto the stack.
+                try evalExpr(rhs, vm);
+            }
+        },
+        .@"or" => {
+            try evalExpr(lhs, vm);
+            if (vm.stackPeek(0).isTruthy()) {
+                // lhs is already on top of the stack, so nothing needs to be done.
+            } else {
+                // Pop off lhs
+                _ = vm.stackPop();
+
+                // Push rhs onto the stack
+                try evalExpr(rhs, vm);
+            }
+        },
+        .add => {
+            try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        break :blk Value{ .number = l + r };
+                        try vm.stackPush(Value{ .number = l + r });
                     },
                     else => try invalidOpError(op, vm),
                 },
                 else => @panic("TODO: add strings"),
             }
         },
-        .divide => blk: {
+        .divide => {
+            try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        break :blk Value{ .number = l / r };
+                        try vm.stackPush(Value{ .number = l / r });
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -143,14 +179,15 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                 },
             }
         },
-        .subtract => blk: {
+        .subtract => {
+            try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        break :blk Value{ .number = l - r };
+                        try vm.stackPush(Value{ .number = l - r });
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -160,14 +197,15 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                 },
             }
         },
-        .greater_than => blk: {
+        .greater_than => {
+            try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        break :blk Value{ .bool = l > r };
+                        try vm.stackPush(Value{ .bool = l > r });
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -177,14 +215,15 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                 },
             }
         },
-        .greater_than_equal => blk: {
+        .greater_than_equal => {
+            try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        break :blk Value{ .bool = l >= r };
+                        try vm.stackPush(Value{ .bool = l >= r });
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -194,14 +233,15 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                 },
             }
         },
-        .less_than => blk: {
+        .less_than => {
+            try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        break :blk Value{ .bool = l < r };
+                        try vm.stackPush(Value{ .bool = l < r });
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -211,14 +251,15 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                 },
             }
         },
-        .less_than_equal => blk: {
+        .less_than_equal => {
+            try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        break :blk Value{ .bool = l <= r };
+                        try vm.stackPush(Value{ .bool = l <= r });
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -228,14 +269,15 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                 },
             }
         },
-        .modulo => blk: {
+        .modulo => {
+            try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| if (r > 0) {
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        break :blk Value{ .number = @rem(l, r) };
+                        try vm.stackPush(Value{ .number = @rem(l, r) });
                     } else {
                         try vm.setError(.{ .modulo_error = .{ .rhs = r } });
                     },
@@ -247,14 +289,15 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                 },
             }
         },
-        .multiply => blk: {
+        .multiply => {
+            try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        break :blk Value{ .number = l * r };
+                        try vm.stackPush(Value{ .number = l * r });
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -266,5 +309,5 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
         },
         .equal => @panic("TODO"),
         .not_equal => @panic("TODO"),
-    });
+    }
 }
