@@ -152,9 +152,10 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
+                        const res = Value{ .number = l + r };
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(Value{ .number = l + r });
+                        try vm.stackPush(res);
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -167,9 +168,10 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
+                        const res = Value{ .number = l / r };
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(Value{ .number = l / r });
+                        try vm.stackPush(res);
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -185,9 +187,10 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
+                        const res = Value{ .number = l - r };
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(Value{ .number = l - r });
+                        try vm.stackPush(res);
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -203,9 +206,10 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
+                        const res = Value{ .bool = l > r };
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(Value{ .bool = l > r });
+                        try vm.stackPush(res);
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -221,9 +225,10 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
+                        const res = Value{ .bool = l >= r };
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(Value{ .bool = l >= r });
+                        try vm.stackPush(res);
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -239,9 +244,10 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
+                        const res = Value{ .bool = l < r };
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(Value{ .bool = l < r });
+                        try vm.stackPush(res);
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -257,9 +263,10 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
+                        const res = Value{ .bool = l <= r };
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(Value{ .bool = l <= r });
+                        try vm.stackPush(res);
                     },
                     else => try invalidOpError(op, vm),
                 },
@@ -275,9 +282,10 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| if (r > 0) {
+                        const res = Value{ .number = @rem(l, r) };
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(Value{ .number = @rem(l, r) });
+                        try vm.stackPush(res);
                     } else {
                         try vm.setError(.{ .modulo_error = .{ .rhs = r } });
                     },
@@ -295,9 +303,10 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             switch (vm.stackPeek(1)) { // switch on lhs
                 .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
                     .number => |r| {
+                        const res = Value{ .number = l * r };
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(Value{ .number = l * r });
+                        try vm.stackPush(res);
                     },
                     else => try invalidOpError(op, vm),
                 },
