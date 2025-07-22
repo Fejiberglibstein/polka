@@ -7,14 +7,31 @@ output: std.ArrayList(u8),
 err: ?RuntimeErrorPayload,
 stack: Stack,
 locals: LocalVariables,
+heap: Heap,
+strings: std.HashMap(*String, void, HashContext, 80),
 
-pub fn init(allocator: Allocator, all_nodes: []const SyntaxNode) Vm {
+const HashContext = struct {
+    pub fn eql(self: HashContext, k1: *String, k2: *String) bool {
+        _ = self;
+
+        return std.mem.eql(u8, k1, k2);
+    }
+
+    pub fn hash(self: HashContext, k: *String) u64 {
+        _ = self;
+        return k.hash;
+    }
+};
+
+pub fn init(gpa: Allocator, all_nodes: []const SyntaxNode) !Vm {
     return Vm{
         .nodes = all_nodes,
-        .output = .init(allocator),
-        .locals = LocalVariables.init,
+        .output = .init(gpa),
+        .locals = .init,
         .err = null,
         .stack = .init,
+        .heap = try .init(gpa),
+        .strings = .init(gpa),
     };
 }
 
@@ -149,6 +166,37 @@ const LocalVariables = struct {
     };
 };
 
+/// There are two heaps used in this vm. This is so that the GC can be a moving GC, where every time
+/// garbage is collected, the in-use heap has all of its remaining alive objects moved over to the
+/// other heap.
+pub const Heap = struct {
+    heaps: [HEAPS]std.ArrayListUnmanaged(u8),
+    current_heap: u8,
+    buffers: [HEAPS][]u8,
+
+    const HEAPS = 2;
+    const HEAP_SIZE = std.math.pow(usize, 2, 24);
+
+    pub fn init(arena: std.mem.Allocator) Allocator.Error!Heap {
+        const heaps: [HEAPS]std.ArrayListUnmanaged(u8) = undefined;
+        const buffers: [HEAPS][]u8 = undefined;
+
+        for (0..HEAPS) |i| {
+            const buf = arena.alloc(u8, HEAP_SIZE);
+            const heap = std.ArrayListUnmanaged(u8).initBuffer(buf);
+
+            buffers[i] = buf;
+            heaps[i] = heap;
+        }
+
+        return Heap{
+            .current_heap = 0,
+            .buffers = buffers,
+            .heaps = heaps,
+        };
+    }
+};
+
 const Vm = @This();
 
 const std = @import("std");
@@ -160,3 +208,5 @@ const base = @import("base.zig");
 const RuntimeError = @import("error.zig").RuntimeError;
 const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
 const Value = @import("value.zig").Value;
+const String = @import("value.zig").String;
+const Object = @import("value.zig").Object;

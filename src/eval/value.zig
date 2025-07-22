@@ -24,6 +24,18 @@ pub const Value = union(ValueType) {
         };
     }
 
+    /// Get the size of bytes that converting the value to a string would be.
+    ///
+    /// Useful to determine how big a string should be before allocating it.
+    pub fn toStringSize(self: Value) usize {
+        switch (self) {
+            .nil => try std.fmt.count("<nil>", .{}),
+            .bool => |v| try std.fmt.count("{}", .{v}),
+            .number => |v| try std.fmt.count("{d}", .{v}),
+            else => @panic("TODO"),
+        }
+    }
+
     pub fn toString(self: Value, buf: std.ArrayList(u8).Writer) !void {
         switch (self) {
             .nil => try buf.print("<nil>", .{}),
@@ -57,7 +69,7 @@ pub const String = extern struct {
     base: Object,
     length: u32,
     /// Pre-computed hash of the string
-    hash: u32,
+    hash: u64,
     // The characters of the string are stored after the length. This struct is the equivalent of
     // ```
     // struct foo {
