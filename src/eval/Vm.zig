@@ -3,12 +3,13 @@ nodes: []const SyntaxNode,
 
 /// The resulting text that the entire source code will produce. This is what goes inside the file
 /// after program execution finishes
-output: std.ArrayList(u8),
+output: std.ArrayListUnmanaged(u8),
 err: ?RuntimeErrorPayload,
 stack: Stack,
 locals: LocalVariables,
 heap: Heap,
-strings: std.HashMap(*String, void, HashContext, 80),
+strings: std.HashMapUnmanaged(*String, void, HashContext, 80),
+allocator: Allocator,
 
 const HashContext = struct {
     pub fn eql(self: HashContext, k1: *String, k2: *String) bool {
@@ -26,17 +27,20 @@ const HashContext = struct {
 pub fn init(gpa: Allocator, all_nodes: []const SyntaxNode) !Vm {
     return Vm{
         .nodes = all_nodes,
-        .output = .init(gpa),
+        .output = try .initCapacity(gpa, 0),
         .locals = .init,
         .err = null,
         .stack = .init,
         .heap = try .init(gpa),
-        .strings = .init(gpa),
+        .strings = .empty,
+        .allocator = gpa,
     };
 }
 
-pub fn deinit(self: Vm) void {
-    self.output.deinit();
+pub fn deinit(self: *Vm) void {
+    self.output.deinit(self.allocator);
+    self.strings.deinit(self.allocator);
+    self.heap.deinit(self.allocator);
 }
 
 pub fn stackPush(self: *Vm, value: Value) RuntimeError!void {
@@ -70,7 +74,7 @@ pub fn setError(self: *Vm, err: RuntimeErrorPayload) RuntimeError!noreturn {
 }
 
 pub fn outputPrint(self: *Vm, comptime fmt: []const u8, args: anytype) Allocator.Error!void {
-    try self.output.writer().print(fmt, args);
+    try self.output.writer(self.allocator).print(fmt, args);
 }
 
 pub fn pushVar(self: *Vm, var_name: []const u8) void {
@@ -178,11 +182,11 @@ pub const Heap = struct {
     const HEAP_SIZE = std.math.pow(usize, 2, 24);
 
     pub fn init(arena: std.mem.Allocator) Allocator.Error!Heap {
-        const heaps: [HEAPS]std.ArrayListUnmanaged(u8) = undefined;
-        const buffers: [HEAPS][]u8 = undefined;
+        var heaps: [HEAPS]std.ArrayListUnmanaged(u8) = undefined;
+        var buffers: [HEAPS][]u8 = undefined;
 
         for (0..HEAPS) |i| {
-            const buf = arena.alloc(u8, HEAP_SIZE);
+            const buf = try arena.alloc(u8, HEAP_SIZE);
             const heap = std.ArrayListUnmanaged(u8).initBuffer(buf);
 
             buffers[i] = buf;
@@ -194,6 +198,12 @@ pub const Heap = struct {
             .buffers = buffers,
             .heaps = heaps,
         };
+    }
+
+    pub fn deinit(self: Heap, arena: std.mem.Allocator) void {
+        for (self.buffers) |buf| {
+            arena.free(buf);
+        }
     }
 };
 

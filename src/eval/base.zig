@@ -51,7 +51,7 @@ pub fn evalCode(node: ast.Code, vm: *Vm) !void {
         switch (stmt) {
             .expr => |v| {
                 try evalExpr(v, vm);
-                try vm.stackPop().toString(vm.output.writer());
+                try vm.stackPop().toString(vm.output.writer(vm.allocator));
             },
             .for_loop => @panic("TODO"),
             .let_expr => |v| {

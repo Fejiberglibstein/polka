@@ -36,7 +36,7 @@ pub const Value = union(ValueType) {
         }
     }
 
-    pub fn toString(self: Value, buf: std.ArrayList(u8).Writer) !void {
+    pub fn toString(self: Value, buf: std.ArrayListUnmanaged(u8).Writer) !void {
         switch (self) {
             .nil => try buf.print("<nil>", .{}),
             .bool => |v| try buf.print("{}", .{v}),

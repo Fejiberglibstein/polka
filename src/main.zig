@@ -17,7 +17,7 @@ pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
     const node, const nodes = try parse.parse("", allocator);
-    var vm = Vm.init(allocator, nodes.items);
+    var vm = try Vm.init(allocator, nodes.items);
     defer vm.deinit();
 
     const stdout = std.io.getStdOut().writer();
