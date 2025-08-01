@@ -43,6 +43,31 @@ pub fn deinit(self: *Vm) void {
     self.heap.deinit(self.allocator);
 }
 
+pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
+    const root = ast.TextNode.toTyped(start_node).?;
+    try base.evalTextNode(root, self);
+
+    return self.output.items;
+}
+
+pub fn allocateString(self: *Vm, fmt: []const u8, args: anytype) !void {
+    const string = String.init(fmt, args);
+
+    const length = string.length + @sizeOf(String);
+
+    const writer = try self.heap.allocate(self, length);
+    const heapString = self.heap.as(String);
+    // Any potential overflow errors won't happen since we already checked if the heap has enough
+    // room for the entire string
+
+    writer.writeStruct(string) catch unreachable;
+
+    writer.print(fmt, args) catch unreachable;
+    heapString.computeHash();
+
+    self.heap.fixAlignment();
+}
+
 pub fn stackPush(self: *Vm, value: Value) RuntimeError!void {
     if (self.stack.count >= Stack.MAX_STACK_SIZE) {
         try self.setError(.stack_overflow);
@@ -59,13 +84,6 @@ pub fn stackPop(self: *Vm) Value {
 
 pub fn stackPeek(self: *Vm, back: usize) Value {
     return self.stack.items[self.stack.count - back - 1];
-}
-
-pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
-    const root = ast.TextNode.toTyped(start_node).?;
-    try base.evalTextNode(root, self);
-
-    return self.output.items;
 }
 
 pub fn setError(self: *Vm, err: RuntimeErrorPayload) RuntimeError!noreturn {
@@ -137,6 +155,10 @@ const Stack = struct {
         .items = undefined,
         .count = 0,
     };
+
+    pub fn slice(self: Stack) []Value {
+        return self.items[0..self.count];
+    }
 };
 
 /// All the local variable names.
@@ -174,36 +196,89 @@ const LocalVariables = struct {
 /// garbage is collected, the in-use heap has all of its remaining alive objects moved over to the
 /// other heap.
 pub const Heap = struct {
-    heaps: [HEAPS]std.ArrayListUnmanaged(u8),
+    heaps: [total_heaps]*Buffer,
     current_heap: u8,
-    buffers: [HEAPS][]u8,
 
-    const HEAPS = 2;
-    const HEAP_SIZE = std.math.pow(usize, 2, 24);
+    const Buffer = std.BoundedArrayAligned(u8, 8, heap_size);
+    const total_heaps = 2;
+    const heap_size = std.math.pow(usize, 2, 24);
 
     pub fn init(arena: std.mem.Allocator) Allocator.Error!Heap {
-        var heaps: [HEAPS]std.ArrayListUnmanaged(u8) = undefined;
-        var buffers: [HEAPS][]u8 = undefined;
+        var heaps: [total_heaps]*Buffer = undefined;
 
-        for (0..HEAPS) |i| {
-            const buf = try arena.alloc(u8, HEAP_SIZE);
-            const heap = std.ArrayListUnmanaged(u8).initBuffer(buf);
-
-            buffers[i] = buf;
-            heaps[i] = heap;
+        for (0..total_heaps) |i| {
+            heaps[i] = try arena.create(Buffer);
+            heaps[i].* = Buffer.init(0) catch unreachable;
         }
 
         return Heap{
             .current_heap = 0,
-            .buffers = buffers,
             .heaps = heaps,
         };
     }
 
     pub fn deinit(self: Heap, arena: std.mem.Allocator) void {
-        for (self.buffers) |buf| {
-            arena.free(buf);
+        for (self.heaps) |heap| {
+            arena.destroy(heap);
         }
+    }
+
+    pub fn allocate(self: *Heap, vm: *Vm, length: u64) !Buffer.Writer {
+        const alignment = self.getCurrentHeap().len % 8;
+
+        if (self.getCurrentHeap().items.len + length + alignment > heap_size) {
+            self.collectGarbage(vm);
+
+            // If it still exceeds, OOM
+            if (self.getCurrentHeap().items.len + length > heap_size) {
+                return error.OutOfMemory;
+            }
+        }
+        // Fix alignment
+        self.getCurrentHeap().appendNTimes(undefined, alignment);
+
+        return self.getCurrentHeap().writer();
+    }
+
+    inline fn getCurrentHeap(self: *Heap) *std.BoundedArray(u8) {
+        return &self.heaps[self.current_heap];
+    }
+
+    fn collectGarbage(self: *Heap, vm: *Vm) void {
+        const old_heap = self.getCurrentHeap();
+        self.current_heap = (self.current_heap + 1) % total_heaps;
+        const new_heap = self.getCurrentHeap();
+
+        for (vm.stack.slice()) |*item| {
+            switch (item.*) {
+                .object => |o| {
+                    switch (o.tag) {
+                        .freed => item.object = o.asFreed().new_ptr,
+                        inline else => |v| item.object = move(new_heap, v),
+                    }
+                },
+                else => {},
+            }
+        }
+
+        // Clear out the old heap.
+        old_heap.len = 0;
+    }
+
+    /// Reinterprets the current spot in the heap as the type
+    pub fn as(self: Heap, comptime T: type) *align(8) T {
+        return @ptrCast(@alignCast(self.getCurrentHeap().buffer));
+    }
+
+    fn move(new_heap: *std.BoundedArray(u8), value: anytype) *@TypeOf(value) {
+        // Fix alignment
+        new_heap.appendNTimes(undefined, new_heap.len % 8);
+        const ptr = new_heap.buffer;
+
+        // Cannot overflow since value was already on the other heap.
+        new_heap.appendSlice(value.asBytes()) catch unreachable;
+
+        return @ptrCast(@alignCast(ptr));
     }
 };
 
