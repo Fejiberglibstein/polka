@@ -206,19 +206,22 @@ pub const Heap = struct {
     }
 
     pub fn allocate(self: *Heap, vm: *Vm, length: u64) RuntimeError!Buffer.Writer {
-        const alignment = 8 - self.getCurrentHeap().len % 8;
+        // For testing purposes
+        self.collectGarbage(vm);
 
-        // // For testing purposes
-        // self.collectGarbage(vm);
+        var alignment = 8 - self.getCurrentHeap().len % 8;
 
         if (self.getCurrentHeap().len + length + alignment > heap_size) {
             self.collectGarbage(vm);
 
+            // Recalculate alignment since it's on a different heap now
+            alignment = 8 - self.getCurrentHeap().len % 8;
             // If it still exceeds, OOM
-            if (self.getCurrentHeap().len + length > heap_size) {
+            if (self.getCurrentHeap().len + length + alignment > heap_size) {
                 try vm.setError(.out_of_memory);
             }
         }
+
         // Fix alignment
         self.getCurrentHeap().appendNTimes(undefined, alignment) catch unreachable;
 

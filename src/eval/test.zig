@@ -31,10 +31,10 @@ test "strings" {
     try testEval(
         \\#* "hello world"
         \\#* let h = "hello"
-        \\#* h
+        \\#* "" + 10 + h + 10 + 2
         \\hi
     ,
-        \\hello world hello
+        \\hello world 10hello102
         \\hi
     );
 }
