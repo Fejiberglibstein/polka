@@ -42,11 +42,12 @@ pub fn evalCode(node: ast.Code, vm: *Vm) !void {
     var statements = node.statements(vm.nodes);
 
     var i: usize = 0;
-    const output_len = vm.output.items.len;
+    var output_len = vm.output.items.len;
     while (statements.next()) |stmt| {
         if (output_len != vm.output.items.len) {
             try vm.outputPrint(" ", .{});
         }
+        output_len = vm.output.items.len;
 
         switch (stmt) {
             .expr => |v| {

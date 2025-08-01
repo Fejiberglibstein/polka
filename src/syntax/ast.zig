@@ -257,7 +257,7 @@ pub const String = struct {
 
     pub fn get(self: String) []const u8 {
         // TODO make this clean the text by removing backslashes and such
-        return self.v.range;
+        return self.v.range[1 .. self.v.range.len - 1];
     }
 };
 

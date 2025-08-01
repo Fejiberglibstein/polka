@@ -27,6 +27,18 @@ test "assignment" {
     );
 }
 
+test "strings" {
+    try testEval(
+        \\#* "hello world"
+        \\#* let h = "hello"
+        \\#* h
+        \\hi
+    ,
+        \\hello world hello
+        \\hi
+    );
+}
+
 test "binary" {
     try testEval(
         \\#* 3 - 2
@@ -102,7 +114,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
 
     const node, const nodes = try parser.parse(source, allocator.allocator());
     defer nodes.deinit();
-    var vm = Vm.init(allocator.allocator(), nodes.items);
+    var vm = try Vm.init(allocator.allocator(), nodes.items);
     defer vm.deinit();
 
     const result = try vm.eval(node);

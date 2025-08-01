@@ -190,7 +190,7 @@ pub const Heap = struct {
 
         for (0..total_heaps) |i| {
             heaps[i] = try arena.create(Buffer);
-            heaps[i].* = Buffer.init(0) catch unreachable;
+            heaps[i].len = 0;
         }
 
         return Heap{
@@ -206,16 +206,16 @@ pub const Heap = struct {
     }
 
     pub fn allocate(self: *Heap, vm: *Vm, length: u64) RuntimeError!Buffer.Writer {
-        const alignment = self.getCurrentHeap().len % 8;
+        const alignment = 8 - self.getCurrentHeap().len % 8;
 
-        // For testing purposes
-        self.collectGarbage(vm);
+        // // For testing purposes
+        // self.collectGarbage(vm);
 
-        if (self.getCurrentHeap().buffer.len + length + alignment > heap_size) {
+        if (self.getCurrentHeap().len + length + alignment > heap_size) {
             self.collectGarbage(vm);
 
             // If it still exceeds, OOM
-            if (self.getCurrentHeap().buffer.len + length > heap_size) {
+            if (self.getCurrentHeap().len + length > heap_size) {
                 try vm.setError(.out_of_memory);
             }
         }
@@ -239,7 +239,9 @@ pub const Heap = struct {
                 .object => |o| {
                     switch (o.tag) {
                         .freed => item.object = o.asFreed().new_ptr,
-                        .string => item.object = @ptrCast(@alignCast(move(new_heap, o.asString()))),
+                        .string => {
+                            item.object = @ptrCast(@alignCast(move(new_heap, o.asString())));
+                        },
                         else => @panic("TODO"),
                     }
                 },
@@ -258,7 +260,7 @@ pub const Heap = struct {
 
     fn move(new_heap: *Buffer, value: anytype) @TypeOf(value) {
         // Fix alignment
-        new_heap.appendNTimes(undefined, new_heap.len % 8) catch unreachable;
+        new_heap.appendNTimes(undefined, 8 - new_heap.len % 8) catch unreachable;
         const ptr = &new_heap.buffer[new_heap.len];
 
         // Cannot overflow since value was already on the other heap.
