@@ -159,7 +159,17 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                     },
                     else => try invalidOpError(op, vm),
                 },
-                else => @panic("TODO: add strings"),
+                .object => |o| switch (o.tag) {
+                    .string => {
+                        const l = o.asString();
+                        const r = vm.stackPeek(0);
+                        const res = vm.allocateString("{s}{any}", .{ l, r });
+                        _ = vm.stackPop(); // Pop rhs
+                        _ = vm.stackPop(); // Pop lhs
+                        try vm.stackPush(res);
+                    },
+                },
+                else => try invalidOpError(op, vm),
             }
         },
         .divide => {

@@ -25,26 +25,27 @@ pub const Value = union(ValueType) {
         };
     }
 
-    /// Get the size of bytes that converting the value to a string would be.
-    ///
-    /// Useful to determine how big a string should be before allocating it.
-    pub fn toStringSize(self: Value) usize {
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
         switch (self) {
-            .nil => try std.fmt.count("<nil>", .{}),
-            .bool => |v| try std.fmt.count("{}", .{v}),
-            .number => |v| try std.fmt.count("{d}", .{v}),
-            else => @panic("TODO"),
+            .nil => try writer.writeAll("<nil>"),
+            .bool => |v| try writer.print("{}", .{v}),
+            .number => |v| try writer.print("{d}", .{v}),
+            .object => |o| switch (o.tag) {
+                .string => try writer.print("{s}", .{o.asString()}),
+                .freed => unreachable,
+                else => @panic("TODO"),
+            },
         }
     }
 
-    pub fn toString(self: Value, buf: std.ArrayListUnmanaged(u8).Writer) !void {
-        switch (self) {
-            .nil => try buf.print("<nil>", .{}),
-            .bool => |v| try buf.print("{}", .{v}),
-            .number => |v| try buf.print("{d}", .{v}),
-            else => @panic("TODO"),
-        }
-    }
 };
 
 pub const ObjectType = enum(u8) {
