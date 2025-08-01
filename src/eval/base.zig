@@ -52,7 +52,12 @@ pub fn evalCode(node: ast.Code, vm: *Vm) !void {
         switch (stmt) {
             .expr => |v| {
                 try evalExpr(v, vm);
-                try vm.output.writer(vm.allocator).print("{any}", .{vm.stackPop()});
+                const value = vm.stackPop();
+
+                // nil shouldn't be printed under normal circumstances
+                if (value != .nil) {
+                    try vm.output.writer(vm.allocator).print("{any}", .{value});
+                }
             },
             .for_loop => @panic("TODO"),
             .let_expr => |v| {
@@ -118,10 +123,18 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
         .assign => {
             const var_name = switch (lhs) {
                 .ident => |v| v.get(),
-                else => try invalidOpError(.assign, vm),
+                else => {
+                    // Push lhs and rhs so that invalidOpError can pop the right values off
+                    try evalExpr(lhs, vm);
+                    try evalExpr(rhs, vm);
+                    try invalidOpError(.assign, vm);
+                },
             };
 
+            try evalExpr(rhs, vm);
+
             try vm.setVar(var_name, vm.stackPop());
+            try vm.stackPush(.nil); // assignment operator returns nil
         },
         .@"and" => {
             try evalExpr(lhs, vm);
@@ -188,10 +201,7 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                     },
                     else => try invalidOpError(op, vm),
                 },
-                else => {
-                    try evalExpr(rhs, vm);
-                    try invalidOpError(op, vm);
-                },
+                else => try invalidOpError(op, vm),
             }
         },
         .subtract => {
@@ -207,10 +217,7 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                     },
                     else => try invalidOpError(op, vm),
                 },
-                else => {
-                    try evalExpr(rhs, vm);
-                    try invalidOpError(op, vm);
-                },
+                else => try invalidOpError(op, vm),
             }
         },
         .greater_than => {
@@ -226,10 +233,7 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                     },
                     else => try invalidOpError(op, vm),
                 },
-                else => {
-                    try evalExpr(rhs, vm);
-                    try invalidOpError(op, vm);
-                },
+                else => try invalidOpError(op, vm),
             }
         },
         .greater_than_equal => {
@@ -245,10 +249,7 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                     },
                     else => try invalidOpError(op, vm),
                 },
-                else => {
-                    try evalExpr(rhs, vm);
-                    try invalidOpError(op, vm);
-                },
+                else => try invalidOpError(op, vm),
             }
         },
         .less_than => {
@@ -264,10 +265,7 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                     },
                     else => try invalidOpError(op, vm),
                 },
-                else => {
-                    try evalExpr(rhs, vm);
-                    try invalidOpError(op, vm);
-                },
+                else => try invalidOpError(op, vm),
             }
         },
         .less_than_equal => {
@@ -283,10 +281,7 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                     },
                     else => try invalidOpError(op, vm),
                 },
-                else => {
-                    try evalExpr(rhs, vm);
-                    try invalidOpError(op, vm);
-                },
+                else => try invalidOpError(op, vm),
             }
         },
         .modulo => {
@@ -304,10 +299,7 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                     },
                     else => try invalidOpError(op, vm),
                 },
-                else => {
-                    try evalExpr(rhs, vm);
-                    try invalidOpError(op, vm);
-                },
+                else => try invalidOpError(op, vm),
             }
         },
         .multiply => {
@@ -323,10 +315,7 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                     },
                     else => try invalidOpError(op, vm),
                 },
-                else => {
-                    try evalExpr(rhs, vm);
-                    try invalidOpError(op, vm);
-                },
+                else => try invalidOpError(op, vm),
             }
         },
         .equal => @panic("TODO"),
