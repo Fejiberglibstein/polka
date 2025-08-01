@@ -39,7 +39,7 @@ pub const Value = union(ValueType) {
             .bool => |v| try writer.print("{}", .{v}),
             .number => |v| try writer.print("{d}", .{v}),
             .object => |o| switch (o.tag) {
-                .string => try writer.print("{s}", .{o.asString()}),
+                .string => try writer.print("{s}", .{o.asString().get()}),
                 .freed => unreachable,
                 else => @panic("TODO"),
             },
@@ -86,11 +86,11 @@ pub const Freed = extern struct {
 
 pub const String = extern struct {
     base: Object,
-    length: u32,
+    length: u64,
     /// Pre-computed hash of the string
     hash: u64,
     /// Start of the flexible length character array for the string
-    body: void,
+    body: void = undefined,
 
     /// Create a string with the length and base set. Neither the hash nor the character array is
     /// created.
@@ -120,6 +120,6 @@ pub const String = extern struct {
     /// Get the bytes of the entire struct, including characters.
     pub fn asBytes(self: *String) []align(8) const u8 {
         const ptr: [*]u8 = @ptrCast(self);
-        return ptr[0 .. self.length + @sizeOf(String)];
+        return @alignCast(ptr[0 .. self.length + @sizeOf(String)]);
     }
 };

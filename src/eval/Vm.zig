@@ -57,7 +57,7 @@ pub fn allocateString(self: *Vm, comptime fmt: []const u8, args: anytype) !Value
 
     const length = string.length + @sizeOf(String);
 
-    const writer = try self.heap.allocate(self, length) catch {};
+    const writer = try self.heap.allocate(self, length);
     const heapString = self.heap.as(String);
     // Any potential overflow errors won't happen since we already checked if the heap has enough
     // room for the entire string
@@ -205,8 +205,11 @@ pub const Heap = struct {
         }
     }
 
-    pub fn allocate(self: *Heap, vm: *Vm, length: u64) !Buffer.Writer {
+    pub fn allocate(self: *Heap, vm: *Vm, length: u64) RuntimeError!Buffer.Writer {
         const alignment = self.getCurrentHeap().len % 8;
+
+        // For testing purposes
+        self.collectGarbage(vm);
 
         if (self.getCurrentHeap().buffer.len + length + alignment > heap_size) {
             self.collectGarbage(vm);

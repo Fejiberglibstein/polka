@@ -255,7 +255,7 @@ pub const String = struct {
     pub const kind: SyntaxKind = .string;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    pub fn get(self: Text) []const u8 {
+    pub fn get(self: String) []const u8 {
         // TODO make this clean the text by removing backslashes and such
         return self.v.range;
     }

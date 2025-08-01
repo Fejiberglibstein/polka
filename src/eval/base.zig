@@ -51,7 +51,7 @@ pub fn evalCode(node: ast.Code, vm: *Vm) !void {
         switch (stmt) {
             .expr => |v| {
                 try evalExpr(v, vm);
-                try vm.stackPop().toString(vm.output.writer(vm.allocator));
+                try vm.output.writer(vm.allocator).print("{any}", .{vm.stackPop()});
             },
             .for_loop => @panic("TODO"),
             .let_expr => |v| {
@@ -78,7 +78,7 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) !void {
         .ident => |v| {
             try vm.stackPush(try vm.getVar(v.get()));
         },
-        .string => |s| try vm.stackPush(try vm.allocateString("{s}", .{s})),
+        .string => |s| try vm.stackPush(try vm.allocateString("{s}", .{s.get()})),
         .access => @panic("TODO"),
         .grouping => @panic("TODO"),
         .function_call => @panic("TODO"),
@@ -161,13 +161,15 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                 },
                 .object => |o| switch (o.tag) {
                     .string => {
-                        const l = o.asString();
+                        const l = o.asString().get();
                         const r = vm.stackPeek(0);
-                        const res = vm.allocateString("{s}{any}", .{ l, r });
+                        const res = try vm.allocateString("{s}{any}", .{ l, r });
+
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs
                         try vm.stackPush(res);
                     },
+                    else => @panic("TODO"),
                 },
                 else => try invalidOpError(op, vm),
             }
