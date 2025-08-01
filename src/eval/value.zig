@@ -14,7 +14,7 @@ pub const Value = union(ValueType) {
     nil: void,
     bool: bool,
     number: f64,
-    object: Object,
+    object: *Object,
 
     pub fn isTruthy(self: Value) bool {
         // Lua-like truthy values.
@@ -80,7 +80,7 @@ pub const Object = extern struct {
 
 pub const Freed = extern struct {
     base: Object,
-    new_ptr: *usize,
+    new_ptr: *Object,
 };
 
 pub const String = extern struct {

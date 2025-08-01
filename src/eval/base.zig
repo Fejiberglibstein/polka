@@ -78,7 +78,7 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) !void {
         .ident => |v| {
             try vm.stackPush(try vm.getVar(v.get()));
         },
-        .string => @panic("TODO"),
+        .string => |s| try vm.stackPush(try vm.allocateString("{s}", .{s})),
         .access => @panic("TODO"),
         .grouping => @panic("TODO"),
         .function_call => @panic("TODO"),

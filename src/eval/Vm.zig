@@ -52,12 +52,12 @@ pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
     return self.output.items;
 }
 
-pub fn allocateString(self: *Vm, fmt: []const u8, args: anytype) !void {
+pub fn allocateString(self: *Vm, comptime fmt: []const u8, args: anytype) !Value {
     const string = String.init(fmt, args);
 
     const length = string.length + @sizeOf(String);
 
-    const writer = try self.heap.allocate(self, length);
+    const writer = try self.heap.allocate(self, length) catch {};
     const heapString = self.heap.as(String);
     // Any potential overflow errors won't happen since we already checked if the heap has enough
     // room for the entire string
@@ -67,7 +67,7 @@ pub fn allocateString(self: *Vm, fmt: []const u8, args: anytype) !void {
     writer.print(fmt, args) catch unreachable;
     heapString.computeHash();
 
-    self.heap.fixAlignment();
+    return Value{ .object = @ptrCast(@alignCast(heapString)) };
 }
 
 pub fn stackPush(self: *Vm, value: Value) RuntimeError!void {
@@ -143,22 +143,6 @@ pub fn getVar(self: *Vm, var_name: []const u8) RuntimeError!Value {
     try self.setError(.{ .undeclared_ident = var_name });
 }
 
-/// Stack containing all values currently in scope
-const Stack = struct {
-    items: [MAX_STACK_SIZE]Value,
-    count: u8,
-
-    pub const MAX_STACK_SIZE = 256;
-    pub const init = Stack{
-        .items = undefined,
-        .count = 0,
-    };
-
-    pub fn slice(self: Stack) []Value {
-        return self.items[0..self.count];
-    }
-};
-
 /// All the local variable names.
 ///
 /// Each local variable matches up with a value on the stack, e.g.
@@ -224,22 +208,22 @@ pub const Heap = struct {
     pub fn allocate(self: *Heap, vm: *Vm, length: u64) !Buffer.Writer {
         const alignment = self.getCurrentHeap().len % 8;
 
-        if (self.getCurrentHeap().items.len + length + alignment > heap_size) {
+        if (self.getCurrentHeap().buffer.len + length + alignment > heap_size) {
             self.collectGarbage(vm);
 
             // If it still exceeds, OOM
-            if (self.getCurrentHeap().items.len + length > heap_size) {
-                return error.OutOfMemory;
+            if (self.getCurrentHeap().buffer.len + length > heap_size) {
+                try vm.setError(.out_of_memory);
             }
         }
         // Fix alignment
-        self.getCurrentHeap().appendNTimes(undefined, alignment);
+        self.getCurrentHeap().appendNTimes(undefined, alignment) catch unreachable;
 
         return self.getCurrentHeap().writer();
     }
 
-    inline fn getCurrentHeap(self: *Heap) *std.BoundedArray(u8) {
-        return &self.heaps[self.current_heap];
+    inline fn getCurrentHeap(self: Heap) *Buffer {
+        return self.heaps[self.current_heap];
     }
 
     fn collectGarbage(self: *Heap, vm: *Vm) void {
@@ -248,11 +232,12 @@ pub const Heap = struct {
         const new_heap = self.getCurrentHeap();
 
         for (vm.stack.slice()) |*item| {
-            switch (item.*) {
+            switch (@as(Value, item.*)) {
                 .object => |o| {
                     switch (o.tag) {
                         .freed => item.object = o.asFreed().new_ptr,
-                        inline else => |v| item.object = move(new_heap, v),
+                        .string => item.object = @ptrCast(@alignCast(move(new_heap, o.asString()))),
+                        else => @panic("TODO"),
                     }
                 },
                 else => {},
@@ -265,13 +250,13 @@ pub const Heap = struct {
 
     /// Reinterprets the current spot in the heap as the type
     pub fn as(self: Heap, comptime T: type) *align(8) T {
-        return @ptrCast(@alignCast(self.getCurrentHeap().buffer));
+        return @ptrCast(@alignCast(&self.getCurrentHeap().buffer[self.getCurrentHeap().len]));
     }
 
-    fn move(new_heap: *std.BoundedArray(u8), value: anytype) *@TypeOf(value) {
+    fn move(new_heap: *Buffer, value: anytype) @TypeOf(value) {
         // Fix alignment
-        new_heap.appendNTimes(undefined, new_heap.len % 8);
-        const ptr = new_heap.buffer;
+        new_heap.appendNTimes(undefined, new_heap.len % 8) catch unreachable;
+        const ptr = &new_heap.buffer[new_heap.len];
 
         // Cannot overflow since value was already on the other heap.
         new_heap.appendSlice(value.asBytes()) catch unreachable;
