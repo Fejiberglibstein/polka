@@ -5,11 +5,13 @@ nodes: []const SyntaxNode,
 /// after program execution finishes
 output: std.ArrayListUnmanaged(u8),
 err: ?RuntimeErrorPayload,
-stack: Stack,
+stack: std.BoundedArray(Value, stack_size),
 locals: LocalVariables,
 heap: Heap,
 strings: std.HashMapUnmanaged(*String, void, HashContext, 80),
 allocator: Allocator,
+
+const stack_size = 256;
 
 const HashContext = struct {
     pub fn eql(self: HashContext, k1: *String, k2: *String) bool {
@@ -30,7 +32,7 @@ pub fn init(gpa: Allocator, all_nodes: []const SyntaxNode) !Vm {
         .output = try .initCapacity(gpa, 0),
         .locals = .init,
         .err = null,
-        .stack = .init,
+        .stack = try .init(0),
         .heap = try .init(gpa),
         .strings = .empty,
         .allocator = gpa,
@@ -69,21 +71,17 @@ pub fn allocateString(self: *Vm, fmt: []const u8, args: anytype) !void {
 }
 
 pub fn stackPush(self: *Vm, value: Value) RuntimeError!void {
-    if (self.stack.count >= Stack.MAX_STACK_SIZE) {
+    self.stack.append(value) catch {
         try self.setError(.stack_overflow);
-    }
-
-    self.stack.items[self.stack.count] = value;
-    self.stack.count += 1;
+    };
 }
 
 pub fn stackPop(self: *Vm) Value {
-    self.stack.count -= 1;
-    return self.stack.items[self.stack.count];
+    return self.stack.pop() orelse unreachable;
 }
 
 pub fn stackPeek(self: *Vm, back: usize) Value {
-    return self.stack.items[self.stack.count - back - 1];
+    return self.stack.get(self.stack.len - back - 1);
 }
 
 pub fn setError(self: *Vm, err: RuntimeErrorPayload) RuntimeError!noreturn {
@@ -115,7 +113,7 @@ pub fn popScope(self: *Vm) void {
         if (v.scope_depth > self.locals.scope_depth) {
             // Pop off the top local
             self.locals.count -= 1;
-            self.stack.count -= 1;
+            self.stack.len -= 1;
         } else {
             break;
         }
@@ -127,7 +125,7 @@ pub fn setVar(self: *Vm, var_name: []const u8, value: Value) RuntimeError!void {
     while (i >= 0) : (i -= 1) {
         const variable = self.locals.items[i];
         if (std.mem.eql(u8, var_name, variable.name)) {
-            self.stack.items[i] = value;
+            self.stack.buffer[i] = value;
             return;
         }
     }
@@ -138,7 +136,7 @@ pub fn getVar(self: *Vm, var_name: []const u8) RuntimeError!Value {
     while (i >= 0) : (i -= 1) {
         const variable = self.locals.items[i];
         if (std.mem.eql(u8, var_name, variable.name)) {
-            return self.stack.items[i];
+            return self.stack.get(i);
         }
     }
 
