@@ -243,7 +243,7 @@ pub const Heap = struct {
                     switch (o.tag) {
                         .freed => item.object = o.asFreed().new_ptr,
                         .string => {
-                            item.object = @ptrCast(@alignCast(move(new_heap, o.asString())));
+                            item.object = @ptrCast(@alignCast(move(new_heap, String, o.asString())));
                         },
                         else => @panic("TODO"),
                     }
@@ -261,15 +261,22 @@ pub const Heap = struct {
         return @ptrCast(@alignCast(&self.getCurrentHeap().buffer[self.getCurrentHeap().len]));
     }
 
-    fn move(new_heap: *Buffer, value: anytype) @TypeOf(value) {
+    fn move(new_heap: *Buffer, comptime T: type, value: *T) *T {
         // Fix alignment
         new_heap.appendNTimes(undefined, 8 - new_heap.len % 8) catch unreachable;
-        const ptr = &new_heap.buffer[new_heap.len];
+        const ptr: *T = @ptrCast(@alignCast(&new_heap.buffer[new_heap.len]));
 
         // Cannot overflow since value was already on the other heap.
         new_heap.appendSlice(value.asBytes()) catch unreachable;
 
-        return @ptrCast(@alignCast(ptr));
+        // Set a `Freed` where the value was on the old heap
+        @as(*Freed, @ptrCast(value)).* = .{
+            .base = Object{ .tag = .freed },
+            .old_size = value.length + @sizeOf(T),
+            .new_ptr = @ptrCast(ptr),
+        };
+
+        return ptr;
     }
 };
 
@@ -285,4 +292,5 @@ const RuntimeError = @import("error.zig").RuntimeError;
 const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
 const Value = @import("value.zig").Value;
 const String = @import("value.zig").String;
+const Freed = @import("value.zig").Freed;
 const Object = @import("value.zig").Object;

@@ -79,9 +79,21 @@ pub const Object = extern struct {
     }
 };
 
+/// While garbage is being collected, a pointer to the same object can be on the stack in two
+/// different spots.
+///
+/// To prevent the object from being moved to the new heap twice, when an object is moved the first
+/// time, the value on the old heap is set to `Freed`. This way, when the other pointer is reached
+/// on the stack, it can find the new ptr and update itself to point to the object on the new heap.
+///
+/// The `old_length` is the total size of the object that used to be on the heap, including the
+/// struct header in addition to the data.
 pub const Freed = extern struct {
     base: Object,
+    /// The location of the object on the new heap
     new_ptr: *Object,
+    /// The size of the object that used to be in this spot
+    old_size: u64,
 };
 
 pub const String = extern struct {
