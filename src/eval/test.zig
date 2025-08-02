@@ -27,6 +27,32 @@ test "assignment" {
     );
 }
 
+test "binary" {
+    try testEval(
+        \\#* 3 - 2
+        \\#* 4 * 3 - 6
+        \\#* 2.2 + 9
+        \\#* -8
+        \\#* "ternaries" + (true and " are " or " aren't ") + "cool!"
+        \\#* false and ":(" or ":)"
+    ,
+        \\1 6 11.2 -8 ternaries are cool! :)
+        \\
+    );
+}
+
+test "strings" {
+    try testEval(
+        \\#* "hello world"
+        \\#* let h = "hello"
+        \\#* "" + 10 + h + 10 + 2
+        \\hi
+    ,
+        \\hello world 10hello102
+        \\hi
+    );
+}
+
 test "String interning" {
     try testEval(
         \\#* let h = "hello"
@@ -58,29 +84,6 @@ test "garbage collection" {
     );
 }
 
-test "strings" {
-    try testEval(
-        \\#* "hello world"
-        \\#* let h = "hello"
-        \\#* "" + 10 + h + 10 + 2
-        \\hi
-    ,
-        \\hello world 10hello102
-        \\hi
-    );
-}
-
-test "binary" {
-    try testEval(
-        \\#* 3 - 2
-        \\#* 4 * 3 - 6
-        \\#* 2.2 + 9
-        \\#* -8
-    ,
-        \\1 6 11.2 -8
-        \\
-    );
-}
 //
 // test "conditional" {
 //     try testEval(

@@ -79,15 +79,14 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) !void {
     switch (node) {
         .nil => |_| try vm.stackPush(.nil),
         .bool => |v| try vm.stackPush(.{ .bool = v.get() }),
+        .ident => |v| try vm.stackPush(try vm.getVar(v.get())),
         .number => |v| try vm.stackPush(.{ .number = v.get() }),
-        .unary_op => |v| try evalUnary(v, vm),
-        .binary_op => |v| try evalBinary(v, vm),
-        .ident => |v| {
-            try vm.stackPush(try vm.getVar(v.get()));
-        },
         .string => |s| try vm.stackPush(try vm.allocateString("{s}", .{s.get()})),
+
+        .unary_op => |v| try evalUnary(v, vm),
+        .grouping => |v| try evalExpr(v.get(vm.nodes), vm),
+        .binary_op => |v| try evalBinary(v, vm),
         .access => @panic("TODO"),
-        .grouping => @panic("TODO"),
         .function_call => @panic("TODO"),
     }
 }
