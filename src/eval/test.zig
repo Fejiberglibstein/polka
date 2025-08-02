@@ -34,7 +34,7 @@ test "binary" {
         \\#* 2.2 + 9
         \\#* -8
         \\#* "ternaries" + (true and " are " or " aren't ") + "cool!"
-        \\#* false and ":(" or ":)"
+        \\#* nil and ":(" or ":)"
     ,
         \\1 6 11.2 -8 ternaries are cool! :)
         \\

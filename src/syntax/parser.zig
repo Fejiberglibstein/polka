@@ -179,7 +179,7 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
 /// Primaries are strings, numbers, bools, identifiers (variables), and lua-like tables
 fn parsePrimary(p: *Parser) Allocator.Error!void {
     switch (p.current.kind) {
-        .ident, .string, .number, .bool => try p.eat(),
+        .ident, .string, .number, .bool, .nil => try p.eat(),
         .left_paren => {
             const m = p.marker();
             try p.assert(.left_paren);
