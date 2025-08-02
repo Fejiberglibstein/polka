@@ -27,6 +27,22 @@ test "assignment" {
     );
 }
 
+test "garbage collection" {
+    try testEval(
+        \\#* let h = "hello world"
+        \\#* let b = "zop world"
+        \\#* b = h
+        \\#* h = 0
+        \\#* h = "hi"
+        \\#* b
+        \\#* h
+        \\hi
+    ,
+        \\hello world hi
+        \\hi
+    );
+}
+
 test "strings" {
     try testEval(
         \\#* "hello world"
