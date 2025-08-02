@@ -406,7 +406,7 @@ const gc_logging = @import("build_options").gc_logging;
 
 const ast = @import("../syntax/ast.zig");
 const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
-const base = @import("base.zig");
+const base = @import("nodes.zig");
 const Moved = @import("value.zig").Moved;
 const Object = @import("value.zig").Object;
 const RuntimeError = @import("error.zig").RuntimeError;
