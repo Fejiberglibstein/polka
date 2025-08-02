@@ -257,8 +257,22 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                 else => try Ops.invalidOpError(op, vm),
             }
         },
-        .equal => @panic("TODO"),
-        .not_equal => @panic("TODO"),
+        .equal => {
+            try evalExpr(lhs, vm);
+            try evalExpr(rhs, vm);
+
+            try vm.stackPush(Value{
+                .bool = vm.stackPop().equal(vm.stackPop()),
+            });
+        },
+        .not_equal => {
+            try evalExpr(lhs, vm);
+            try evalExpr(rhs, vm);
+
+            try vm.stackPush(Value{
+                .bool = !vm.stackPop().equal(vm.stackPop()),
+            });
+        },
         .modulo => try binaryOp(vm, lhs, rhs, op, Ops.modulo),
         .divide => try binaryOp(vm, lhs, rhs, op, Ops.divide),
         .multiply => try binaryOp(vm, lhs, rhs, op, Ops.multiply),

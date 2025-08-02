@@ -25,6 +25,21 @@ pub const Value = union(ValueType) {
         };
     }
 
+    pub fn equal(a: Value, b: Value) bool {
+        if (@intFromEnum(a) != @intFromEnum(b)) {
+            return false;
+        }
+
+        return switch (a) {
+            .object => |o| switch (o.tag) {
+                .string => o == b.object,
+                .moved => unreachable,
+                else => @panic("TODO"),
+            },
+            inline else => |v, tag| @field(b, @tagName(tag)) == v,
+        };
+    }
+
     pub fn format(
         self: @This(),
         comptime fmt: []const u8,
@@ -45,7 +60,6 @@ pub const Value = union(ValueType) {
             },
         }
     }
-
 };
 
 pub const ObjectType = enum(u8) {
