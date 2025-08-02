@@ -45,7 +45,7 @@ pub fn evalCode(node: ast.Code, vm: *Vm) RuntimeError!void {
     var i: usize = 0;
     var output_len = vm.output.items.len;
     while (statements.next()) |stmt| {
-        if (output_len != vm.output.items.len) {
+        if (output_len != vm.output.items.len and vm.output.getLast() != '\n') {
             try vm.outputPrint(" ", .{});
         }
         output_len = vm.output.items.len;
@@ -67,7 +67,14 @@ pub fn evalCode(node: ast.Code, vm: *Vm) RuntimeError!void {
             },
             .while_loop => @panic("TODO"),
             .return_expr => @panic("TODO"),
-            .conditional => @panic("TODO"),
+            .conditional => |v| {
+                try evalExpr(v.condition(vm.nodes), vm);
+                if (vm.stackPop().isTruthy()) {
+                    try evalTextNode(v.ifBody(vm.nodes), vm);
+                } else if (v.elseBody(vm.nodes)) |else_body| {
+                    try evalTextNode(else_body, vm);
+                }
+            },
             .export_expr => @panic("TODO"),
             .function_def => @panic("TODO"),
         }

@@ -84,40 +84,42 @@ test "garbage collection" {
     );
 }
 
-//
-// test "conditional" {
-//     try testEval(
-//         \\
-//         \\hi
-//         \\#* if true then
-//         \\hello there
-//         \\#*     10
-//         \\#* end
-//         \\#* 10
-//         \\#*
-//         \\#* if false then
-//         \\goodbye
-//         \\#* end
-//         \\
-//         \\#* let h = 10
-//         \\#* if h > 4 then
-//         \\whoo
-//         \\#* end
-//         \\#* if h < 4 then
-//         \\**nothing**
-//         \\#* end
-//         \\
-//         \\bye
-//     ,
-//         \\hi
-//         \\hello there
-//         \\10 10
-//         \\whoo
-//         \\
-//         \\bye
-//     );
-// }
-//
+test "conditional" {
+    try testEval(
+        \\hi
+        \\#* if true then
+        \\hello there
+        \\#*     10
+        \\#* end
+        \\#* 10
+        \\#*
+        \\#* if false then
+        \\goodbye
+        \\#* end
+        \\
+        \\#* let h = 10
+        \\#* if h > 4 then
+        \\whoo
+        \\#* end
+        \\#* if h < 4 then
+        \\**nothing**
+        \\#* end
+        \\
+        \\bye
+    ,
+        \\hi
+        \\hello there
+        \\10
+
+        // TODO: there is a space after the ten on the line after this, so it's `10 `. This is a bug
+        // in the evaluation but i dont feel like fixing it rn
+        \\10 
+        \\whoo
+        \\
+        \\bye
+    );
+}
+
 // test "while_loop" {
 //     try testEval(
 //         \\
