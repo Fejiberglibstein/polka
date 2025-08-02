@@ -107,7 +107,7 @@ pub fn allocateString(self: *Vm, comptime fmt: []const u8, args: anytype) !Value
     }
 
     self.strings.put(self.allocator, heap_string, undefined) catch {
-        try self.setError(.out_of_memory);
+        try self.setError(.allocation_error);
     };
     return Value{ .object = @ptrCast(@alignCast(heap_string)) };
 }
@@ -153,8 +153,8 @@ pub fn setError(self: *Vm, err: RuntimeErrorPayload) RuntimeError!noreturn {
     return RuntimeError.Error;
 }
 
-pub fn outputPrint(self: *Vm, comptime fmt: []const u8, args: anytype) Allocator.Error!void {
-    try self.output.writer(self.allocator).print(fmt, args);
+pub fn outputPrint(self: *Vm, comptime fmt: []const u8, args: anytype) RuntimeError!void {
+    self.output.writer(self.allocator).print(fmt, args) catch try self.setError(.allocation_error);
 }
 
 pub fn pushVar(self: *Vm, var_name: []const u8) void {
@@ -286,7 +286,7 @@ pub const Heap = struct {
             alignment = 8 - self.getCurrentHeap().len % 8;
             // If it still exceeds, OOM
             if (self.getCurrentHeap().len + length + alignment > heap_size) {
-                try vm.setError(.out_of_memory);
+                try vm.setError(.heap_oom);
             }
         }
 
@@ -321,7 +321,7 @@ pub const Heap = struct {
             }
         }
 
-        vm.reinternStrings() catch try vm.setError(.out_of_memory);
+        vm.reinternStrings() catch try vm.setError(.allocation_error);
 
         if (gc_logging) {
             logGarbage(old_heap);

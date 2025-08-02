@@ -8,7 +8,7 @@ const RuntimeError = @import("error.zig").RuntimeError;
 
 const std = @import("std");
 
-pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
+pub fn evalTextNode(node: ast.TextNode, vm: *Vm) RuntimeError!void {
     vm.pushScope();
     defer vm.popScope();
 
@@ -39,7 +39,7 @@ pub fn evalTextNode(node: ast.TextNode, vm: *Vm) !void {
     }
 }
 
-pub fn evalCode(node: ast.Code, vm: *Vm) !void {
+pub fn evalCode(node: ast.Code, vm: *Vm) RuntimeError!void {
     var statements = node.statements(vm.nodes);
 
     var i: usize = 0;
@@ -57,7 +57,7 @@ pub fn evalCode(node: ast.Code, vm: *Vm) !void {
 
                 // nil shouldn't be printed under normal circumstances
                 if (value != .nil) {
-                    try vm.output.writer(vm.allocator).print("{any}", .{value});
+                    try vm.outputPrint("{any}", .{value});
                 }
             },
             .for_loop => @panic("TODO"),

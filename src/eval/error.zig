@@ -32,7 +32,10 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
     /// When the heap runs out of space
     ///
     /// Out of memory
-    out_of_memory,
+    heap_oom,
+
+    /// An internal allocation error
+    allocation_error,
 };
 
 pub const RuntimeError = error{Error};
