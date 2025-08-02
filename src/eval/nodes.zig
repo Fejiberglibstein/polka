@@ -117,20 +117,74 @@ pub fn evalUnary(node: ast.Unary, vm: *Vm) RuntimeError!void {
     }
 }
 
+pub fn binaryOp(
+    vm: *Vm,
+    lhs: ast.Expr,
+    rhs: ast.Expr,
+    op: ast.BinaryOperator.Op,
+    calculate: fn (f64, f64, *Vm) RuntimeError!Value,
+) RuntimeError!void {
+    try evalExpr(lhs, vm);
+    try evalExpr(rhs, vm);
+    switch (vm.stackPeek(1)) { // switch on lhs
+        .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
+            .number => |r| {
+                const res = try calculate(l, r, vm);
+                _ = vm.stackPop(); // Pop rhs
+                _ = vm.stackPop(); // Pop lhs
+                try vm.stackPush(res);
+            },
+            else => try Ops.invalidOpError(op, vm),
+        },
+        else => try Ops.invalidOpError(op, vm),
+    }
+}
+
+const Ops = struct {
+    pub fn divide(l: f64, r: f64, _: *Vm) !Value {
+        return Value{ .number = l - r };
+    }
+    pub fn subtract(l: f64, r: f64, _: *Vm) !Value {
+        return Value{ .number = l - r };
+    }
+    pub fn greater_than(l: f64, r: f64, _: *Vm) !Value {
+        return Value{ .bool = l > r };
+    }
+    pub fn greater_than_equal(l: f64, r: f64, _: *Vm) !Value {
+        return Value{ .bool = l >= r };
+    }
+    pub fn less_than(l: f64, r: f64, _: *Vm) !Value {
+        return Value{ .bool = l < r };
+    }
+    pub fn less_than_equal(l: f64, r: f64, _: *Vm) !Value {
+        return Value{ .bool = l <= r };
+    }
+    pub fn modulo(l: f64, r: f64, _vm: *Vm) !Value {
+        return if (r > 0)
+            Value{ .number = @rem(l, r) }
+        else
+            try _vm.setError(.{ .modulo_error = .{ .rhs = r } });
+    }
+    pub fn multiply(l: f64, r: f64, _: *Vm) !Value {
+        return Value{ .number = l * r };
+    }
+
+    pub fn invalidOpError(operator: ast.BinaryOperator.Op, vm: *Vm) RuntimeError!noreturn {
+        try vm.setError(.{
+            .invalid_binary_operands = .{
+                .rhs = vm.stackPop(),
+                .lhs = vm.stackPop(),
+                .op = operator,
+            },
+        });
+    }
+};
+
 pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
     const lhs = node.lhs(vm.nodes);
     const rhs = node.rhs(vm.nodes);
     const op = node.op(vm.nodes).getOp();
 
-    const invalidOpError = struct {
-        pub fn func(operator: ast.BinaryOperator.Op, virtual_machine: *Vm) RuntimeError!noreturn {
-            try virtual_machine.setError(.{ .invalid_binary_operands = .{
-                .rhs = virtual_machine.stackPop(),
-                .lhs = virtual_machine.stackPop(),
-                .op = operator,
-            } });
-        }
-    }.func;
     // Lhs will be pushed first, then rhs
 
     switch (op) {
@@ -141,7 +195,7 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                     // Push lhs and rhs so that invalidOpError can pop the right values off
                     try evalExpr(lhs, vm);
                     try evalExpr(rhs, vm);
-                    try invalidOpError(.assign, vm);
+                    try Ops.invalidOpError(.assign, vm);
                 },
             };
 
@@ -185,7 +239,7 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                         _ = vm.stackPop(); // Pop lhs
                         try vm.stackPush(res);
                     },
-                    else => try invalidOpError(op, vm),
+                    else => try Ops.invalidOpError(op, vm),
                 },
                 .object => |o| switch (o.tag) {
                     .string => {
@@ -200,140 +254,18 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                     },
                     else => @panic("TODO"),
                 },
-                else => try invalidOpError(op, vm),
-            }
-        },
-        .divide => {
-            try evalExpr(lhs, vm);
-            try evalExpr(rhs, vm);
-            switch (vm.stackPeek(1)) { // switch on lhs
-                .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
-                    .number => |r| {
-                        const res = Value{ .number = l / r };
-                        _ = vm.stackPop(); // Pop rhs
-                        _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(res);
-                    },
-                    else => try invalidOpError(op, vm),
-                },
-                else => try invalidOpError(op, vm),
-            }
-        },
-        .subtract => {
-            try evalExpr(lhs, vm);
-            try evalExpr(rhs, vm);
-            switch (vm.stackPeek(1)) { // switch on lhs
-                .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
-                    .number => |r| {
-                        const res = Value{ .number = l - r };
-                        _ = vm.stackPop(); // Pop rhs
-                        _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(res);
-                    },
-                    else => try invalidOpError(op, vm),
-                },
-                else => try invalidOpError(op, vm),
-            }
-        },
-        .greater_than => {
-            try evalExpr(lhs, vm);
-            try evalExpr(rhs, vm);
-            switch (vm.stackPeek(1)) { // switch on lhs
-                .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
-                    .number => |r| {
-                        const res = Value{ .bool = l > r };
-                        _ = vm.stackPop(); // Pop rhs
-                        _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(res);
-                    },
-                    else => try invalidOpError(op, vm),
-                },
-                else => try invalidOpError(op, vm),
-            }
-        },
-        .greater_than_equal => {
-            try evalExpr(lhs, vm);
-            try evalExpr(rhs, vm);
-            switch (vm.stackPeek(1)) { // switch on lhs
-                .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
-                    .number => |r| {
-                        const res = Value{ .bool = l >= r };
-                        _ = vm.stackPop(); // Pop rhs
-                        _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(res);
-                    },
-                    else => try invalidOpError(op, vm),
-                },
-                else => try invalidOpError(op, vm),
-            }
-        },
-        .less_than => {
-            try evalExpr(lhs, vm);
-            try evalExpr(rhs, vm);
-            switch (vm.stackPeek(1)) { // switch on lhs
-                .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
-                    .number => |r| {
-                        const res = Value{ .bool = l < r };
-                        _ = vm.stackPop(); // Pop rhs
-                        _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(res);
-                    },
-                    else => try invalidOpError(op, vm),
-                },
-                else => try invalidOpError(op, vm),
-            }
-        },
-        .less_than_equal => {
-            try evalExpr(lhs, vm);
-            try evalExpr(rhs, vm);
-            switch (vm.stackPeek(1)) { // switch on lhs
-                .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
-                    .number => |r| {
-                        const res = Value{ .bool = l <= r };
-                        _ = vm.stackPop(); // Pop rhs
-                        _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(res);
-                    },
-                    else => try invalidOpError(op, vm),
-                },
-                else => try invalidOpError(op, vm),
-            }
-        },
-        .modulo => {
-            try evalExpr(lhs, vm);
-            try evalExpr(rhs, vm);
-            switch (vm.stackPeek(1)) { // switch on lhs
-                .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
-                    .number => |r| if (r > 0) {
-                        const res = Value{ .number = @rem(l, r) };
-                        _ = vm.stackPop(); // Pop rhs
-                        _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(res);
-                    } else {
-                        try vm.setError(.{ .modulo_error = .{ .rhs = r } });
-                    },
-                    else => try invalidOpError(op, vm),
-                },
-                else => try invalidOpError(op, vm),
-            }
-        },
-        .multiply => {
-            try evalExpr(lhs, vm);
-            try evalExpr(rhs, vm);
-            switch (vm.stackPeek(1)) { // switch on lhs
-                .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
-                    .number => |r| {
-                        const res = Value{ .number = l * r };
-                        _ = vm.stackPop(); // Pop rhs
-                        _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(res);
-                    },
-                    else => try invalidOpError(op, vm),
-                },
-                else => try invalidOpError(op, vm),
+                else => try Ops.invalidOpError(op, vm),
             }
         },
         .equal => @panic("TODO"),
         .not_equal => @panic("TODO"),
+        .modulo => try binaryOp(vm, lhs, rhs, op, Ops.modulo),
+        .divide => try binaryOp(vm, lhs, rhs, op, Ops.divide),
+        .multiply => try binaryOp(vm, lhs, rhs, op, Ops.multiply),
+        .subtract => try binaryOp(vm, lhs, rhs, op, Ops.subtract),
+        .less_than => try binaryOp(vm, lhs, rhs, op, Ops.less_than),
+        .greater_than => try binaryOp(vm, lhs, rhs, op, Ops.greater_than),
+        .less_than_equal => try binaryOp(vm, lhs, rhs, op, Ops.less_than_equal),
+        .greater_than_equal => try binaryOp(vm, lhs, rhs, op, Ops.greater_than_equal),
     }
 }
