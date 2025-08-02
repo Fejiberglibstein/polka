@@ -27,6 +27,21 @@ test "assignment" {
     );
 }
 
+test "String interning" {
+    try testEval(
+        \\#* let h = "hello"
+        \\#* h
+        \\#* "hello"
+        \\#* let he = "he"
+        \\#* "he" + "llo"
+        \\#* he = ""
+        \\#* "j"
+    ,
+        \\hello hello hello j
+        \\
+    );
+}
+
 test "garbage collection" {
     try testEval(
         \\#* let h = "hello world"
@@ -127,6 +142,8 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     defer {
         _ = allocator.deinit();
     }
+
+    std.debug.print("\nnew test ------------\n", .{});
 
     const node, const nodes = try parser.parse(source, allocator.allocator());
     defer nodes.deinit();

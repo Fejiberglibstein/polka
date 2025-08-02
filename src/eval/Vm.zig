@@ -8,11 +8,12 @@ err: ?RuntimeErrorPayload,
 stack: std.BoundedArray(Value, stack_size),
 locals: LocalVariables,
 heap: Heap,
-strings: std.HashMapUnmanaged(*String, void, HashContext, 80),
+strings: InternPool,
 allocator: Allocator,
 
 const stack_size = 256;
 
+const InternPool = std.HashMapUnmanaged(*String, void, HashContext, 80);
 const HashContext = struct {
     pub fn eql(self: HashContext, k1: *String, k2: *String) bool {
         _ = self;
@@ -49,8 +50,10 @@ pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
     const root = ast.TextNode.toTyped(start_node).?;
     try base.evalTextNode(root, self);
 
-    // TESTING PURPOSES
-    self.heap.collectGarbage(self);
+    if (gc_logging) {
+        try self.heap.collectGarbage(self);
+        std.debug.assert(self.heap.getCurrentHeap().len == 0);
+    }
 
     return self.output.items;
 }
@@ -83,16 +86,52 @@ pub fn allocateString(self: *Vm, comptime fmt: []const u8, args: anytype) !Value
     const string = String.init(fmt, args);
 
     const length = string.length + @sizeOf(String);
-    const writer, const heapString = try self.heap.allocate(self, length, String);
+    const writer, const heap_string = try self.heap.allocate(self, length, String);
+    // Save the index so we can reset the heap if we have an interned string already.
+    const old_heap_length = self.heap.getCurrentHeap().len;
 
     // Any potential overflow errors won't happen since we already checked if the heap has enough
     // room for the entire string
     writer.writeStruct(string) catch unreachable;
     writer.print(fmt, args) catch unreachable;
 
-    heapString.computeHash();
+    heap_string.computeHash();
 
-    return Value{ .object = @ptrCast(@alignCast(heapString)) };
+    if (self.strings.getEntry(heap_string)) |interned_string| {
+        // Because we had interned the string already, we don't need this memory allocated anymore
+        //
+        // TODO: Perhaps try to do interning without allocating memory?
+        self.heap.getCurrentHeap().len = old_heap_length;
+
+        return Value{ .object = @ptrCast(@alignCast(interned_string.key_ptr.*)) };
+    }
+
+    self.strings.put(self.allocator, heap_string, undefined) catch {
+        try self.setError(.out_of_memory);
+    };
+    return Value{ .object = @ptrCast(@alignCast(heap_string)) };
+}
+
+/// Called after garbage collection occurs to fix the intern pool, since after garbage collection
+/// all the valid strings will have been moved to the new heap and thus have new pointers.
+pub fn reinternStrings(self: *Vm) Allocator.Error!void {
+    // We can't modify the hashmap since that invalidates iterators, but we can create a new hashmap
+    // and move everything over.
+    var new_map = InternPool.empty;
+    try new_map.ensureTotalCapacity(self.allocator, self.strings.size);
+
+    var keys = self.strings.keyIterator();
+    while (keys.next()) |key| {
+        if (key.*.base.tag == .freed) {
+            try new_map.put(
+                self.allocator,
+                @ptrCast(@alignCast(key.*.base.asFreed().new_ptr)),
+                undefined,
+            );
+        }
+    }
+    self.strings.deinit(self.allocator);
+    self.strings = new_map;
 }
 
 pub fn stackPush(self: *Vm, value: Value) RuntimeError!void {
@@ -234,15 +273,14 @@ pub const Heap = struct {
         Buffer.Writer,
         *T,
     } {
-
         if (gc_logging) {
-            self.collectGarbage(vm);
+            try self.collectGarbage(vm);
         }
 
         var alignment = 8 - self.getCurrentHeap().len % 8;
 
         if (self.getCurrentHeap().len + length + alignment > heap_size) {
-            self.collectGarbage(vm);
+            try self.collectGarbage(vm);
 
             // Recalculate alignment since it's on a different heap now
             alignment = 8 - self.getCurrentHeap().len % 8;
@@ -262,11 +300,12 @@ pub const Heap = struct {
         return self.heaps[self.current_heap];
     }
 
-    fn collectGarbage(self: *Heap, vm: *Vm) void {
+    fn collectGarbage(self: *Heap, vm: *Vm) RuntimeError!void {
         const old_heap = self.getCurrentHeap();
         self.current_heap = (self.current_heap + 1) % total_heaps;
         const new_heap = self.getCurrentHeap();
 
+        // Collect garbage on the stack
         for (vm.stack.slice()) |*item| {
             switch (@as(Value, item.*)) {
                 .object => |o| {
@@ -281,6 +320,8 @@ pub const Heap = struct {
                 else => {},
             }
         }
+
+        vm.reinternStrings() catch try vm.setError(.out_of_memory);
 
         if (gc_logging) {
             logGarbage(old_heap);
