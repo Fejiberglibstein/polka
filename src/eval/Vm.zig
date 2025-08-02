@@ -17,7 +17,7 @@ const HashContext = struct {
     pub fn eql(self: HashContext, k1: *String, k2: *String) bool {
         _ = self;
 
-        return std.mem.eql(u8, k1, k2);
+        return std.mem.eql(u8, k1.get(), k2.get());
     }
 
     pub fn hash(self: HashContext, k: *String) u64 {
@@ -48,6 +48,9 @@ pub fn deinit(self: *Vm) void {
 pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
     const root = ast.TextNode.toTyped(start_node).?;
     try base.evalTextNode(root, self);
+
+    // TESTING PURPOSES
+    self.heap.collectGarbage(self);
 
     return self.output.items;
 }
@@ -231,8 +234,10 @@ pub const Heap = struct {
         Buffer.Writer,
         *T,
     } {
-        // For testing purposes
-        self.collectGarbage(vm);
+
+        if (gc_logging) {
+            self.collectGarbage(vm);
+        }
 
         var alignment = 8 - self.getCurrentHeap().len % 8;
 
@@ -250,7 +255,7 @@ pub const Heap = struct {
         // Fix alignment
         self.getCurrentHeap().appendNTimes(undefined, alignment) catch unreachable;
 
-        return self.getCurrentHeap().writer();
+        return .{ self.getCurrentHeap().writer(), self.as(T) };
     }
 
     inline fn getCurrentHeap(self: Heap) *Buffer {
@@ -277,9 +282,56 @@ pub const Heap = struct {
             }
         }
 
+        if (gc_logging) {
+            logGarbage(old_heap);
+        }
+
         // Clear out the old heap.
+        @memset(old_heap.slice(), undefined);
         old_heap.len = 0;
     }
+
+    fn logGarbage(old_heap: *Buffer) void {
+        std.debug.print(">begin garbage collection\n", .{});
+
+        var iterator = HeapIterator.init(old_heap);
+
+        while (iterator.next()) |obj| {
+            switch (obj.tag) {
+                .freed => {},
+                inline else => std.debug.print(" {} was freed\n", .{Value{ .object = obj }}),
+            }
+        }
+    }
+
+    const HeapIterator = struct {
+        index: usize = 0,
+        heap: *Buffer,
+
+        pub fn init(heap: *Buffer) HeapIterator {
+            return .{ .heap = heap };
+        }
+
+        pub fn next(self: *HeapIterator) ?*Object {
+            // Fix alignment
+            self.index += 8 - self.index % 8;
+
+            if (self.index >= self.heap.len) {
+                return null;
+            }
+
+            const obj: *Object = @ptrCast(&self.heap.buffer[self.index]);
+
+            // Move past the object that used to be here.
+            self.index += switch (obj.tag) {
+                .freed => obj.asFreed().old_size,
+                .string => obj.asString().length + @sizeOf(String),
+                else => @panic("TODO"),
+            };
+
+            return obj;
+        }
+    };
 
     /// Reinterprets the current spot in the heap as the type
     pub fn as(self: Heap, comptime T: type) *align(8) T {
@@ -319,3 +371,4 @@ const Value = @import("value.zig").Value;
 const String = @import("value.zig").String;
 const Freed = @import("value.zig").Freed;
 const Object = @import("value.zig").Object;
+const gc_logging = @import("build_options").gc_logging;

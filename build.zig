@@ -26,12 +26,22 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const gc_logging = b.option(
+        bool,
+        "gc-logging",
+        "Toggles if the garbage collector should log all allocations and frees",
+    ) orelse false;
+    var options = b.addOptions();
+    options.addOption(bool, "gc_logging", gc_logging);
+
     // This creates another `std.Build.Step.Compile`, but this one builds an executable
     // rather than a static library.
     const exe = b.addExecutable(.{
         .name = "polka",
         .root_module = exe_mod,
     });
+
+    exe.root_module.addOptions("build_options", options);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
