@@ -40,7 +40,7 @@ pub const Value = union(ValueType) {
             .number => |v| try writer.print("{d}", .{v}),
             .object => |o| switch (o.tag) {
                 .string => try writer.print("{s}", .{o.asString().get()}),
-                .freed => unreachable,
+                .moved => unreachable,
                 else => @panic("TODO"),
             },
         }
@@ -49,8 +49,9 @@ pub const Value = union(ValueType) {
 };
 
 pub const ObjectType = enum(u8) {
-    /// If the object has already been freed by the garbage collector when cleaning up
-    freed,
+    /// If the object has already been moved to the new heap by the garbage collector during
+    /// collection.
+    moved,
     string,
     list,
     dict,
@@ -68,8 +69,8 @@ pub const Object = extern struct {
     // Any potential header information that may need to exist
     tag: ObjectType,
 
-    pub fn asFreed(self: *Object) *Freed {
-        assert(self.tag == .freed);
+    pub fn asMoved(self: *Object) *Moved {
+        assert(self.tag == .moved);
         return @ptrCast(@alignCast(self));
     }
 
@@ -83,12 +84,12 @@ pub const Object = extern struct {
 /// different spots.
 ///
 /// To prevent the object from being moved to the new heap twice, when an object is moved the first
-/// time, the value on the old heap is set to `Freed`. This way, when the other pointer is reached
+/// time, the value on the old heap is set to `Moved`. This way, when the other pointer is reached
 /// on the stack, it can find the new ptr and update itself to point to the object on the new heap.
 ///
 /// The `old_length` is the total size of the object that used to be on the heap, including the
 /// struct header in addition to the data.
-pub const Freed = extern struct {
+pub const Moved = extern struct {
     base: Object,
     /// The location of the object on the new heap
     new_ptr: *Object,

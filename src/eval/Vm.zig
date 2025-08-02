@@ -122,10 +122,10 @@ pub fn reinternStrings(self: *Vm) Allocator.Error!void {
 
     var keys = self.strings.keyIterator();
     while (keys.next()) |key| {
-        if (key.*.base.tag == .freed) {
+        if (key.*.base.tag == .moved) {
             try new_map.put(
                 self.allocator,
-                @ptrCast(@alignCast(key.*.base.asFreed().new_ptr)),
+                @ptrCast(@alignCast(key.*.base.asMoved().new_ptr)),
                 undefined,
             );
         }
@@ -310,7 +310,7 @@ pub const Heap = struct {
             switch (@as(Value, item.*)) {
                 .object => |o| {
                     switch (o.tag) {
-                        .freed => item.object = o.asFreed().new_ptr,
+                        .moved => item.object = o.asMoved().new_ptr,
                         .string => {
                             item.object = @ptrCast(@alignCast(move(new_heap, String, o.asString())));
                         },
@@ -339,7 +339,7 @@ pub const Heap = struct {
 
         while (iterator.next()) |obj| {
             switch (obj.tag) {
-                .freed => {},
+                .moved => {},
                 inline else => std.debug.print(" {} was freed\n", .{Value{ .object = obj }}),
             }
         }
@@ -365,7 +365,7 @@ pub const Heap = struct {
 
             // Move past the object that used to be here.
             self.index += switch (obj.tag) {
-                .freed => obj.asFreed().old_size,
+                .moved => obj.asMoved().old_size,
                 .string => obj.asString().length + @sizeOf(String),
                 else => @panic("TODO"),
             };
@@ -387,9 +387,9 @@ pub const Heap = struct {
         // Cannot overflow since value was already on the other heap.
         new_heap.appendSlice(value.asBytes()) catch unreachable;
 
-        // Set a `Freed` where the value was on the old heap
-        @as(*Freed, @ptrCast(value)).* = .{
-            .base = Object{ .tag = .freed },
+        // Set a `Moved` where the value was on the old heap
+        @as(*Moved, @ptrCast(value)).* = .{
+            .base = Object{ .tag = .moved },
             .old_size = value.length + @sizeOf(T),
             .new_ptr = @ptrCast(ptr),
         };
@@ -402,14 +402,14 @@ const Vm = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const gc_logging = @import("build_options").gc_logging;
 
 const ast = @import("../syntax/ast.zig");
 const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
 const base = @import("base.zig");
+const Moved = @import("value.zig").Moved;
+const Object = @import("value.zig").Object;
 const RuntimeError = @import("error.zig").RuntimeError;
 const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
-const Value = @import("value.zig").Value;
 const String = @import("value.zig").String;
-const Freed = @import("value.zig").Freed;
-const Object = @import("value.zig").Object;
-const gc_logging = @import("build_options").gc_logging;
+const Value = @import("value.zig").Value;
