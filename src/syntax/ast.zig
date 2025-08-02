@@ -1,3 +1,8 @@
+//! Attribution: The way the ast is set up is very heavily based on Typst's ast. 
+//! Source: https://github.com/typst/typst/blob/main/crates/typst-syntax/src/ast.rs
+//!
+//! ---
+//!
 //! Provides a typed interface to access the CST (Concrete syntax tree) that `parser.zig` produces.
 //!
 //! Usually this would be implemented by having struct data inside each variant of the SyntaxKind.
