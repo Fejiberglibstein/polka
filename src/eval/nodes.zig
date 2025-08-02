@@ -65,7 +65,14 @@ pub fn evalCode(node: ast.Code, vm: *Vm) RuntimeError!void {
                 vm.pushVar(v.binding(vm.nodes).get());
                 try evalExpr(v.value(vm.nodes), vm);
             },
-            .while_loop => @panic("TODO"),
+            .while_loop => |v| {
+                while (blk: {
+                    try evalExpr(v.condition(vm.nodes), vm);
+                    break :blk vm.stackPop().isTruthy();
+                }) {
+                    try evalTextNode(v.body(vm.nodes), vm);
+                }
+            },
             .return_expr => @panic("TODO"),
             .conditional => |v| {
                 try evalExpr(v.condition(vm.nodes), vm);

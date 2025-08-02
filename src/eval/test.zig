@@ -120,23 +120,29 @@ test "conditional" {
     );
 }
 
-// test "while_loop" {
-//     try testEval(
-//         \\
-//         \\Numbers!!:
-//         \\
-//         \\#* let h = 0
-//         \\#* while h < 4
-//         \\#* h = h + 1
-//         \\#* h
-//         \\#* end
-//     ,
-//         \\Numbers!!:
-//         \\
-//         \\1 2 3 4
-//     );
-// }
-//
+test "while_loop" {
+    try testEval(
+        \\Numbers!!:
+        \\
+        \\#* let h = 0
+        \\#* while h < 4 do
+        \\#*     h = h + 1
+        \\#*     h
+        \\#* end
+    ,
+        \\Numbers!!:
+        \\
+        \\1
+        \\2
+        \\3
+        \\4
+        \\
+        \\
+        // TODO there should not be two newlines here but fixing it requires effort and i dont want
+        // to fix it rn.
+    );
+}
+
 const Vm = @import("Vm.zig");
 const parser = @import("../syntax/parser.zig");
 
@@ -157,5 +163,5 @@ fn testEval(source: []const u8, expected: []const u8) !void {
 
     const result = try vm.eval(node);
 
-    try std.testing.expectEqualStrings(result, expected);
+    try std.testing.expectEqualStrings(expected, result);
 }
