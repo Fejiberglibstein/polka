@@ -2,6 +2,7 @@ const ast = @import("../syntax/ast.zig");
 const SyntaxNode = @import("../syntax/node.zig");
 const Value = @import("value.zig").Value;
 const Vm = @import("Vm.zig");
+const StackRef = Vm.StackRef;
 const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
 const RuntimeError = @import("error.zig").RuntimeError;
 
@@ -175,9 +176,10 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
                 },
                 .object => |o| switch (o.tag) {
                     .string => {
-                        const l = o.asString().get();
-                        const r = vm.stackPeek(0);
-                        const res = try vm.allocateString("{s}{any}", .{ l, r });
+                        const res = try vm.allocateString("{any}{any}", .{
+                            StackRef.init(1, vm),
+                            StackRef.init(0, vm),
+                        });
 
                         _ = vm.stackPop(); // Pop rhs
                         _ = vm.stackPop(); // Pop lhs

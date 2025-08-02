@@ -52,19 +52,41 @@ pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
     return self.output.items;
 }
 
+pub const StackRef = struct {
+    offset: usize,
+    vm: *Vm,
+
+    pub fn init(offset: usize, vm: *Vm) StackRef {
+        return StackRef{
+            .offset = offset,
+            .vm = vm,
+        };
+    }
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("{any}", .{self.vm.stackPeek(self.offset)});
+    }
+};
+
 pub fn allocateString(self: *Vm, comptime fmt: []const u8, args: anytype) !Value {
     const string = String.init(fmt, args);
 
     const length = string.length + @sizeOf(String);
+    const writer, const heapString = try self.heap.allocate(self, length, String);
 
-    const writer = try self.heap.allocate(self, length);
-    const heapString = self.heap.as(String);
     // Any potential overflow errors won't happen since we already checked if the heap has enough
     // room for the entire string
-
     writer.writeStruct(string) catch unreachable;
-
     writer.print(fmt, args) catch unreachable;
+
     heapString.computeHash();
 
     return Value{ .object = @ptrCast(@alignCast(heapString)) };
@@ -205,7 +227,10 @@ pub const Heap = struct {
         }
     }
 
-    pub fn allocate(self: *Heap, vm: *Vm, length: u64) RuntimeError!Buffer.Writer {
+    pub fn allocate(self: *Heap, vm: *Vm, length: u64, comptime T: type) RuntimeError!struct {
+        Buffer.Writer,
+        *T,
+    } {
         // For testing purposes
         self.collectGarbage(vm);
 
