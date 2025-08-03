@@ -137,16 +137,14 @@ pub fn reinternStrings(self: *Vm) Allocator.Error!void {
     self.strings = new_map;
 }
 
-pub fn allocateClosure(self: *Vm, function_def: *const ast.FunctionDef) RuntimeError!Value {
+pub fn allocateClosure(self: *Vm, function_def: ast.FunctionDef) RuntimeError!Value {
     const length = @sizeOf(Closure);
     const writer, const closure = try self.heap.allocate(self, length, Closure);
 
-    var params_iter = function_def.params(self.nodes).get(self.nodes);
     // Any potential overflow errors won't happen since we already checked if the heap has enough
     // room for the entire string
     writer.writeStruct(Closure{
         .base = Object{ .tag = .closure },
-        .arity = params_iter.count(),
         .function = function_def.v,
         .function_name = .init(
             if (function_def.name(self.nodes)) |ident| ident.get() else null,
@@ -183,6 +181,7 @@ pub fn outputPrint(self: *Vm, comptime fmt: []const u8, args: anytype) RuntimeEr
 pub fn pushVar(self: *Vm, var_name: []const u8) void {
     self.locals.items[self.locals.count] = LocalVariables.Local{
         .scope_depth = self.locals.scope_depth,
+        .function_depth = self.locals.function_depth,
         .name = var_name,
     };
     self.locals.count += 1;
@@ -195,11 +194,15 @@ pub fn pushScope(self: *Vm) void {
 pub fn popScope(self: *Vm) void {
     self.locals.scope_depth -= 1;
     // Pop off all locals that have a scope greater than the new scope depth
+
+    const depth = self.locals.function_depth;
     while (self.locals.count > 0) {
-        const v = self.locals.items[self.locals.count - 1];
-        if (v.scope_depth > self.locals.scope_depth) {
+        const new_count = self.locals.count - 1;
+
+        const v = self.locals.items[new_count];
+        if (v.scope_depth > self.locals.scope_depth and v.function_depth == depth) {
             // Pop off the top local
-            self.locals.count -= 1;
+            self.locals.count = new_count;
             self.stack.len -= 1;
         } else {
             break;
@@ -213,7 +216,9 @@ pub fn setGlobalVar(self: *Vm, var_name: []const u8, value: Value) RuntimeError!
 
 pub fn setVar(self: *Vm, var_name: []const u8, value: Value) RuntimeError!void {
     var i = self.locals.count - 1;
-    while (i >= 0) : (i -= 1) {
+
+    const depth = self.locals.function_depth;
+    while (i >= 0 and self.locals.items[i].function_depth == depth) : (i -= 1) {
         const variable = self.locals.items[i];
         if (std.mem.eql(u8, var_name, variable.name)) {
             self.stack.buffer[i] = value;
@@ -224,7 +229,9 @@ pub fn setVar(self: *Vm, var_name: []const u8, value: Value) RuntimeError!void {
 
 pub fn getVar(self: *Vm, var_name: []const u8) RuntimeError!Value {
     var i = self.locals.count - 1;
-    while (i >= 0) : (i -= 1) {
+
+    const depth = self.locals.function_depth;
+    while (i >= 0 and self.locals.items[i].function_depth == depth) : (i -= 1) {
         const variable = self.locals.items[i];
         if (std.mem.eql(u8, var_name, variable.name)) {
             return self.stack.get(i);
@@ -252,20 +259,24 @@ pub fn getVar(self: *Vm, var_name: []const u8) RuntimeError!Value {
 ///
 /// A new scope is created every time a `TextNode` is visited.
 const LocalVariables = struct {
-    items: [256]Local,
-    scope_depth: u8,
-    count: u8,
+    items: [stack_size]Local,
+    count: u32,
+
+    scope_depth: u16,
+    function_depth: u16,
 
     /// Local variable in a scope
     const Local = struct {
         name: []const u8,
-        scope_depth: usize,
+        scope_depth: u16,
+        function_depth: u16,
     };
 
     pub const init = LocalVariables{
-        .items = undefined,
         .count = 0,
         .scope_depth = 0,
+        .items = undefined,
+        .function_depth = 0,
     };
 };
 

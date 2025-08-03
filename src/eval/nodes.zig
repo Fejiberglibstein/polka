@@ -7,6 +7,7 @@ const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
 const RuntimeError = @import("error.zig").RuntimeError;
 
 const std = @import("std");
+const assert = std.debug.assert;
 
 pub fn evalTextNode(node: ast.TextNode, vm: *Vm) RuntimeError!void {
     vm.pushScope();
@@ -84,27 +85,99 @@ pub fn evalCode(node: ast.Code, vm: *Vm) RuntimeError!void {
             },
             .export_expr => @panic("TODO"),
             .function_def => |v| {
-                vm.stackPush(try vm.allocateClosure(&v));
+                try vm.stackPush(try vm.allocateClosure(v));
             },
         }
         i += 1;
     }
 }
 
-pub fn evalExpr(node: ast.Expr, vm: *Vm) !void {
+pub fn evalExpr(node: ast.Expr, vm: *Vm) RuntimeError!void {
     switch (node) {
         .nil => |_| try vm.stackPush(.nil),
         .bool => |v| try vm.stackPush(.{ .bool = v.get() }),
         .ident => |v| try vm.stackPush(try vm.getVar(v.get())),
         .number => |v| try vm.stackPush(.{ .number = v.get() }),
-        .string => |s| try vm.stackPush(try vm.allocateString("{s}", .{s.get()})),
+        .string => |v| try vm.stackPush(try vm.allocateString("{s}", .{v.get()})),
 
         .unary_op => |v| try evalUnary(v, vm),
-        .grouping => |v| try evalExpr(v.get(vm.nodes), vm),
         .binary_op => |v| try evalBinary(v, vm),
+        .function_call => |v| try evalFunctionCall(v, vm),
+        .grouping => |v| try evalExpr(v.get(vm.nodes), vm),
         .access => @panic("TODO"),
-        .function_call => @panic("TODO"),
     }
+}
+
+pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
+    try evalExpr(node.caller(vm.nodes), vm);
+    const expr = vm.stackPop();
+
+    const closure = switch (expr) {
+        .object => |o| if (o.getClosure()) |v|
+            v
+        else
+            try vm.setError(.{ .bad_function = expr }),
+        else => try vm.setError(.{ .bad_function = expr }),
+    };
+
+    const function_def = ast.FunctionDef.toTyped(closure.function) orelse unreachable;
+
+    // Save the current depth
+    const scope_depth = vm.locals.scope_depth;
+    const locals_count = vm.locals.count;
+    const stack_count = vm.stack.len;
+    vm.locals.function_depth += 1;
+    vm.locals.scope_depth = 0;
+
+    var args = node.arguments(vm.nodes).get(vm.nodes);
+    var params = function_def.params(vm.nodes).get(vm.nodes);
+    var arity: usize = 0;
+
+    // Push the arguments onto the stack
+    while (true) {
+        const arg = args.next();
+        const param = params.next();
+
+        if (param == null) {
+            if (arg == null) {
+                break;
+            } else {
+                // arguments exceed the amount of parameters
+                try vm.setError(.{ .function_bad_args = arity });
+            }
+        }
+
+        if (arg) |v| {
+            try evalExpr(v, vm);
+        } else {
+            try vm.stackPush(.nil);
+        }
+
+        vm.pushVar(param.?.get());
+        arity += 1;
+    }
+
+    try evalTextNode(function_def.body(vm.nodes), vm);
+
+    const locals_dif = vm.locals.count - locals_count;
+    const stack_dif = vm.stack.len - stack_count;
+    if (locals_dif == stack_dif) {
+        // If the function didn't return anything, push a nil
+        try vm.stackPush(.nil);
+    }
+    assert(locals_dif == vm.stack.len - stack_count);
+
+    // The return value of the function
+    const result = vm.stackPop();
+
+    // Pop the arguments off the stack
+    vm.stack.len = stack_count;
+    vm.locals.count = locals_count;
+
+    vm.locals.function_depth -= 1;
+    vm.locals.scope_depth = scope_depth;
+
+    try vm.stackPush(result);
 }
 
 pub fn evalUnary(node: ast.Unary, vm: *Vm) RuntimeError!void {

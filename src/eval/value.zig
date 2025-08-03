@@ -102,6 +102,18 @@ pub const Object = extern struct {
         assert(self.tag == .closure);
         return @ptrCast(@alignCast(self));
     }
+
+    pub inline fn getMoved(self: *Object) ?*Moved {
+        return if (self.tag == .moved) self.asMoved() else null;
+    }
+
+    pub inline fn getString(self: *Object) ?*String {
+        return if (self.tag == .string) self.asString() else null;
+    }
+
+    pub inline fn getClosure(self: *Object) ?*Closure {
+        return if (self.tag == .closure) self.asClosure() else null;
+    }
 };
 
 /// While garbage is being collected, a pointer to the same object can be on the stack in two
@@ -123,12 +135,10 @@ pub const Moved = extern struct {
 
 pub const Closure = extern struct {
     base: Object,
-    /// The syntax node for the function
+    /// The syntax node for the function. The type of the node is `FunctionDef`
     function: *const SyntaxNode,
     /// Name of the function
     function_name: Name,
-    /// The amount of parameters this function takes in
-    arity: usize,
     /// Length
     captures_length: usize,
     /// Start of the flexible length array of Values for the captures

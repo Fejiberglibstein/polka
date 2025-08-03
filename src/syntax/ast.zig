@@ -606,8 +606,8 @@ pub const FunctionCall = struct {
     pub const kind: SyntaxKind = .function_call;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    pub fn name(self: FunctionCall, all_nodes: []const SyntaxNode) Ident {
-        return castFirstChild(self.v, all_nodes, Ident) orelse default(Ident);
+    pub fn caller(self: FunctionCall, all_nodes: []const SyntaxNode) Expr {
+        return castFirstChild(self.v, all_nodes, Expr) orelse default(Expr);
     }
 
     pub fn arguments(self: FunctionCall, all_nodes: []const SyntaxNode) ArgumentList {
