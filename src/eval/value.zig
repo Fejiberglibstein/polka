@@ -12,7 +12,7 @@ pub const ValueType = enum(u8) {
 };
 
 pub const Value = union(ValueType) {
-    nil: void,
+    nil,
     bool: bool,
     number: f64,
     object: *Object,
@@ -139,8 +139,8 @@ pub const Closure = extern struct {
     function: *const SyntaxNode,
     /// Name of the function
     function_name: Name,
-    /// Length
-    captures_length: usize,
+    /// Length of all the captures
+    length: usize,
     /// Start of the flexible length array of Values for the captures
     captures: void = undefined,
 
@@ -165,13 +165,13 @@ pub const Closure = extern struct {
     };
 
     pub fn getCaptures(self: *Closure) []Value {
-        const ptr: [*]Value = @ptrCast(&self.body);
-        return ptr[0..self.captures_length];
+        const ptr: [*]Value = @ptrCast(&self.captures);
+        return ptr[0..self.length];
     }
 
     pub fn asBytes(self: *Closure) []align(8) const u8 {
         const ptr: [*]u8 = @ptrCast(self);
-        const size = (self.captures_length * @sizeOf(Value)) + @sizeOf(Closure);
+        const size = (self.length * @sizeOf(Value)) + @sizeOf(Closure);
         return @alignCast(ptr[0..size]);
     }
 };

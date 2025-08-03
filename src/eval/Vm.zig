@@ -149,7 +149,7 @@ pub fn allocateClosure(self: *Vm, function_def: ast.FunctionDef) RuntimeError!Va
         .function_name = .init(
             if (function_def.name(self.nodes)) |ident| ident.get() else null,
         ),
-        .captures_length = 0, // TODO
+        .length = 0, // TODO
     }) catch unreachable;
 
     return Value{ .object = @ptrCast(@alignCast(closure)) };
@@ -342,25 +342,39 @@ pub const Heap = struct {
         return self.heaps[self.current_heap];
     }
 
-    fn collectGarbage(self: *Heap, vm: *Vm) RuntimeError!void {
+    fn collectValue(item: *Value, new_heap: *Buffer) void {
+        switch (@as(Value, item.*)) {
+            .object => |o| {
+                switch (o.tag) {
+                    .moved => item.object = o.asMoved().new_ptr,
+                    .string => {
+                        item.object = @ptrCast(
+                            @alignCast(move(new_heap, String, o.asString())),
+                        );
+                    },
+                    .closure => {
+                        for (o.asClosure().getCaptures()) |*capture| {
+                            collectValue(capture, new_heap);
+                        }
+                        item.object = @ptrCast(
+                            @alignCast(move(new_heap, Closure, o.asClosure())),
+                        );
+                    },
+                    else => @panic("TODO"),
+                }
+            },
+            else => {},
+        }
+    }
+
+    pub fn collectGarbage(self: *Heap, vm: *Vm) RuntimeError!void {
         const old_heap = self.getCurrentHeap();
         self.current_heap = (self.current_heap + 1) % total_heaps;
         const new_heap = self.getCurrentHeap();
 
         // Collect garbage on the stack
         for (vm.stack.slice()) |*item| {
-            switch (@as(Value, item.*)) {
-                .object => |o| {
-                    switch (o.tag) {
-                        .moved => item.object = o.asMoved().new_ptr,
-                        .string => {
-                            item.object = @ptrCast(@alignCast(move(new_heap, String, o.asString())));
-                        },
-                        else => @panic("TODO"),
-                    }
-                },
-                else => {},
-            }
+            collectValue(item, new_heap);
         }
 
         vm.reinternStrings() catch try vm.setError(.allocation_error);
