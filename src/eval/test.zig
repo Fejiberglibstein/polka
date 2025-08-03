@@ -161,7 +161,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     var vm = try Vm.init(allocator.allocator(), nodes.items);
     defer vm.deinit();
 
-    const result = try vm.eval(node);
+    const result = try vm.eval(&node);
 
     try std.testing.expectEqualStrings(expected, result);
 }

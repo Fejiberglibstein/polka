@@ -18,7 +18,7 @@ pub fn main() !void {
 
     const stdout = std.io.getStdOut().writer();
 
-    const result = try vm.eval(node);
+    const result = try vm.eval(&node);
     try stdout.print("{s}", .{result});
 }
 

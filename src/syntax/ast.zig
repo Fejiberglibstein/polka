@@ -32,6 +32,12 @@
 //! `bracket_access` SyntaxKind but no `access` SyntaxKind. These derived nodes simplify the AST to
 //! not worry about the specific kind.
 
+// TODO - I needed to turn all the `SyntaxNode`s that each ast node contains into `*const
+// SyntaxNode` so that I could make functions (closures cannot need to have a *SyntaxNode, and the
+// pointer needs to come from the list of all nodes).
+//
+// When the bytecode vm is created, please fix this because it sucks.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
@@ -45,7 +51,7 @@ const SyntaxNode = @import("node.zig").SyntaxNode;
 /// that there are meaningless values
 fn default(comptime T: type) T {
     return switch (@typeInfo(T)) {
-        .@"struct" => T{ .v = SyntaxNode.leafNode(T.kind, "") },
+        .@"struct" => T{ .v = &SyntaxNode.leafNode(T.kind, "") },
         .@"union" => T.default,
         else => @compileError("`default` not implemented for non-struct nodes: " ++ @typeName(T)),
     };
@@ -57,7 +63,7 @@ pub fn ASTIterator(comptime T: type) type {
         index: usize,
         nodes: []const SyntaxNode,
 
-        pub fn init(node: SyntaxNode, all_nodes: []const SyntaxNode) @This() {
+        pub fn init(node: *const SyntaxNode, all_nodes: []const SyntaxNode) @This() {
             return .{ .index = 0, .nodes = node.children(all_nodes) };
         }
 
@@ -69,7 +75,7 @@ pub fn ASTIterator(comptime T: type) type {
 
         pub fn next(self: *@This()) ?T {
             while (self.index < self.nodes.len) : (self.index += 1) {
-                if (T.toTyped(self.nodes[self.index])) |c| {
+                if (T.toTyped(&self.nodes[self.index])) |c| {
                     self.index += 1;
                     return c;
                 }
@@ -78,20 +84,20 @@ pub fn ASTIterator(comptime T: type) type {
         }
 
         pub fn count(self: *@This()) usize {
-            const i = 0;
-            while (self.next()) i += 1;
+            var i: usize = 0;
+            while (self.next() != null) i += 1;
             return i;
         }
     };
 }
 
 /// Used in the typed AST to get children matching a certain ASTNode type.
-fn castLastChild(node: SyntaxNode, all_nodes: []const SyntaxNode, T: type) ?T {
+fn castLastChild(node: *const SyntaxNode, all_nodes: []const SyntaxNode, T: type) ?T {
     const children = node.children(all_nodes);
     var i = children.len - 1;
 
     while (i >= 0) : (i -= 1) {
-        if (T.toTyped(children[i])) |c| {
+        if (T.toTyped(&children[i])) |c| {
             return c;
         }
     }
@@ -99,8 +105,8 @@ fn castLastChild(node: SyntaxNode, all_nodes: []const SyntaxNode, T: type) ?T {
 }
 
 /// Used in the typed AST to get children matching a certain ASTNode type.
-fn castFirstChild(node: SyntaxNode, all_nodes: []const SyntaxNode, T: type) ?T {
-    for (node.children(all_nodes)) |child| {
+fn castFirstChild(node: *const SyntaxNode, all_nodes: []const SyntaxNode, T: type) ?T {
+    for (node.children(all_nodes)) |*child| {
         if (T.toTyped(child)) |c| {
             return c;
         }
@@ -111,9 +117,9 @@ fn castFirstChild(node: SyntaxNode, all_nodes: []const SyntaxNode, T: type) ?T {
 fn toTypedTemplate(
     comptime T: type,
     comptime k: SyntaxKind,
-) fn (SyntaxNode) callconv(.@"inline") ?T {
+) fn (*const SyntaxNode) callconv(.@"inline") ?T {
     return struct {
-        inline fn toTyped(n: SyntaxNode) ?T {
+        inline fn toTyped(n: *const SyntaxNode) ?T {
             return if (n.kind() == k)
                 T{ .v = n }
             else
@@ -123,7 +129,7 @@ fn toTypedTemplate(
 }
 
 pub const TextNode = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .text_node;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -139,7 +145,7 @@ pub const TextPart = union(enum(u8)) {
     code: Code,
     newline: void,
 
-    pub fn toTyped(n: SyntaxNode) ?TextPart {
+    pub fn toTyped(n: *const SyntaxNode) ?TextPart {
         return switch (n.kind()) {
             .text => .{ .text = Text{ .v = n } },
             .code => .{ .code = Code{ .v = n } },
@@ -151,7 +157,7 @@ pub const TextPart = union(enum(u8)) {
 };
 
 pub const Text = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .text;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -162,7 +168,7 @@ pub const Text = struct {
 };
 
 pub const Code = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .code;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -172,7 +178,7 @@ pub const Code = struct {
 };
 
 pub const Newline = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .newline;
     pub const toTyped = toTypedTemplate(@This(), kind);
 };
@@ -187,7 +193,7 @@ pub const Statement = union(enum(u8)) {
     conditional: Conditional,
     function_def: FunctionDef,
 
-    pub inline fn toTyped(n: SyntaxNode) ?Statement {
+    pub inline fn toTyped(n: *const SyntaxNode) ?Statement {
         return switch (n.kind()) {
             .for_loop => .{ .for_loop = ForLoop{ .v = n } },
             .let_expr => .{ .let_expr = LetExpr{ .v = n } },
@@ -215,9 +221,9 @@ pub const Expr = union(enum(u8)) {
     function_call: FunctionCall,
 
     // Default value to use when `default(Expr)` is called
-    pub const default: Expr = .{ .nil = Nil{ .v = .leafNode(.nil, "") } };
+    pub const default: Expr = .{ .nil = Nil{ .v = &.leafNode(.nil, "") } };
 
-    pub inline fn toTyped(n: SyntaxNode) ?Expr {
+    pub inline fn toTyped(n: *const SyntaxNode) ?Expr {
         return switch (n.kind()) {
             .nil => .{ .nil = Nil{ .v = n } },
             .bool => .{ .bool = Bool{ .v = n } },
@@ -236,13 +242,13 @@ pub const Expr = union(enum(u8)) {
 };
 
 pub const Nil = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .nil;
     pub const toTyped = toTypedTemplate(@This(), kind);
 };
 
 pub const Ident = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .ident;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -252,7 +258,7 @@ pub const Ident = struct {
 };
 
 pub const Number = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .number;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -262,7 +268,7 @@ pub const Number = struct {
 };
 
 pub const String = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .string;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -273,7 +279,7 @@ pub const String = struct {
 };
 
 pub const Bool = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .bool;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -283,7 +289,7 @@ pub const Bool = struct {
 };
 
 pub const Grouping = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .grouping;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -296,7 +302,7 @@ pub const ExportInner = union(enum(u8)) {
     let_expr: LetExpr,
     function_def: FunctionDef,
 
-    pub inline fn toTyped(n: SyntaxNode) ?ExportInner {
+    pub inline fn toTyped(n: *const SyntaxNode) ?ExportInner {
         return switch (n.kind()) {
             .let_expr => .{ .let_expr = LetExpr{ .v = n } },
             .function_def => .{ .function_def = FunctionDef{ .v = n } },
@@ -307,7 +313,7 @@ pub const ExportInner = union(enum(u8)) {
 };
 
 pub const ExportExpr = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .export_expr;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -317,7 +323,7 @@ pub const ExportExpr = struct {
 };
 
 pub const FunctionDef = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .function_def;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -339,7 +345,7 @@ pub const FunctionDef = struct {
 };
 
 pub const FunctionParameters = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .function_parameters;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -349,7 +355,7 @@ pub const FunctionParameters = struct {
 };
 
 pub const ReturnExpr = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .return_expr;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -359,7 +365,7 @@ pub const ReturnExpr = struct {
 };
 
 pub const Conditional = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .conditional;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -382,7 +388,7 @@ pub const Conditional = struct {
 };
 
 pub const ForLoop = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .for_loop;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -405,7 +411,7 @@ pub const ForLoop = struct {
 };
 
 pub const WhileLoop = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .while_loop;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -419,7 +425,7 @@ pub const WhileLoop = struct {
 };
 
 pub const LetExpr = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .let_expr;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -433,10 +439,10 @@ pub const LetExpr = struct {
 };
 
 pub const BinaryOperator = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .plus;
 
-    pub fn toTyped(node: SyntaxNode) ?BinaryOperator {
+    pub fn toTyped(node: *const SyntaxNode) ?BinaryOperator {
         return if (node.kind().isBinaryOp()) BinaryOperator{ .v = node } else null;
     }
 
@@ -532,7 +538,7 @@ pub const BinaryOperator = struct {
 };
 
 pub const Binary = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .binary;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -550,10 +556,10 @@ pub const Binary = struct {
 };
 
 pub const UnaryOperator = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .minus;
 
-    pub fn toTyped(node: SyntaxNode) ?UnaryOperator {
+    pub fn toTyped(node: *const SyntaxNode) ?UnaryOperator {
         return if (node.kind().isUnaryOp()) UnaryOperator{ .v = node } else null;
     }
 
@@ -582,7 +588,7 @@ pub const UnaryOperator = struct {
 };
 
 pub const Unary = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .unary;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -596,7 +602,7 @@ pub const Unary = struct {
 };
 
 pub const FunctionCall = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .function_call;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -610,7 +616,7 @@ pub const FunctionCall = struct {
 };
 
 pub const ArgumentList = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .argument_list;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -623,7 +629,7 @@ pub const Access = union(enum(u8)) {
     bracket_access: BracketAccess,
     dot_access: DotAccess,
 
-    pub inline fn toTyped(n: SyntaxNode) ?Access {
+    pub inline fn toTyped(n: *const SyntaxNode) ?Access {
         return switch (n.kind()) {
             .bracket_access => .{ .bracket_access = BracketAccess{ .v = n } },
             .dot_access => .{ .dot_access = DotAccess{ .v = n } },
@@ -648,7 +654,7 @@ pub const Access = union(enum(u8)) {
 };
 
 pub const DotAccess = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .dot_access;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
@@ -656,7 +662,7 @@ pub const DotAccess = struct {
 };
 
 pub const BracketAccess = struct {
-    v: SyntaxNode,
+    v: *const SyntaxNode,
     pub const kind: SyntaxKind = .bracket_access;
     pub const toTyped = toTypedTemplate(@This(), kind);
 

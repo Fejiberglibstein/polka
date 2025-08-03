@@ -49,7 +49,7 @@ pub fn deinit(self: *Vm) void {
     self.globals.deinit(self.allocator);
 }
 
-pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
+pub fn eval(self: *Vm, start_node: *const SyntaxNode) ![]const u8 {
     const root = ast.TextNode.toTyped(start_node).?;
     try base.evalTextNode(root, self);
 
@@ -147,7 +147,7 @@ pub fn allocateClosure(self: *Vm, function_def: *const ast.FunctionDef) RuntimeE
     writer.writeStruct(Closure{
         .base = Object{ .tag = .closure },
         .arity = params_iter.count(),
-        .function = &function_def.v,
+        .function = function_def.v,
         .function_name = .init(
             if (function_def.name(self.nodes)) |ident| ident.get() else null,
         ),

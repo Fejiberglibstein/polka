@@ -156,7 +156,7 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
             continue;
         }
 
-        if (ast.BinaryOperator.toTyped(p.current.node)) |op| {
+        if (ast.BinaryOperator.toTyped(&p.current.node)) |op| {
             // If we have a higher precedence than the current precedence
             if (op.precedence() >= prec) {
                 const new_prec = switch (op.associativity()) {
@@ -190,7 +190,7 @@ fn parsePrimary(p: *Parser) Allocator.Error!void {
         .minus => {
             const m = p.marker();
             const tok = try p.eatGet();
-            const op = ast.UnaryOperator.toTyped(tok.*).?;
+            const op = ast.UnaryOperator.toTyped(tok).?;
             try parseExpr(p, op.precedence(), false);
             try p.wrap(.unary, m);
         },
