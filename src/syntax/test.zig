@@ -150,6 +150,9 @@ test "function" {
         \\#* function foo(bar, baz) 
         \\#*     return 4
         \\#* end
+        \\#* function foo()
+        \\bar
+        \\#* end
         \\> world
         \\
     ,
@@ -171,6 +174,20 @@ test "function" {
         \\          newline,
         \\          code_begin
         \\        ]
+        \\      ],
+        \\      end,
+        \\    ],
+        \\    newline,
+        \\    code_begin,
+        \\    function_def [
+        \\      function,
+        \\      ident,
+        \\      function_parameters [ left_paren, right_paren ],
+        \\      newline,
+        \\      text_node [
+        \\        text,
+        \\        newline,
+        \\        code [ code_begin ],
         \\      ],
         \\      end,
         \\    ],

@@ -27,6 +27,7 @@ test "assignment" {
     );
 }
 
+
 test "binary" {
     try testEval(
         \\#* 3 - 2
@@ -140,6 +141,21 @@ test "while_loop" {
         \\
         // TODO there should not be two newlines here but fixing it requires effort and i dont want
         // to fix it rn.
+    );
+}
+
+test "functions" {
+    try testEval(
+        \\Hello
+        \\
+        \\#* function foo()
+        \\hi
+        \\#* end
+        \\foo()
+    ,
+        \\Hello
+        \\
+        \\hi
     );
 }
 
