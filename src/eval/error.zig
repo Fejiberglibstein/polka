@@ -22,8 +22,13 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
     bad_function: Value,
     /// Function called with too many parameters. Expected <arity>
     function_bad_args: usize,
+
     /// Cannout have return outside of function
     misplaced_return,
+    /// Cannout have break outside of loop
+    misplaced_break,
+    /// Cannout have continue outside of loop
+    misplaced_continue,
 
     /// Invalid left-hand-side to assignment
     invalid_assignment,

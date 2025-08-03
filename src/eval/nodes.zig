@@ -75,7 +75,15 @@ pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
                     try evalTextNode(v.body(vm.nodes), vm);
                 }
             },
-            .return_expr => @panic("TODO"),
+            .return_expr => |v| {
+                if (v.body(vm.nodes)) |ret| {
+                    try evalExpr(ret, vm);
+                } else {
+                    try vm.stackPush(.nil);
+                }
+
+                return ControlFlow.Return;
+            },
             .conditional => |v| {
                 try evalExpr(v.condition(vm.nodes), vm);
                 if (vm.stackPop().isTruthy()) {
@@ -158,7 +166,13 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
         arity += 1;
     }
 
-    try evalTextNode(function_def.body(vm.nodes), vm);
+    evalTextNode(function_def.body(vm.nodes), vm) catch |e| switch (e) {
+        ControlFlow.Return => {},
+
+        ControlFlow.Error => return RuntimeError.Error,
+        ControlFlow.Break => try vm.setError(.misplaced_break),
+        ControlFlow.Continue => try vm.setError(.misplaced_continue),
+    };
 
     const locals_dif = vm.locals.count - locals_count;
     const stack_dif = vm.stack.len - stack_count;
@@ -181,7 +195,7 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
     try vm.stackPush(result);
 }
 
-pub fn evalUnary(node: ast.Unary, vm: *Vm) ControlFlow!void {
+pub fn evalUnary(node: ast.Unary, vm: *Vm) RuntimeError!void {
     try evalExpr(node.rhs(vm.nodes), vm);
     const op = node.op(vm.nodes).getOp();
 
@@ -198,8 +212,8 @@ pub fn binaryOp(
     lhs: ast.Expr,
     rhs: ast.Expr,
     op: ast.BinaryOperator.Op,
-    calculate: fn (f64, f64, *Vm) ControlFlow!Value,
-) ControlFlow!void {
+    calculate: fn (f64, f64, *Vm) RuntimeError!Value,
+) RuntimeError!void {
     try evalExpr(lhs, vm);
     try evalExpr(rhs, vm);
     switch (vm.stackPeek(1)) { // switch on lhs
@@ -245,7 +259,7 @@ const Ops = struct {
         return Value{ .number = l * r };
     }
 
-    pub fn invalidOpError(operator: ast.BinaryOperator.Op, vm: *Vm) ControlFlow!noreturn {
+    pub fn invalidOpError(operator: ast.BinaryOperator.Op, vm: *Vm) RuntimeError!noreturn {
         try vm.setError(.{
             .invalid_binary_operands = .{
                 .rhs = vm.stackPop(),

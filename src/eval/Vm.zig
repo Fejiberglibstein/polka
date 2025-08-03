@@ -49,9 +49,15 @@ pub fn deinit(self: *Vm) void {
     self.globals.deinit(self.allocator);
 }
 
-pub fn eval(self: *Vm, start_node: *const SyntaxNode) ControlFlow![]const u8 {
-    const root = ast.TextNode.toTyped(start_node).?;
-    try base.evalTextNode(root, self);
+pub fn eval(self: *Vm, start_node: *const SyntaxNode) RuntimeError![]const u8 {
+    const root = ast.TextNode.toTyped(start_node) orelse unreachable;
+
+    base.evalTextNode(root, self) catch |e| switch (e) {
+        ControlFlow.Error => return RuntimeError.Error,
+        ControlFlow.Break => try self.setError(.misplaced_break),
+        ControlFlow.Return => try self.setError(.misplaced_return),
+        ControlFlow.Continue => try self.setError(.misplaced_continue),
+    };
 
     if (gc_logging) {
         try self.heap.collectGarbage(self);
