@@ -49,7 +49,7 @@ pub fn deinit(self: *Vm) void {
     self.globals.deinit(self.allocator);
 }
 
-pub fn eval(self: *Vm, start_node: *const SyntaxNode) ![]const u8 {
+pub fn eval(self: *Vm, start_node: *const SyntaxNode) ControlFlow![]const u8 {
     const root = ast.TextNode.toTyped(start_node).?;
     try base.evalTextNode(root, self);
 
@@ -478,6 +478,7 @@ const base = @import("nodes.zig");
 const Moved = @import("value.zig").Moved;
 const Object = @import("value.zig").Object;
 const RuntimeError = @import("error.zig").RuntimeError;
+const ControlFlow = @import("error.zig").ControlFlow;
 const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
 const String = @import("value.zig").String;
 const Closure = @import("value.zig").Closure;

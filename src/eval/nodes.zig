@@ -4,12 +4,13 @@ const Value = @import("value.zig").Value;
 const Vm = @import("Vm.zig");
 const StackRef = Vm.StackRef;
 const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
+const ControlFlow = @import("error.zig").ControlFlow;
 const RuntimeError = @import("error.zig").RuntimeError;
 
 const std = @import("std");
 const assert = std.debug.assert;
 
-pub fn evalTextNode(node: ast.TextNode, vm: *Vm) RuntimeError!void {
+pub fn evalTextNode(node: ast.TextNode, vm: *Vm) ControlFlow!void {
     vm.pushScope();
     defer vm.popScope();
 
@@ -40,7 +41,7 @@ pub fn evalTextNode(node: ast.TextNode, vm: *Vm) RuntimeError!void {
     }
 }
 
-pub fn evalCode(node: ast.Code, vm: *Vm) RuntimeError!void {
+pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
     var statements = node.statements(vm.nodes);
 
     var i: usize = 0;
@@ -180,7 +181,7 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
     try vm.stackPush(result);
 }
 
-pub fn evalUnary(node: ast.Unary, vm: *Vm) RuntimeError!void {
+pub fn evalUnary(node: ast.Unary, vm: *Vm) ControlFlow!void {
     try evalExpr(node.rhs(vm.nodes), vm);
     const op = node.op(vm.nodes).getOp();
 
@@ -197,8 +198,8 @@ pub fn binaryOp(
     lhs: ast.Expr,
     rhs: ast.Expr,
     op: ast.BinaryOperator.Op,
-    calculate: fn (f64, f64, *Vm) RuntimeError!Value,
-) RuntimeError!void {
+    calculate: fn (f64, f64, *Vm) ControlFlow!Value,
+) ControlFlow!void {
     try evalExpr(lhs, vm);
     try evalExpr(rhs, vm);
     switch (vm.stackPeek(1)) { // switch on lhs
@@ -244,7 +245,7 @@ const Ops = struct {
         return Value{ .number = l * r };
     }
 
-    pub fn invalidOpError(operator: ast.BinaryOperator.Op, vm: *Vm) RuntimeError!noreturn {
+    pub fn invalidOpError(operator: ast.BinaryOperator.Op, vm: *Vm) ControlFlow!noreturn {
         try vm.setError(.{
             .invalid_binary_operands = .{
                 .rhs = vm.stackPop(),

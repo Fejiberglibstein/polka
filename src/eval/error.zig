@@ -20,12 +20,13 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
 
     /// Cannot call <callee>
     bad_function: Value,
-
     /// Function called with too many parameters. Expected <arity>
     function_bad_args: usize,
+    /// Cannout have return outside of function
+    misplaced_return,
 
     /// Invalid left-hand-side to assignment
-    invalid_assignment: void,
+    invalid_assignment,
 
     /// Use of undeclared identifier `<name>`
     undeclared_ident: []const u8,
@@ -33,7 +34,7 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
     /// When the value stack exceeds its limit
     ///
     /// Stack overflow
-    stack_overflow: void,
+    stack_overflow,
 
     /// When the heap runs out of space
     ///
@@ -43,5 +44,17 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
     /// An internal allocation error
     allocation_error,
 };
+
+/// Used as the return values inside all eval* functions in `./nodes.zig`.
+///
+/// Represents the flow of control throughout the program execution.
+pub const ControlFlow = error{
+    /// A continue statement has occured
+    Continue,
+    /// A break statement has occured
+    Break,
+    /// A
+    Return,
+} || RuntimeError;
 
 pub const RuntimeError = error{Error};
