@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Vm = @import("Vm.zig");
+const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
 const assert = std.debug.assert;
 
 pub const ValueType = enum(u8) {
@@ -50,11 +51,13 @@ pub const Value = union(ValueType) {
         _ = options;
 
         switch (self) {
-            .nil => try writer.writeAll("<nil>"),
+            .nil => |_| try writer.writeAll("<nil>"),
             .bool => |v| try writer.print("{}", .{v}),
             .number => |v| try writer.print("{d}", .{v}),
             .object => |o| switch (o.tag) {
                 .string => try writer.print("{s}", .{o.asString().get()}),
+                // Casting so that the message prints as `Closure@0123abcd`
+                .closure => try writer.print("<{*}>", .{@as(*Closure, @ptrCast(@alignCast(o)))}),
                 .moved => unreachable,
                 else => @panic("TODO"),
             },
@@ -69,6 +72,7 @@ pub const ObjectType = enum(u8) {
     string,
     list,
     dict,
+    closure,
 };
 
 /// Represents a dynamically allocated value on the heap.
@@ -77,19 +81,25 @@ pub const ObjectType = enum(u8) {
 /// - String
 /// - List
 /// - Dict
+/// - Closure
 ///
 /// Each different object will be implemented through struct inheritance.
 pub const Object = extern struct {
     // Any potential header information that may need to exist
     tag: ObjectType,
 
-    pub fn asMoved(self: *Object) *Moved {
+    pub inline fn asMoved(self: *Object) *Moved {
         assert(self.tag == .moved);
         return @ptrCast(@alignCast(self));
     }
 
-    pub fn asString(self: *Object) *String {
+    pub inline fn asString(self: *Object) *String {
         assert(self.tag == .string);
+        return @ptrCast(@alignCast(self));
+    }
+
+    pub inline fn asClosure(self: *Object) *Closure {
+        assert(self.tag == .closure);
         return @ptrCast(@alignCast(self));
     }
 };
@@ -111,13 +121,51 @@ pub const Moved = extern struct {
     old_size: u64,
 };
 
+pub const Closure = extern struct {
+    base: Object,
+    /// The syntax node for the function
+    function: *SyntaxNode,
+    /// Name of the function
+    function_name: Name,
+    /// The amount of parameters this function takes in
+    arity: usize,
+    /// Length
+    captures_length: usize,
+    /// Start of the flexible length array of Values for the captures
+    captures: void = undefined,
+
+    /// Done because you cannot have slices in extern structs
+    const Name = extern struct {
+        ptr: ?[*]const u8,
+        len: usize,
+
+        pub fn slice(self: Name) ?[]const u8 {
+            return if (self.ptr) |ptr|
+                ptr[0..self.len]
+            else
+                null;
+        }
+    };
+
+    pub fn getCaptures(self: *Closure) []Value {
+        const ptr: [*]Value = @ptrCast(&self.body);
+        return ptr[0..self.captures_length];
+    }
+
+    pub fn asBytes(self: *Closure) []align(8) const u8 {
+        const ptr: [*]u8 = @ptrCast(self);
+        const size = (self.captures_length * @sizeOf(Value)) + @sizeOf(Closure);
+        return @alignCast(ptr[0..size]);
+    }
+};
+
 pub const String = extern struct {
     base: Object,
     length: u64,
     /// Pre-computed hash of the string
     hash: u64,
     /// Start of the flexible length character array for the string
-    body: void = undefined,
+    chars: void = undefined,
 
     /// Create a string with the length and base set. Neither the hash nor the character array is
     /// created.
@@ -140,7 +188,7 @@ pub const String = extern struct {
 
     /// Get the characters of the string
     pub fn get(self: *String) []const u8 {
-        const ptr: [*]u8 = @ptrCast(&self.body);
+        const ptr: [*]u8 = @ptrCast(&self.chars);
         return ptr[0..self.length];
     }
 
