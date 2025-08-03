@@ -1,4 +1,4 @@
-//! Attribution: The way the ast is set up is very heavily based on Typst's ast. 
+//! Attribution: The way the ast is set up is very heavily based on Typst's ast.
 //! Source: https://github.com/typst/typst/blob/main/crates/typst-syntax/src/ast.rs
 //!
 //! ---
@@ -75,6 +75,12 @@ pub fn ASTIterator(comptime T: type) type {
                 }
             }
             return null;
+        }
+
+        pub fn count(self: *@This()) usize {
+            const i = 0;
+            while (self.next()) i += 1;
+            return i;
         }
     };
 }

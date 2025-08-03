@@ -124,7 +124,7 @@ pub const Moved = extern struct {
 pub const Closure = extern struct {
     base: Object,
     /// The syntax node for the function
-    function: *SyntaxNode,
+    function: *const SyntaxNode,
     /// Name of the function
     function_name: Name,
     /// The amount of parameters this function takes in
@@ -138,6 +138,13 @@ pub const Closure = extern struct {
     const Name = extern struct {
         ptr: ?[*]const u8,
         len: usize,
+
+        pub fn init(_s: ?[]const u8) Name {
+            return if (_s) |s|
+                Name{ .ptr = s.ptr, .len = s.len }
+            else
+                Name{ .ptr = null, .len = 0 };
+        }
 
         pub fn slice(self: Name) ?[]const u8 {
             return if (self.ptr) |ptr|

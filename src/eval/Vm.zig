@@ -7,6 +7,7 @@ output: std.ArrayListUnmanaged(u8),
 err: ?RuntimeErrorPayload,
 stack: std.BoundedArray(Value, stack_size),
 locals: LocalVariables,
+globals: std.StringHashMapUnmanaged(Value),
 heap: Heap,
 strings: InternPool,
 allocator: Allocator,
@@ -29,21 +30,23 @@ const HashContext = struct {
 
 pub fn init(gpa: Allocator, all_nodes: []const SyntaxNode) !Vm {
     return Vm{
-        .nodes = all_nodes,
-        .output = try .initCapacity(gpa, 0),
-        .locals = .init,
         .err = null,
+        .locals = .init,
+        .allocator = gpa,
+        .output = .empty,
+        .strings = .empty,
+        .globals = .empty,
+        .nodes = all_nodes,
         .stack = try .init(0),
         .heap = try .init(gpa),
-        .strings = .empty,
-        .allocator = gpa,
     };
 }
 
 pub fn deinit(self: *Vm) void {
+    self.heap.deinit(self.allocator);
     self.output.deinit(self.allocator);
     self.strings.deinit(self.allocator);
-    self.heap.deinit(self.allocator);
+    self.globals.deinit(self.allocator);
 }
 
 pub fn eval(self: *Vm, start_node: SyntaxNode) ![]const u8 {
@@ -134,6 +137,26 @@ pub fn reinternStrings(self: *Vm) Allocator.Error!void {
     self.strings = new_map;
 }
 
+pub fn allocateClosure(self: *Vm, function_def: *const ast.FunctionDef) RuntimeError!Value {
+    const length = @sizeOf(Closure);
+    const writer, const closure = try self.heap.allocate(self, length, Closure);
+
+    var params_iter = function_def.params(self.nodes).get(self.nodes);
+    // Any potential overflow errors won't happen since we already checked if the heap has enough
+    // room for the entire string
+    writer.writeStruct(Closure{
+        .base = Object{ .tag = .closure },
+        .arity = params_iter.count(),
+        .function = &function_def.v,
+        .function_name = .init(
+            if (function_def.name(self.nodes)) |ident| ident.get() else null,
+        ),
+        .captures_length = 0, // TODO
+    }) catch unreachable;
+
+    return Value{ .object = @ptrCast(@alignCast(closure)) };
+}
+
 pub fn stackPush(self: *Vm, value: Value) RuntimeError!void {
     self.stack.append(value) catch {
         try self.setError(.stack_overflow);
@@ -184,6 +207,10 @@ pub fn popScope(self: *Vm) void {
     }
 }
 
+pub fn setGlobalVar(self: *Vm, var_name: []const u8, value: Value) RuntimeError!void {
+    self.globals.put(self.allocator, var_name, value) catch try self.setError(.allocation_error);
+}
+
 pub fn setVar(self: *Vm, var_name: []const u8, value: Value) RuntimeError!void {
     var i = self.locals.count - 1;
     while (i >= 0) : (i -= 1) {
@@ -202,6 +229,10 @@ pub fn getVar(self: *Vm, var_name: []const u8) RuntimeError!Value {
         if (std.mem.eql(u8, var_name, variable.name)) {
             return self.stack.get(i);
         }
+    }
+
+    if (self.globals.get(var_name)) |val| {
+        return val;
     }
 
     try self.setError(.{ .undeclared_ident = var_name });
@@ -424,4 +455,5 @@ const Object = @import("value.zig").Object;
 const RuntimeError = @import("error.zig").RuntimeError;
 const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
 const String = @import("value.zig").String;
+const Closure = @import("value.zig").Closure;
 const Value = @import("value.zig").Value;

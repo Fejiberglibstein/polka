@@ -83,7 +83,9 @@ pub fn evalCode(node: ast.Code, vm: *Vm) RuntimeError!void {
                 }
             },
             .export_expr => @panic("TODO"),
-            .function_def => @panic("TODO"),
+            .function_def => |v| {
+                vm.stackPush(try vm.allocateClosure(&v));
+            },
         }
         i += 1;
     }
