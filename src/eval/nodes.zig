@@ -1,6 +1,7 @@
 const ast = @import("../syntax/ast.zig");
 const SyntaxNode = @import("../syntax/node.zig");
 const Value = @import("value.zig").Value;
+const Closure = @import("value.zig").Closure;
 const Vm = @import("Vm.zig");
 const StackRef = Vm.StackRef;
 const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
@@ -44,7 +45,6 @@ pub fn evalTextNode(node: ast.TextNode, vm: *Vm) ControlFlow!void {
 pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
     var statements = node.statements(vm.nodes);
 
-    var i: usize = 0;
     var output_len = vm.output.items.len;
     while (statements.next()) |stmt| {
         if (output_len != vm.output.items.len and vm.output.getLast() != '\n') {
@@ -106,7 +106,6 @@ pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
                 }
             },
         }
-        i += 1;
     }
 }
 
@@ -127,41 +126,16 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) RuntimeError!void {
     }
 }
 
-pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
-    try evalExpr(node.caller(vm.nodes), vm);
-
-    // because pushing arguments onto the stack could cause garbage collection, we cannot pop the
-    // closure off the stack until we finish calling it.
-    var closure = switch (vm.stackPeek(0)) {
-        .object => |o| if (o.getClosure()) |v|
-            v
-        else
-            try vm.setError(.{ .bad_function = vm.stackPop() }),
-        else => try vm.setError(.{ .bad_function = vm.stackPop() }),
-    };
-
-    // Push a dummy variable onto the stack. This accounts for the fact that the closure is still on
-    // the stack, offsetting the number of local variables.
-    //
-    // This variable will essentially be set equal to the closure, e.g. _ = <closure>
-    vm.pushVar("_");
-    const closure_stack_ref = vm.stack.len - 1; // The location on the stack where the closure is
-
-    const function_def = ast.FunctionDef.toTyped(closure.function) orelse unreachable;
-
-    // Save the current depth
-    const scope_depth = vm.locals.scope_depth;
-    const old_locals_count = vm.locals.count;
-    const old_stack_len = vm.stack.len;
-    vm.locals.function_depth += 1;
-    vm.locals.scope_depth = 0;
-    errdefer {
-        // Ensure that things are cleaned up properly even if there's an error
-        vm.locals.scope_depth = scope_depth;
-        vm.locals.function_depth -= 1;
-    }
+fn pushFunctionArgumentsAndCaptures(
+    node: ast.FunctionCall,
+    vm: *Vm,
+) RuntimeError!struct { u32, u32 } {
+    // The location on the stack where the closure is
+    const closure_stack_ref = vm.stack.len - 1;
+    var closure = vm.stack.get(closure_stack_ref).object.asClosure();
 
     var args = node.arguments(vm.nodes).get(vm.nodes);
+    const function_def = ast.FunctionDef.toTyped(closure.function) orelse unreachable;
     var params = function_def.params(vm.nodes).get(vm.nodes);
     var arity: u32 = 0;
 
@@ -196,11 +170,10 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
     var captures_length: u32 = 0;
     // Push the closure captures onto the stack.
     //
-    // None of this will allocate memory on the heap, thus causing garbage to be collected. So, we
-    // don't need to worry about closure becoming invalidated again.
+    // None of this will allocate objects on the heap. So, we don't need to worry about `closure`
+    // becoming invalidated again.
     if (function_def.captures(vm.nodes)) |captures| {
         var iter = captures.get(vm.nodes);
-        iter = captures.get(vm.nodes);
 
         for (closure.getCaptures()) |capture_value| {
             captures_length += 1;
@@ -210,6 +183,45 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
             vm.pushVar(capture_name);
         }
     }
+
+    return .{ arity, captures_length };
+}
+
+pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
+    try evalExpr(node.caller(vm.nodes), vm);
+
+    // because pushing arguments onto the stack could cause garbage collection, we cannot pop the
+    // closure off the stack until we finish calling it.
+    const closure = switch (vm.stackPeek(0)) {
+        .object => |o| if (o.getClosure()) |v|
+            v
+        else
+            try vm.setError(.{ .bad_function = vm.stackPop() }),
+        else => try vm.setError(.{ .bad_function = vm.stackPop() }),
+    };
+
+    // Push a dummy variable onto the stack. This accounts for the fact that the closure is still on
+    // the stack, offsetting the number of local variables.
+    //
+    // This variable will essentially be set equal to the closure, e.g. _ = <closure>
+    vm.pushVar("_");
+
+    const function_def = ast.FunctionDef.toTyped(closure.function) orelse unreachable;
+
+    // Save the current depth
+    const scope_depth = vm.locals.scope_depth;
+    const old_locals_count = vm.locals.count;
+    const old_stack_len = vm.stack.len;
+    vm.locals.function_depth += 1;
+    vm.locals.scope_depth = 0;
+    errdefer {
+        // Ensure that things are cleaned up properly even if there's an error
+        vm.locals.scope_depth = scope_depth;
+        vm.locals.function_depth -= 1;
+    }
+
+    // Push the arguments and captures of the function onto the stack.
+    const arity, const captures_length = try pushFunctionArgumentsAndCaptures(node, vm);
 
     // Call the function
     evalTextNode(function_def.body(vm.nodes), vm) catch |e| switch (e) {
@@ -222,22 +234,20 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
 
     // The return value of the function
     const result = if (vm.stack.len == vm.locals.count)
-        // If the function didn't return anything, it should be nil
-        .nil
-    else blk: {
-        const result = vm.stackPop();
-        // Make sure that the amount of local variables is equal to the amount of values on the
-        // stack
-        assert(vm.stack.len == vm.locals.count);
-        break :blk result;
-    };
+        .nil // If the function didn't return anything, it should be nil
+    else
+        vm.stackPop();
+
+    // Make sure that the amount of local variables is equal to the amount of values on the
+    // stack
+    assert(vm.stack.len == vm.locals.count);
 
     // Reset the stack to how it was before the function call
     vm.stack.len -= arity + captures_length;
     vm.locals.count -= arity + captures_length;
-
     assert(vm.stack.len == old_stack_len);
     assert(vm.locals.count == old_locals_count);
+
     vm.locals.function_depth -= 1;
     vm.locals.scope_depth = scope_depth;
 
