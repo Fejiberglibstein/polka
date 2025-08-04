@@ -207,7 +207,11 @@ test "if" {
         \\#* if true then 
         \\#*     if false then
         \\hello there
+        \\#*     else if true then
+        \\hi
         \\#*     end
+        \\#* else
+        \\hi
         \\#* end
         \\
     ,
@@ -233,12 +237,33 @@ test "if" {
         \\              newline,
         \\              code [ code_begin ],
         \\            ],
-        \\            end
+        \\            else,
+        \\            text_node [
+        \\              conditional [
+        \\                if,
+        \\                bool,
+        \\                then,
+        \\                newline,
+        \\                text_node [
+        \\                  text,
+        \\                  newline,
+        \\                  code [ code_begin ],
+        \\                ],
+        \\                end
+        \\              ]
+        \\            ]
         \\          ],
         \\          newline,
         \\          code_begin
         \\        ],
         \\      ],
+        \\      else,
+        \\      newline
+        \\      text_node [ 
+        \\        text,
+        \\        newline, 
+        \\        code [ code_begin ],
+        \\      ]
         \\      end
         \\    ],
         \\    newline

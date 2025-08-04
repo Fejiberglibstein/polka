@@ -7,13 +7,15 @@ const Mode = @import("Lexer.zig").Mode;
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;
 const TreeNode = @import("node.zig").TreeNode;
+const syntax_set = @import("syntax_set.zig");
+const SyntaxSet = syntax_set.SyntaxSet;
 
 /// Parses top level text of a file
 pub fn parse(
-    t: []const u8,
+    text: []const u8,
     allocator: std.mem.Allocator,
 ) Allocator.Error!struct { SyntaxNode, std.ArrayList(SyntaxNode) } {
-    var parser = Parser.init(t, allocator);
+    var parser = Parser.init(text, allocator);
     try parseText(&parser);
 
     std.debug.assert(parser.stack.items.len == 1);
@@ -27,7 +29,6 @@ fn parseText(p: *Parser) Allocator.Error!void {
 
     while (true) {
         if (p.isEndingKind(p.current.kind)) {
-            @branchHint(.unlikely);
             break;
         }
 
@@ -253,8 +254,8 @@ fn parseIfExpr(p: *Parser) Allocator.Error!void {
     try p.expect(.newline);
 
     // Set things up for parsing body
-    const old_end = p.finish_on_end;
-    p.finish_on_end = true;
+    const old_end = p.finish_on;
+    p.finish_on = syntax_set.isConditionalEnd;
     const mode = p.mode();
     p.setMode(.TopLevelText);
 
@@ -262,19 +263,25 @@ fn parseIfExpr(p: *Parser) Allocator.Error!void {
     p.reparse(); // Reparse the last token since we just switched modes
     try parseText(p);
 
-    // TODO: add else if
-    if (p.at(.@"else")) {
-        if (try p.eatIf(.@"if")) {
-            @panic("unimplemented");
-        }
-        try p.expect(.newline);
-        try parseText(p);
-    }
-
     p.setMode(mode);
-    p.finish_on_end = old_end;
+    p.finish_on = old_end;
 
-    try p.expect(.end);
+    const expect_end = if (try p.eatIf(.@"else")) blk: {
+        if (p.at(.@"if")) {
+            const m1 = p.marker();
+            try parseIfExpr(p);
+            try p.wrap(.text_node, m1);
+        } else {
+            try p.expect(.newline);
+            try parseBlock(p);
+        }
+        // The end will end up in the inner conditional
+        break :blk false;
+    } else true;
+
+    if (expect_end) {
+        try p.expect(.end);
+    }
     try p.wrap(.conditional, m);
 }
 
@@ -336,8 +343,8 @@ fn parseFunctionDef(p: *Parser) Allocator.Error!void {
 /// Parse a block like that inside of a function or loop
 pub fn parseBlock(p: *Parser) Allocator.Error!void {
     // Set things up for parsing body
-    const old_end = p.finish_on_end;
-    p.finish_on_end = true;
+    const old_end = p.finish_on;
+    p.finish_on = syntax_set.isBlockEnd;
     const mode = p.mode();
     p.setMode(.TopLevelText);
 
@@ -346,7 +353,7 @@ pub fn parseBlock(p: *Parser) Allocator.Error!void {
     try parseText(p);
 
     p.setMode(mode);
-    p.finish_on_end = old_end;
+    p.finish_on = old_end;
 
     try p.expect(.end);
 }
@@ -373,7 +380,7 @@ const Parser = struct {
     /// Current token we're looking at
     current: Token,
     /// If `SyntaxKind.end` should be considered an ending character
-    finish_on_end: bool,
+    finish_on: *const SyntaxSet,
 
     const Marker = usize;
     const Token = struct {
@@ -458,7 +465,7 @@ const Parser = struct {
     }
 
     fn isEndingKind(self: Parser, kind: SyntaxKind) bool {
-        return (self.finish_on_end and kind == .end) or kind == .eof;
+        return self.finish_on(kind);
     }
 
     fn init(t: []const u8, allocator: std.mem.Allocator) Parser {
@@ -470,7 +477,7 @@ const Parser = struct {
             .l = lexer,
             .nodes = .init(allocator),
             .stack = .init(allocator),
-            .finish_on_end = false,
+            .finish_on = syntax_set.isEof,
             .current = token,
         };
     }
