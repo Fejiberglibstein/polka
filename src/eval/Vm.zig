@@ -470,7 +470,7 @@ pub const Heap = struct {
         // Set a `Moved` where the value was on the old heap
         @as(*Moved, @ptrCast(value)).* = .{
             .base = Object{ .tag = .moved },
-            .old_size = value.length + @sizeOf(T),
+            .old_size = value.asBytes().len,
             .new_ptr = @ptrCast(ptr),
         };
 
