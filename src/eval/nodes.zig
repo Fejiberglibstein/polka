@@ -112,6 +112,7 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) RuntimeError!void {
         .bool => |v| try vm.stackPush(.{ .bool = v.get() }),
         .ident => |v| try vm.stackPush(try vm.getVar(v.get())),
         .number => |v| try vm.stackPush(.{ .number = v.get() }),
+        .function_def => |v| try vm.stackPush(try vm.allocateClosure(v)),
         .string => |v| try vm.stackPush(try vm.allocateString("{s}", .{v.get()})),
 
         .unary_op => |v| try evalUnary(v, vm),

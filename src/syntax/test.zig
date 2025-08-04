@@ -150,7 +150,7 @@ test "function" {
         \\#* function foo(bar, baz) 
         \\#*     return 4
         \\#* end
-        \\#* function foo()
+        \\#* function foo() [a, b]
         \\bar
         \\#* end
         \\> world
@@ -183,6 +183,7 @@ test "function" {
         \\      function,
         \\      ident,
         \\      function_parameters [ left_paren, right_paren ],
+        \\      closure_captures [ left_bracket, ident, comma, ident, right_bracket ]
         \\      newline,
         \\      text_node [
         \\        text,

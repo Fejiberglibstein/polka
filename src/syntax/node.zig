@@ -119,8 +119,12 @@ pub const SyntaxKind = enum(u8) {
     function_def,
     /// Function Parameters
     ///
-    /// [`Ident`...]
+    /// [`LeftParen`, `Ident`..., `RightParen`]
     function_parameters,
+    /// The optional list of variables to capture from the preceding scope
+    ///
+    /// [`LeftBracket`, `Ident`..., `RightBracket`]
+    closure_captures,
     /// When a function returns
     ///
     /// [`Return`, `Expr`]

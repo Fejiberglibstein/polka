@@ -180,6 +180,7 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
 fn parsePrimary(p: *Parser) Allocator.Error!void {
     switch (p.current.kind) {
         .ident, .string, .number, .bool, .nil => try p.eat(),
+        .function => try parseFunctionDef(p),
         .left_paren => {
             const m = p.marker();
             try p.assert(.left_paren);
@@ -220,20 +221,8 @@ fn parseWhileExpr(p: *Parser) Allocator.Error!void {
     try p.expect(.do);
     try p.expect(.newline);
 
-    // Set things up for parsing body
-    const old_end = p.finish_on_end;
-    p.finish_on_end = true;
-    const mode = p.mode();
-    p.setMode(.TopLevelText);
+    try parseBlock(p);
 
-    // Parse the body
-    p.reparse(); // Reparse the last token since we just switched modes
-    try parseText(p);
-
-    p.setMode(mode);
-    p.finish_on_end = old_end;
-
-    try p.expect(.end);
     try p.wrap(.while_loop, m);
 }
 
@@ -248,20 +237,8 @@ fn parseForExpr(p: *Parser) Allocator.Error!void {
     try p.expect(.do);
     try p.expect(.newline);
 
-    // Set things up for parsing body
-    const old_end = p.finish_on_end;
-    p.finish_on_end = true;
-    const mode = p.mode();
-    p.setMode(.TopLevelText);
+    try parseBlock(p);
 
-    // Parse the body
-    p.reparse(); // Reparse the last token since we just switched modes
-    try parseText(p);
-
-    p.setMode(mode);
-    p.finish_on_end = old_end;
-
-    try p.expect(.end);
     try p.wrap(.for_loop, m);
 }
 
@@ -318,15 +295,45 @@ fn parseParams(p: *Parser) Allocator.Error!void {
     try p.wrap(.function_parameters, m);
 }
 
+/// Parse the captures a function can close over to make it a closure
+fn parseCaptures(p: *Parser) Allocator.Error!void {
+    if (!p.at(.left_bracket)) {
+        return;
+    }
+
+    const m = p.marker();
+    try p.assert(.left_bracket);
+
+    if (!try p.eatIf(.right_bracket)) {
+        while (true) {
+            try p.expect(.ident);
+            if (!try p.eatIf(.comma)) {
+                break;
+            }
+        }
+        try p.expect(.right_bracket);
+    }
+
+    try p.wrap(.closure_captures, m);
+}
+
 /// Parse a function declaration
 fn parseFunctionDef(p: *Parser) Allocator.Error!void {
     const m = p.marker();
     // Parse first line of declaration
     try p.assert(.function);
-    try p.expect(.ident);
+    _ = try p.eatIf(.ident);
     try parseParams(p);
+    try parseCaptures(p);
     try p.expect(.newline);
 
+    try parseBlock(p);
+
+    try p.wrap(.function_def, m);
+}
+
+/// Parse a block like that inside of a function or loop
+pub fn parseBlock(p: *Parser) Allocator.Error!void {
     // Set things up for parsing body
     const old_end = p.finish_on_end;
     p.finish_on_end = true;
@@ -341,7 +348,6 @@ fn parseFunctionDef(p: *Parser) Allocator.Error!void {
     p.finish_on_end = old_end;
 
     try p.expect(.end);
-    try p.wrap(.function_def, m);
 }
 
 /// Parses a variable declaration `let foo = 10`

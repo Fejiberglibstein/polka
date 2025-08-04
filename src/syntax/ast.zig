@@ -219,6 +219,7 @@ pub const Expr = union(enum(u8)) {
     binary_op: Binary,
     grouping: Grouping,
     function_call: FunctionCall,
+    function_def: FunctionDef,
 
     // Default value to use when `default(Expr)` is called
     pub const default: Expr = .{ .nil = Nil{ .v = &.leafNode(.nil, "") } };
@@ -231,8 +232,9 @@ pub const Expr = union(enum(u8)) {
             .number => .{ .number = Number{ .v = n } },
             .string => .{ .string = String{ .v = n } },
             .unary => .{ .unary_op = Unary{ .v = n } },
-            .grouping => .{ .grouping = Grouping{ .v = n } },
             .binary => .{ .binary_op = Binary{ .v = n } },
+            .grouping => .{ .grouping = Grouping{ .v = n } },
+            .function_def => .{ .function_def = FunctionDef{ .v = n } },
             .function_call => .{ .function_call = FunctionCall{ .v = n } },
             .dot_access, .bracket_access => .{ .access = Access.toTyped(n) orelse unreachable },
 
@@ -339,6 +341,10 @@ pub const FunctionDef = struct {
         ) orelse default(FunctionParameters);
     }
 
+    pub fn captures(self: FunctionDef, all_nodes: []const SyntaxNode) ?ClosureCaptures {
+        return castFirstChild(self.v, all_nodes, ClosureCaptures);
+    }
+
     pub fn body(self: FunctionDef, all_nodes: []const SyntaxNode) TextNode {
         return castFirstChild(self.v, all_nodes, TextNode) orelse default(TextNode);
     }
@@ -350,6 +356,16 @@ pub const FunctionParameters = struct {
     pub const toTyped = toTypedTemplate(@This(), kind);
 
     pub fn get(self: FunctionParameters, all_nodes: []const SyntaxNode) ASTIterator(Ident) {
+        return ASTIterator(Ident).init(self.v, all_nodes);
+    }
+};
+
+pub const ClosureCaptures = struct {
+    v: *const SyntaxNode,
+    pub const kind: SyntaxKind = .closure_captures;
+    pub const toTyped = toTypedTemplate(@This(), kind);
+
+    pub fn get(self: ClosureCaptures, all_nodes: []const SyntaxNode) ASTIterator(Ident) {
         return ASTIterator(Ident).init(self.v, all_nodes);
     }
 };
