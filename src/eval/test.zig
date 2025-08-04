@@ -186,8 +186,11 @@ test "functions" {
 
 test "closures" {
     try testEval(
-        \\#* let h = function(x)
-        \\#*    return function(y) [x]
+        \\#* let number = 3
+        \\#* let h = function(x) [number]
+        \\#*    let seven = 9 - number
+        \\#*    return function(y) [seven, x, number]
+        \\#*        seven + number
         \\#*        return x + y
         \\#*    end
         \\#* end
@@ -195,10 +198,10 @@ test "closures" {
         \\
         \\#* "there"
         \\#* b("there")
-        \\#* b = 2
+        \\#* b = "two"
+        \\#* h = ""
     ,
-        \\
-        \\hi there
+        \\there 9 hi there 
         \\
     );
 }
