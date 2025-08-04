@@ -56,8 +56,7 @@ pub const Value = union(ValueType) {
             .number => |v| try writer.print("{d}", .{v}),
             .object => |o| switch (o.tag) {
                 .string => try writer.print("{s}", .{o.asString().get()}),
-                // Casting so that the message prints as `Closure@0123abcd`
-                .closure => try writer.print("<closure@{x}>", .{@intFromPtr(o)}),
+                .closure => try writer.print("<function@{x}>", .{@intFromPtr(o)}),
                 .moved => unreachable,
                 else => @panic("TODO"),
             },

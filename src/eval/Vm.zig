@@ -251,6 +251,10 @@ pub fn setVar(self: *Vm, var_name: []const u8, value: Value) RuntimeError!void {
 }
 
 pub fn getVar(self: *Vm, var_name: []const u8) RuntimeError!Value {
+    if (self.locals.count == 0) {
+        try self.setError(.{ .undeclared_ident = var_name });
+    }
+
     var i = self.locals.count - 1;
 
     const depth = self.locals.function_depth;
@@ -366,7 +370,7 @@ pub const Heap = struct {
     }
 
     fn collectValue(item: *Value, new_heap: *Buffer) void {
-        switch (@as(Value, item.*)) {
+        switch (item.*) {
             .object => |o| {
                 switch (o.tag) {
                     .moved => item.object = o.asMoved().new_ptr,

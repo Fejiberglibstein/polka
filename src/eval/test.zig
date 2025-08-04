@@ -184,6 +184,25 @@ test "functions" {
     );
 }
 
+test "closures" {
+    try testEval(
+        \\#* let h = function(x)
+        \\#*    return function(y) [x]
+        \\#*        return x + y
+        \\#*    end
+        \\#* end
+        \\#* let b = h("hi ")
+        \\
+        \\#* "there"
+        \\#* b("there")
+        \\#* b = 2
+    ,
+        \\
+        \\hi there
+        \\
+    );
+}
+
 const Vm = @import("Vm.zig");
 const parser = @import("../syntax/parser.zig");
 

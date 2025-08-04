@@ -125,15 +125,23 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) RuntimeError!void {
 
 pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
     try evalExpr(node.caller(vm.nodes), vm);
-    const expr = vm.stackPop();
 
-    const closure = switch (expr) {
+    // because pushing arguments onto the stack could cause garbage collection, we cannot pop the
+    // closure off the stack until we finish calling it.
+    var closure = switch (vm.stackPeek(0)) {
         .object => |o| if (o.getClosure()) |v|
             v
         else
-            try vm.setError(.{ .bad_function = expr }),
-        else => try vm.setError(.{ .bad_function = expr }),
+            try vm.setError(.{ .bad_function = vm.stackPop() }),
+        else => try vm.setError(.{ .bad_function = vm.stackPop() }),
     };
+
+    // Push a dummy variable onto the stack. This accounts for the fact that the closure is still on
+    // the stack, offsetting the number of local variables.
+    //
+    // This variable will essentially be set equal to the closure, e.g. _ = <closure>
+    vm.pushVar("_");
+    const closure_stack_ref = vm.stack.len - 1; // The location on the stack where the closure is
 
     const function_def = ast.FunctionDef.toTyped(closure.function) orelse unreachable;
 
@@ -143,6 +151,13 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
     const stack_count = vm.stack.len;
     vm.locals.function_depth += 1;
     vm.locals.scope_depth = 0;
+    errdefer {
+        // Ensure that things are cleaned up properly even if there's an error
+        vm.locals.scope_depth = scope_depth;
+        vm.locals.count = locals_count;
+        vm.stack.len = stack_count;
+        vm.locals.function_depth -= 1;
+    }
 
     var args = node.arguments(vm.nodes).get(vm.nodes);
     var params = function_def.params(vm.nodes).get(vm.nodes);
@@ -172,9 +187,18 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
         arity += 1;
     }
 
-    // Push the closure captures onto the stack
+    // Because evaluating the functions arguments could have caused garbage to be collected, we need
+    // to get a new reference to the closure since it would have been moved.
+    closure = vm.stack.get(closure_stack_ref).object.asClosure();
+
+    // Push the closure captures onto the stack.
+    //
+    // None of this will allocate memory on the heap, thus causing garbage to be collected. So, we
+    // don't need to worry about closure becoming invalidated again.
     if (function_def.captures(vm.nodes)) |captures| {
         var iter = captures.get(vm.nodes);
+        iter = captures.get(vm.nodes);
+
         for (closure.getCaptures()) |capture_value| {
             const capture_name = iter.next().?.get();
 
@@ -209,9 +233,13 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
     // Reset the stack to how it was before the function call
     vm.stack.len = stack_count;
     vm.locals.count = locals_count;
-
     vm.locals.function_depth -= 1;
     vm.locals.scope_depth = scope_depth;
+
+    // Pop off the closure
+    assert(vm.stackPop().object.getClosure() != null);
+    assert(std.mem.eql(u8, vm.locals.items[vm.locals.count - 1].name, "_"));
+    vm.locals.count -= 1; // Remove the dummy variable we set before
 
     try vm.stackPush(result);
 }
