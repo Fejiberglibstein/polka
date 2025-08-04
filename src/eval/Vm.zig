@@ -277,13 +277,13 @@ pub const Heap = struct {
             try self.collectGarbage(vm);
         }
 
-        var alignment = 8 - self.getCurrentHeap().len % 8;
+        var alignment = fixAlignment(self.getCurrentHeap().len, 8);
 
         if (self.getCurrentHeap().len + length + alignment > heap_size) {
             try self.collectGarbage(vm);
 
             // Recalculate alignment since it's on a different heap now
-            alignment = 8 - self.getCurrentHeap().len % 8;
+            alignment = fixAlignment(self.getCurrentHeap().len, 8);
             // If it still exceeds, OOM
             if (self.getCurrentHeap().len + length + alignment > heap_size) {
                 try vm.setError(.heap_oom);
@@ -355,7 +355,7 @@ pub const Heap = struct {
 
         pub fn next(self: *HeapIterator) ?*Object {
             // Fix alignment
-            self.index += 8 - self.index % 8;
+            self.index += fixAlignment(self.index, 8);
 
             if (self.index >= self.heap.len) {
                 return null;
@@ -381,7 +381,7 @@ pub const Heap = struct {
 
     fn move(new_heap: *Buffer, comptime T: type, value: *T) *T {
         // Fix alignment
-        new_heap.appendNTimes(undefined, 8 - new_heap.len % 8) catch unreachable;
+        new_heap.appendNTimes(undefined, fixAlignment(new_heap.len, 8)) catch unreachable;
         const ptr: *T = @ptrCast(@alignCast(&new_heap.buffer[new_heap.len]));
 
         // Cannot overflow since value was already on the other heap.
@@ -397,6 +397,18 @@ pub const Heap = struct {
         return ptr;
     }
 };
+
+inline fn fixAlignment(x: usize, alignment: usize) usize {
+    // Equivalent to
+    // ```
+    // if (x % 8 == 0) {
+    //     return 0;
+    // } else {
+    //     return 8 - (x % 8);
+    // }
+    // ```
+    return (~x + 1) & (alignment - 1);
+}
 
 const Vm = @This();
 
