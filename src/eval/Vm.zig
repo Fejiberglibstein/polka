@@ -8,7 +8,7 @@ err: ?RuntimeErrorPayload,
 stack: std.BoundedArray(Value, stack_size),
 locals: LocalVariables,
 globals: std.StringHashMapUnmanaged(Value),
-heap: Heap,
+heap: Heaps,
 strings: InternPool,
 allocator: Allocator,
 
@@ -327,36 +327,36 @@ const LocalVariables = struct {
 /// There are two heaps used in this vm. This is so that the GC can be a moving GC, where every time
 /// garbage is collected, the in-use heap has all of its remaining alive objects moved over to the
 /// other heap.
-pub const Heap = struct {
-    heaps: [total_heaps]*Buffer,
+pub const Heaps = struct {
+    heaps: [total_heaps]*Heap,
     current_heap: u8,
 
-    const Buffer = std.BoundedArrayAligned(u8, 8, heap_size);
+    const Heap = std.BoundedArrayAligned(u8, 8, heap_size);
     const total_heaps = 2;
     const heap_size = std.math.pow(usize, 2, 24);
 
-    pub fn init(arena: std.mem.Allocator) Allocator.Error!Heap {
-        var heaps: [total_heaps]*Buffer = undefined;
+    pub fn init(arena: std.mem.Allocator) Allocator.Error!Heaps {
+        var heaps: [total_heaps]*Heap = undefined;
 
         for (0..total_heaps) |i| {
-            heaps[i] = try arena.create(Buffer);
+            heaps[i] = try arena.create(Heap);
             heaps[i].len = 0;
         }
 
-        return Heap{
+        return Heaps{
             .current_heap = 0,
             .heaps = heaps,
         };
     }
 
-    pub fn deinit(self: Heap, arena: std.mem.Allocator) void {
+    pub fn deinit(self: Heaps, arena: std.mem.Allocator) void {
         for (self.heaps) |heap| {
             arena.destroy(heap);
         }
     }
 
-    pub fn allocate(self: *Heap, vm: *Vm, length: u64, comptime T: type) RuntimeError!struct {
-        Buffer.Writer,
+    pub fn allocate(self: *Heaps, vm: *Vm, length: u64, comptime T: type) RuntimeError!struct {
+        Heap.Writer,
         *T,
     } {
         if (gc_logging) {
@@ -382,11 +382,37 @@ pub const Heap = struct {
         return .{ self.getCurrentHeap().writer(), self.as(T) };
     }
 
-    inline fn getCurrentHeap(self: Heap) *Buffer {
+    inline fn getCurrentHeap(self: Heaps) *Heap {
         return self.heaps[self.current_heap];
     }
 
-    fn collectValue(item: *Value, new_heap: *Buffer) void {
+    /// Reinterprets the current spot in the heap as the type
+    pub fn as(self: Heaps, comptime T: type) *align(8) T {
+        return @ptrCast(@alignCast(&self.getCurrentHeap().buffer[self.getCurrentHeap().len]));
+    }
+
+    pub fn collectGarbage(self: *Heaps, vm: *Vm) RuntimeError!void {
+        const old_heap = self.getCurrentHeap();
+        self.current_heap = (self.current_heap + 1) % total_heaps;
+        const new_heap = self.getCurrentHeap();
+
+        // Collect garbage on the stack
+        for (vm.stack.slice()) |*item| {
+            collectValue(item, new_heap);
+        }
+
+        vm.reinternStrings() catch try vm.setError(.allocation_error);
+
+        if (gc_logging) {
+            logGarbage(old_heap);
+        }
+
+        // Clear out the old heap.
+        @memset(old_heap.slice(), undefined);
+        old_heap.len = 0;
+    }
+
+    fn collectValue(item: *Value, new_heap: *Heap) void {
         switch (item.*) {
             .object => |o| {
                 switch (o.tag) {
@@ -411,28 +437,25 @@ pub const Heap = struct {
         }
     }
 
-    pub fn collectGarbage(self: *Heap, vm: *Vm) RuntimeError!void {
-        const old_heap = self.getCurrentHeap();
-        self.current_heap = (self.current_heap + 1) % total_heaps;
-        const new_heap = self.getCurrentHeap();
+    fn move(new_heap: *Heap, comptime T: type, value: *T) *T {
+        // Fix alignment
+        new_heap.appendNTimes(undefined, fixAlignment(new_heap.len, 8)) catch unreachable;
+        const ptr: *T = @ptrCast(@alignCast(&new_heap.buffer[new_heap.len]));
 
-        // Collect garbage on the stack
-        for (vm.stack.slice()) |*item| {
-            collectValue(item, new_heap);
-        }
+        // Cannot overflow since value was already on the other heap.
+        new_heap.appendSlice(value.asBytes()) catch unreachable;
 
-        vm.reinternStrings() catch try vm.setError(.allocation_error);
+        // Set a `Moved` where the value was on the old heap
+        @as(*Moved, @ptrCast(value)).* = .{
+            .base = Object{ .tag = .moved },
+            .old_size = value.asBytes().len,
+            .new_ptr = @ptrCast(ptr),
+        };
 
-        if (gc_logging) {
-            logGarbage(old_heap);
-        }
-
-        // Clear out the old heap.
-        @memset(old_heap.slice(), undefined);
-        old_heap.len = 0;
+        return ptr;
     }
 
-    fn logGarbage(old_heap: *Buffer) void {
+    fn logGarbage(old_heap: *Heap) void {
         std.debug.print(">begin garbage collection\n", .{});
 
         var iterator = HeapIterator.init(old_heap);
@@ -440,16 +463,16 @@ pub const Heap = struct {
         while (iterator.next()) |obj| {
             switch (obj.tag) {
                 .moved => {},
-                inline else => std.debug.print(" {} was freed\n", .{Value{ .object = obj }}),
+                else => std.debug.print(" `{}` was freed\n", .{Value{ .object = obj }}),
             }
         }
     }
 
     const HeapIterator = struct {
         index: usize = 0,
-        heap: *Buffer,
+        heap: *Heap,
 
-        pub fn init(heap: *Buffer) HeapIterator {
+        pub fn init(heap: *Heap) HeapIterator {
             return .{ .heap = heap };
         }
 
@@ -474,29 +497,6 @@ pub const Heap = struct {
             return obj;
         }
     };
-
-    /// Reinterprets the current spot in the heap as the type
-    pub fn as(self: Heap, comptime T: type) *align(8) T {
-        return @ptrCast(@alignCast(&self.getCurrentHeap().buffer[self.getCurrentHeap().len]));
-    }
-
-    fn move(new_heap: *Buffer, comptime T: type, value: *T) *T {
-        // Fix alignment
-        new_heap.appendNTimes(undefined, fixAlignment(new_heap.len, 8)) catch unreachable;
-        const ptr: *T = @ptrCast(@alignCast(&new_heap.buffer[new_heap.len]));
-
-        // Cannot overflow since value was already on the other heap.
-        new_heap.appendSlice(value.asBytes()) catch unreachable;
-
-        // Set a `Moved` where the value was on the old heap
-        @as(*Moved, @ptrCast(value)).* = .{
-            .base = Object{ .tag = .moved },
-            .old_size = value.asBytes().len,
-            .new_ptr = @ptrCast(ptr),
-        };
-
-        return ptr;
-    }
 };
 
 inline fn fixAlignment(x: usize, alignment: usize) usize {
