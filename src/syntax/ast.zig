@@ -398,12 +398,7 @@ pub const Conditional = struct {
     }
 
     pub fn elseBody(self: Conditional, all_nodes: []const SyntaxNode) ?TextNode {
-        var iter = ASTIterator(TextNode).init(self.v, all_nodes);
-
-        // Skip past the if body
-        iter.skip(1);
-
-        return iter.next();
+        return castLastChild(self.v, all_nodes, TextNode);
     }
 };
 
