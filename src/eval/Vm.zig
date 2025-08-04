@@ -144,7 +144,12 @@ pub fn reinternStrings(self: *Vm) Allocator.Error!void {
 }
 
 pub fn allocateClosure(self: *Vm, function_def: ast.FunctionDef) RuntimeError!Value {
-    const length = @sizeOf(Closure);
+    const captures_len = if (function_def.captures(self.nodes)) |v| blk: {
+        var iter = v.get(self.nodes);
+        break :blk iter.count();
+    } else 0;
+
+    const length = @sizeOf(Closure) + captures_len * @sizeOf(Value);
     const writer, const closure = try self.heap.allocate(self, length, Closure);
 
     // Any potential overflow errors won't happen since we already checked if the heap has enough
@@ -155,8 +160,20 @@ pub fn allocateClosure(self: *Vm, function_def: ast.FunctionDef) RuntimeError!Va
         .function_name = .init(
             if (function_def.name(self.nodes)) |ident| ident.get() else null,
         ),
-        .length = 0, // TODO
+        .length = captures_len,
     }) catch unreachable;
+
+    if (function_def.captures(self.nodes)) |captures| {
+        var iter = captures.get(self.nodes);
+
+        while (iter.next()) |capture| {
+            const value = try self.getVar(capture.get());
+            const bytes = std.mem.asBytes(&value);
+
+            const written = writer.write(bytes) catch unreachable;
+            assert(written == bytes.len);
+        }
+    }
 
     return Value{ .object = @ptrCast(@alignCast(closure)) };
 }
@@ -470,12 +487,13 @@ inline fn fixAlignment(x: usize, alignment: usize) usize {
     //     return 8 - (x % 8);
     // }
     // ```
-    return (~x + 1) & (alignment - 1);
+    return (~x +% 1) & (alignment - 1);
 }
 
 const Vm = @This();
 
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const gc_logging = @import("build_options").gc_logging;
 

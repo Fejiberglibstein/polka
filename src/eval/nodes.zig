@@ -95,8 +95,8 @@ pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
             .export_expr => @panic("TODO"),
             .function_def => |v| {
                 if (v.name(vm.nodes)) |name| {
-                    vm.pushVar(name.get());
                     try vm.stackPush(try vm.allocateClosure(v));
+                    vm.pushVar(name.get());
                 } else {
                     try vm.setError(.unnamed_function);
                 }
@@ -172,6 +172,17 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
         arity += 1;
     }
 
+    // Push the closure captures onto the stack
+    if (function_def.captures(vm.nodes)) |captures| {
+        var iter = captures.get(vm.nodes);
+        for (closure.getCaptures()) |capture_value| {
+            const capture_name = iter.next().?.get();
+
+            try vm.stackPush(capture_value);
+            vm.pushVar(capture_name);
+        }
+    }
+
     evalTextNode(function_def.body(vm.nodes), vm) catch |e| switch (e) {
         ControlFlow.Return => {},
 
@@ -182,16 +193,20 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
 
     const locals_dif = vm.locals.count - locals_count;
     const stack_dif = vm.stack.len - stack_count;
-    if (locals_dif == stack_dif) {
-        // If the function didn't return anything, push a nil
-        try vm.stackPush(.nil);
-    }
+
     // The return value of the function
-    const result = vm.stackPop();
+    const result = if (locals_dif == stack_dif)
+        // If the function didn't return anything, it should be nil
+        .nil
+    else blk: {
+        const result = vm.stackPop();
+        // Make sure that the amount of local variables is equal to the amount of values on the
+        // stack
+        assert(locals_dif == vm.stack.len - stack_count);
+        break :blk result;
+    };
 
-    assert(locals_dif == vm.stack.len - stack_count);
-
-    // Pop the arguments off the stack
+    // Reset the stack to how it was before the function call
     vm.stack.len = stack_count;
     vm.locals.count = locals_count;
 
