@@ -147,21 +147,19 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
 
     // Save the current depth
     const scope_depth = vm.locals.scope_depth;
-    const locals_count = vm.locals.count;
-    const stack_count = vm.stack.len;
+    const old_locals_count = vm.locals.count;
+    const old_stack_len = vm.stack.len;
     vm.locals.function_depth += 1;
     vm.locals.scope_depth = 0;
     errdefer {
         // Ensure that things are cleaned up properly even if there's an error
         vm.locals.scope_depth = scope_depth;
-        vm.locals.count = locals_count;
-        vm.stack.len = stack_count;
         vm.locals.function_depth -= 1;
     }
 
     var args = node.arguments(vm.nodes).get(vm.nodes);
     var params = function_def.params(vm.nodes).get(vm.nodes);
-    var arity: usize = 0;
+    var arity: u32 = 0;
 
     // Push the arguments onto the stack
     while (true) {
@@ -191,6 +189,7 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
     // to get a new reference to the closure since it would have been moved.
     closure = vm.stack.get(closure_stack_ref).object.asClosure();
 
+    var captures_length: u32 = 0;
     // Push the closure captures onto the stack.
     //
     // None of this will allocate memory on the heap, thus causing garbage to be collected. So, we
@@ -200,6 +199,7 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
         iter = captures.get(vm.nodes);
 
         for (closure.getCaptures()) |capture_value| {
+            captures_length += 1;
             const capture_name = iter.next().?.get();
 
             try vm.stackPush(capture_value);
@@ -207,6 +207,7 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
         }
     }
 
+    // Call the function
     evalTextNode(function_def.body(vm.nodes), vm) catch |e| switch (e) {
         ControlFlow.Return => {},
 
@@ -215,24 +216,24 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
         ControlFlow.Continue => try vm.setError(.misplaced_continue),
     };
 
-    const locals_dif = vm.locals.count - locals_count;
-    const stack_dif = vm.stack.len - stack_count;
-
     // The return value of the function
-    const result = if (locals_dif == stack_dif)
+    const result = if (vm.stack.len == vm.locals.count)
         // If the function didn't return anything, it should be nil
         .nil
     else blk: {
         const result = vm.stackPop();
         // Make sure that the amount of local variables is equal to the amount of values on the
         // stack
-        assert(locals_dif == vm.stack.len - stack_count);
+        assert(vm.stack.len == vm.locals.count);
         break :blk result;
     };
 
     // Reset the stack to how it was before the function call
-    vm.stack.len = stack_count;
-    vm.locals.count = locals_count;
+    vm.stack.len -= arity + captures_length;
+    vm.locals.count -= arity + captures_length;
+
+    assert(vm.stack.len == old_stack_len);
+    assert(vm.locals.count == old_locals_count);
     vm.locals.function_depth -= 1;
     vm.locals.scope_depth = scope_depth;
 

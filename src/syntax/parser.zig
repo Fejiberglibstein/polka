@@ -75,7 +75,6 @@ fn parseText(p: *Parser) Allocator.Error!void {
 fn parseCode(p: *Parser) Allocator.Error!void {
     while (true) {
         if (p.isEndingKind(p.current.kind)) {
-            @branchHint(.unlikely);
             break;
         }
 
@@ -104,7 +103,9 @@ fn parseCode(p: *Parser) Allocator.Error!void {
             .@"return" => {
                 const m = p.marker();
                 try p.assert(.@"return");
-                try parseExpr(p, 0, false);
+                if (!p.at(.newline)) {
+                    try parseExpr(p, 0, false);
+                }
                 try p.wrap(.return_expr, m);
             },
             else => try parseExpr(p, 0, false),

@@ -94,9 +94,13 @@ pub fn ASTIterator(comptime T: type) type {
 /// Used in the typed AST to get children matching a certain ASTNode type.
 fn castLastChild(node: *const SyntaxNode, all_nodes: []const SyntaxNode, T: type) ?T {
     const children = node.children(all_nodes);
+    if (children.len == 0) {
+        return null;
+    }
+
     var i = children.len - 1;
 
-    while (i >= 0) : (i -= 1) {
+    while (i > 0) : (i -= 1) {
         if (T.toTyped(&children[i])) |c| {
             return c;
         }
