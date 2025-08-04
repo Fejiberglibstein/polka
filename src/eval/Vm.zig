@@ -58,10 +58,12 @@ pub fn eval(self: *Vm, start_node: *const SyntaxNode) RuntimeError![]const u8 {
         ControlFlow.Return => try self.setError(.misplaced_return),
         ControlFlow.Continue => try self.setError(.misplaced_continue),
     };
+    assert(self.stack.len == 0);
+    assert(self.locals.count == 0);
 
     if (gc_logging) {
         try self.heap.collectGarbage(self);
-        std.debug.assert(self.heap.getCurrentHeap().len == 0);
+        assert(self.heap.getCurrentHeap().len == 0);
     }
 
     return self.output.items;
@@ -216,9 +218,15 @@ pub fn pushScope(self: *Vm) void {
 
 pub fn popScope(self: *Vm) void {
     self.locals.scope_depth -= 1;
-    // Pop off all locals that have a scope greater than the new scope depth
 
+    // Pop off all locals that have a scope greater than the new scope depth
+    //
+    // Since functions push their return value(s) onto the stack, we need to make sure that after
+    // popping off all locals and their respective values, we put the return values back on the top
+    // of the stack.
     const depth = self.locals.function_depth;
+
+    const original_locals = self.locals.count;
     while (self.locals.count > 0) {
         const new_count = self.locals.count - 1;
 
@@ -226,11 +234,20 @@ pub fn popScope(self: *Vm) void {
         if (v.scope_depth > self.locals.scope_depth and v.function_depth == depth) {
             // Pop off the top local
             self.locals.count = new_count;
-            self.stack.len -= 1;
         } else {
             break;
         }
     }
+
+    const locals_dif: usize = original_locals - self.locals.count;
+    const locals_count = self.locals.count;
+    const return_values = self.stack.len - original_locals;
+
+    // Fix the return values so that they're in the right place on the stack
+    for (0..return_values) |i| {
+        self.stack.buffer[locals_count + i] = self.stack.buffer[original_locals + i];
+    }
+    self.stack.len -= locals_dif;
 }
 
 pub fn setGlobalVar(self: *Vm, var_name: []const u8, value: Value) RuntimeError!void {
