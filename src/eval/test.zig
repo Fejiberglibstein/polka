@@ -27,7 +27,6 @@ test "assignment" {
     );
 }
 
-
 test "binary" {
     try testEval(
         \\#* 3 - 2
@@ -148,14 +147,40 @@ test "functions" {
     try testEval(
         \\Hello
         \\
+        \\#* let h = 1
+        \\#* h
+        \\#*
         \\#* function foo()
         \\hi
         \\#* end
-        \\foo()
+        \\#*
+        \\#* foo()
+        \\#* foo()
+        \\#*
+        \\#*
+        \\#* function bar(b)
+        \\#* return b
+        \\#* end
+        \\#*
+        \\#* bar(10)
+        \\#* let hhfu = bar("graggg")
+        \\#* hhfu
+        \\
+        \\#* function baz(a, b)
+        \\#*    let h = a + b + "boogie"
+        \\#*    return h
+        \\#* end
+        \\#*
+        \\#* baz("this", " is ")
+        \\#* "h"
     ,
         \\Hello
         \\
+        \\1 hi
         \\hi
+        \\10 graggg
+        \\this is boogie h
+        \\
     );
 }
 

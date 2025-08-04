@@ -64,8 +64,8 @@ pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
             },
             .for_loop => @panic("TODO"),
             .let_expr => |v| {
-                vm.pushVar(v.binding(vm.nodes).get());
                 try evalExpr(v.value(vm.nodes), vm);
+                vm.pushVar(v.binding(vm.nodes).get());
             },
             .while_loop => |v| {
                 while (blk: {
@@ -94,7 +94,12 @@ pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
             },
             .export_expr => @panic("TODO"),
             .function_def => |v| {
-                try vm.stackPush(try vm.allocateClosure(v));
+                if (v.name(vm.nodes)) |name| {
+                    vm.pushVar(name.get());
+                    try vm.stackPush(try vm.allocateClosure(v));
+                } else {
+                    try vm.setError(.unnamed_function);
+                }
             },
         }
         i += 1;
@@ -180,10 +185,10 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
         // If the function didn't return anything, push a nil
         try vm.stackPush(.nil);
     }
-    assert(locals_dif == vm.stack.len - stack_count);
-
     // The return value of the function
     const result = vm.stackPop();
+
+    assert(locals_dif == vm.stack.len - stack_count);
 
     // Pop the arguments off the stack
     vm.stack.len = stack_count;

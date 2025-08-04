@@ -22,6 +22,8 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
     bad_function: Value,
     /// Function called with too many parameters. Expected <arity>
     function_bad_args: usize,
+    /// Function declarations must be named
+    unnamed_function,
 
     /// Cannout have return outside of function
     misplaced_return,

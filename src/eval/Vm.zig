@@ -428,7 +428,8 @@ pub const Heap = struct {
             // Move past the object that used to be here.
             self.index += switch (obj.tag) {
                 .moved => obj.asMoved().old_size,
-                .string => obj.asString().length + @sizeOf(String),
+                .string => obj.asString().asBytes().len,
+                .closure => obj.asClosure().asBytes().len,
                 else => @panic("TODO"),
             };
 
