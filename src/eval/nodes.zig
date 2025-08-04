@@ -72,7 +72,11 @@ pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
                     try evalExpr(v.condition(vm.nodes), vm);
                     break :blk vm.stackPop().isTruthy();
                 }) {
-                    try evalTextNode(v.body(vm.nodes), vm);
+                    evalTextNode(v.body(vm.nodes), vm) catch |err| switch (err) {
+                        ControlFlow.Continue => continue,
+                        ControlFlow.Break => break,
+                        inline else => |e| return e,
+                    };
                 }
             },
             .return_expr => |v| {
