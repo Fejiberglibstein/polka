@@ -87,7 +87,7 @@ pub const Object = extern struct {
     // Any potential header information that may need to exist
     tag: ObjectType,
 
-    pub inline fn asList(self: *List) *List {
+    pub inline fn asList(self: *Object) *List {
         assert(self.tag == .list);
         return @ptrCast(@alignCast(self));
     }

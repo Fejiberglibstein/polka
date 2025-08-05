@@ -339,7 +339,7 @@ pub const List = struct {
     pub const kind: SyntaxKind = .list;
     pub const totyped = toTypedTemplate(@This(), kind);
 
-    pub fn elements(self: *List, all_nodes: []const SyntaxNode) ASTIterator(Expr) {
+    pub fn elements(self: List, all_nodes: []const SyntaxNode) ASTIterator(Expr) {
         return ASTIterator(Expr).init(self.v, all_nodes);
     }
 };

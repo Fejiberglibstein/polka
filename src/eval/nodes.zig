@@ -111,6 +111,7 @@ pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
 
 pub fn evalExpr(node: ast.Expr, vm: *Vm) RuntimeError!void {
     switch (node) {
+        .list => |v| try evalList(v, vm),
         .nil => |_| try vm.stackPush(.nil),
         .bool => |v| try vm.stackPush(.{ .bool = v.get() }),
         .ident => |v| try vm.stackPush(try vm.getVar(v.get())),
@@ -126,6 +127,25 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) RuntimeError!void {
     }
 }
 
+pub fn evalList(node: ast.List, vm: *Vm) RuntimeError!void {
+    var elements = node.elements(vm.nodes);
+    const length = elements.count();
+    elements = node.elements(vm.nodes);
+
+    // push the list onto the stack so that it can't be gc'ed
+    try vm.stackPush(try vm.allocateList(length));
+
+    for (0..length) |i| {
+        const el = elements.next() orelse unreachable;
+
+        try evalExpr(el, vm);
+        const value = vm.stackPop();
+
+        // List is on the top of the stack. We shouldn't cache this value since the list can move
+        // around between heaps since evaluating an expression can trigger the gc
+        vm.stackPeek(0).object.getList().?.getValues()[i] = value;
+    }
+}
 fn pushFunctionArgumentsAndCaptures(
     node: ast.FunctionCall,
     vm: *Vm,
