@@ -145,6 +145,18 @@ pub fn reinternStrings(self: *Vm) Allocator.Error!void {
     self.strings = new_map;
 }
 
+pub fn allocateList(self: *Vm, length: usize) RuntimeError!Value {
+    const size = @sizeOf(List) + length * @sizeOf(Value);
+
+    _, const list = try self.heap.allocate(self, size, List);
+    list.* = List{
+        .base = Object{ .tag = .list },
+        .length = length,
+    };
+
+    return Value {.object = @ptrCast(list)};
+}
+
 pub fn allocateClosure(self: *Vm, function_def: ast.FunctionDef) RuntimeError!Value {
     const captures_len = if (function_def.captures(self.nodes)) |v| blk: {
         var iter = v.get(self.nodes);
@@ -528,4 +540,5 @@ const ControlFlow = @import("error.zig").ControlFlow;
 const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
 const String = @import("value.zig").String;
 const Closure = @import("value.zig").Closure;
+const List = @import("value.zig").List;
 const Value = @import("value.zig").Value;

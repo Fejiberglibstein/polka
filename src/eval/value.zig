@@ -87,6 +87,11 @@ pub const Object = extern struct {
     // Any potential header information that may need to exist
     tag: ObjectType,
 
+    pub inline fn asList(self: *List) *List {
+        assert(self.tag == .list);
+        return @ptrCast(@alignCast(self));
+    }
+
     pub inline fn asMoved(self: *Object) *Moved {
         assert(self.tag == .moved);
         return @ptrCast(@alignCast(self));
@@ -100,6 +105,10 @@ pub const Object = extern struct {
     pub inline fn asClosure(self: *Object) *Closure {
         assert(self.tag == .closure);
         return @ptrCast(@alignCast(self));
+    }
+
+    pub inline fn getList(self: *Object) ?*List {
+        return if (self.tag == .list) self.asList() else null;
     }
 
     pub inline fn getMoved(self: *Object) ?*Moved {
@@ -168,9 +177,27 @@ pub const Closure = extern struct {
         return ptr[0..self.length];
     }
 
-    pub fn asBytes(self: *Closure) []align(8) const u8 {
-        const ptr: [*]u8 = @ptrCast(self);
+    pub fn asBytes(self: *const Closure) []align(8) const u8 {
+        const ptr: [*]const u8 = @ptrCast(self);
         const size = (self.length * @sizeOf(Value)) + @sizeOf(Closure);
+        return @alignCast(ptr[0..size]);
+    }
+};
+
+pub const List = extern struct {
+    base: Object,
+    length: u64,
+    /// Start of the flexible length Value array for the list
+    items: void = undefined,
+
+    pub fn getValues(self: *List) []Value {
+        const ptr: [*]Value = @ptrCast(&self.items);
+        return ptr[0..self.length];
+    }
+
+    pub fn asBytes(self: *const List) []align(8) const u8 {
+        const ptr: [*]const u8 = @ptrCast(self);
+        const size = (self.length * @sizeOf(Value)) + @sizeOf(List);
         return @alignCast(ptr[0..size]);
     }
 };
@@ -203,14 +230,14 @@ pub const String = extern struct {
     }
 
     /// Get the characters of the string
-    pub fn get(self: *String) []const u8 {
-        const ptr: [*]u8 = @ptrCast(&self.chars);
+    pub fn get(self: *const String) []const u8 {
+        const ptr: [*]const u8 = @ptrCast(&self.chars);
         return ptr[0..self.length];
     }
 
     /// Get the bytes of the entire struct, including characters.
-    pub fn asBytes(self: *String) []align(8) const u8 {
-        const ptr: [*]u8 = @ptrCast(self);
+    pub fn asBytes(self: *const String) []align(8) const u8 {
+        const ptr: [*]const u8 = @ptrCast(self);
         return @alignCast(ptr[0 .. self.length + @sizeOf(String)]);
     }
 };
