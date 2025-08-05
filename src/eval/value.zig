@@ -92,6 +92,11 @@ pub const Object = extern struct {
         return @ptrCast(@alignCast(self));
     }
 
+    pub inline fn asDict(self: *Object) *Dict {
+        assert(self.tag == .dict);
+        return @ptrCast(@alignCast(self));
+    }
+
     pub inline fn asMoved(self: *Object) *Moved {
         assert(self.tag == .moved);
         return @ptrCast(@alignCast(self));
@@ -109,6 +114,10 @@ pub const Object = extern struct {
 
     pub inline fn getList(self: *Object) ?*List {
         return if (self.tag == .list) self.asList() else null;
+    }
+
+    pub inline fn getDict(self: *Object) ?*Dict {
+        return if (self.tag == .dict) self.asDict() else null;
     }
 
     pub inline fn getMoved(self: *Object) ?*Moved {
@@ -198,6 +207,29 @@ pub const List = extern struct {
     pub fn asBytes(self: *const List) []align(8) const u8 {
         const ptr: [*]const u8 = @ptrCast(self);
         const size = (self.length * @sizeOf(Value)) + @sizeOf(List);
+        return @alignCast(ptr[0..size]);
+    }
+};
+
+pub const Dict = extern struct {
+    base: Object,
+    length: u64,
+    /// Start of the flexible length Value array for the list
+    items: void = undefined,
+
+    pub const KeyPair = struct {
+        key: *String,
+        value: Value,
+    };
+
+    pub fn getKeyPairs(self: *List) []KeyPair {
+        const ptr: [*]Value = @ptrCast(&self.items);
+        return ptr[0..self.length];
+    }
+
+    pub fn asBytes(self: *const List) []align(8) const u8 {
+        const ptr: [*]const u8 = @ptrCast(self);
+        const size = (self.length * @sizeOf(KeyPair)) + @sizeOf(Dict);
         return @alignCast(ptr[0..size]);
     }
 };

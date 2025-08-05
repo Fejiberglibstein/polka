@@ -154,7 +154,19 @@ pub fn allocateList(self: *Vm, length: usize) RuntimeError!Value {
         .length = length,
     };
 
-    return Value {.object = @ptrCast(list)};
+    return Value{ .object = @ptrCast(list) };
+}
+
+pub fn allocateDict(self: *Vm, length: usize) RuntimeError!Value {
+    const size = @sizeOf(List) + length * @sizeOf(Value);
+
+    _, const list = try self.heap.allocate(self, size, List);
+    list.* = List{
+        .base = Object{ .tag = .list },
+        .length = length,
+    };
+
+    return Value{ .object = @ptrCast(list) };
 }
 
 pub fn allocateClosure(self: *Vm, function_def: ast.FunctionDef) RuntimeError!Value {
