@@ -81,6 +81,7 @@ fn code(self: *Lexer) SyntaxKind {
         '.' => .dot,
         ',' => .comma,
         '`' => .backtick,
+        ':' => .colon,
         '=' => if (self.s.eatIf('=')) .eq_eq else .eq,
         '!' => if (self.s.eatIf('=')) .not_eq else continue :sw 0,
         '<' => if (self.s.eatIf('=')) .lt_eq else .lt,

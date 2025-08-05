@@ -175,6 +175,64 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
         break;
     }
 }
+pub fn parseTable(p: *Parser) Allocator.Error!void {
+    const m = p.marker();
+
+    try p.expect(.left_brace);
+
+    if (try p.eatIf(.right_brace)) {
+        try p.wrap(.list, m);
+        return;
+    } else if (try p.eatIf(.colon)) {
+        try p.expect(.right_brace);
+        try p.wrap(.dict, m);
+        return;
+    }
+
+    const finishing_kind: SyntaxKind = if (try p.eatIf(.ident)) blk: {
+        if (try p.eatIf(.comma)) {
+            // Parse a list
+            while (!try p.eatIf(.right_brace)) {
+                try parseExpr(p, 0, false);
+                if (!try p.eatIf(.comma)) {
+                    try p.expect(.right_brace);
+                    break;
+                }
+            }
+            break :blk .list;
+        }
+
+        // Parse a dictionary
+        try p.expect(.colon);
+        try parseExpr(p, 0, false);
+        _ = try p.eatIf(.comma);
+
+        while (!try p.eatIf(.right_brace)) {
+            try p.expect(.ident);
+            try p.expect(.colon);
+            try parseExpr(p, 0, false);
+
+            if (!try p.eatIf(.comma)) {
+                try p.expect(.right_brace);
+                break;
+            }
+        }
+
+        break :blk .dict;
+    } else blk: {
+        // Parse a list
+        while (!try p.eatIf(.right_brace)) {
+            try parseExpr(p, 0, false);
+            if (!try p.eatIf(.comma)) {
+                try p.expect(.right_brace);
+                break;
+            }
+        }
+        break :blk .list;
+    };
+
+    try p.wrap(finishing_kind, m);
+}
 
 /// Parse a primary node.
 ///
@@ -183,6 +241,7 @@ fn parsePrimary(p: *Parser) Allocator.Error!void {
     switch (p.current.kind) {
         .ident, .string, .number, .bool, .nil => try p.eat(),
         .function => try parseFunctionDef(p),
+        .left_brace => try parseTable(p),
         .left_paren => {
             const m = p.marker();
             try p.assert(.left_paren);

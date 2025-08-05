@@ -46,6 +46,8 @@ pub const SyntaxKind = enum(u8) {
     comma,
     /// Assignment `=`
     eq,
+    /// Dictionary keys `:`
+    colon,
     /// Equality `==`.
     eq_eq,
     /// Inequality `!=`.
@@ -106,6 +108,10 @@ pub const SyntaxKind = enum(u8) {
     string,
     /// Expression inside parenthesis
     grouping,
+    /// List declaration
+    list,
+    /// Dict declaration
+    dict,
 
     /// Export
     ///

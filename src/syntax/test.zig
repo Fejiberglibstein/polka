@@ -334,6 +334,77 @@ test "simple_code" {
     );
 }
 
+test "lists" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\#* {}
+        \\#* let h = { hi, 10, 4, "hi" }
+    ,
+        \\text_node[
+        \\  code [
+        \\    code_begin,
+        \\    list [
+        \\      left_brace,
+        \\      right_brace,
+        \\    ]
+        \\    newline,
+        \\    code_begin,
+        \\    let_expr [
+        \\      let,
+        \\      ident,
+        \\      eq,
+        \\      list [
+        \\        left_brace,
+        \\        ident,
+        \\        comma,
+        \\        number,
+        \\        comma,
+        \\        number,
+        \\        comma,
+        \\        string,
+        \\        right_brace,
+        \\      ]
+        \\    ]
+        \\  ]
+        \\]
+    );
+}
+
+test "dicts" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\#* {:}
+        \\#* let h = { hi: foo, this: 1, }
+    ,
+        \\text_node[
+        \\  code [
+        \\    code_begin,
+        \\    dict [ left_brace, colon, right_brace ],
+        \\    newline,
+        \\    code_begin,
+        \\    let_expr [
+        \\      let,
+        \\      ident,
+        \\      eq,
+        \\      dict [
+        \\        left_brace,
+        \\        ident,
+        \\        colon,
+        \\        ident,
+        \\        comma,
+        \\        ident,
+        \\        colon,
+        \\        number,
+        \\        comma,
+        \\        right_brace,
+        \\      ]
+        \\    ]
+        \\  ]
+        \\]
+    );
+}
+
+
 test "simple_text" {
     @setEvalBranchQuota(1000000);
     try testParser(
