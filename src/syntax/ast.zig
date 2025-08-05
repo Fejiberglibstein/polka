@@ -214,10 +214,13 @@ pub const Statement = union(enum(u8)) {
 
 pub const Expr = union(enum(u8)) {
     nil: Nil,
+    list: List,
     bool: Bool,
+    dict: Dict,
     ident: Ident,
     number: Number,
     string: String,
+
     access: Access,
     unary_op: Unary,
     binary_op: Binary,
@@ -232,6 +235,8 @@ pub const Expr = union(enum(u8)) {
         return switch (n.kind()) {
             .nil => .{ .nil = Nil{ .v = n } },
             .bool => .{ .bool = Bool{ .v = n } },
+            .list => .{ .list = List{ .v = n } },
+            .dict => .{ .dict = Dict{ .v = n } },
             .ident => .{ .ident = Ident{ .v = n } },
             .number => .{ .number = Number{ .v = n } },
             .string => .{ .string = String{ .v = n } },
@@ -281,6 +286,61 @@ pub const String = struct {
     pub fn get(self: String) []const u8 {
         // TODO make this clean the text by removing backslashes and such
         return self.v.range[1 .. self.v.range.len - 1];
+    }
+};
+
+pub const Dict = struct {
+    v: *const SyntaxNode,
+    pub const kind: SyntaxKind = .dict;
+    pub const totyped = toTypedTemplate(@This(), kind);
+
+    pub const KeyPair = struct {
+        key: []const u8,
+        value: Expr,
+    };
+
+    pub const KeyPairIterator = struct {
+        index: usize,
+        nodes: []const SyntaxNode,
+
+        pub fn init(node: SyntaxNode, all_nodes: []const SyntaxNode) KeyPairIterator {
+            return KeyPairIterator{
+                .nodes = node.children(all_nodes),
+                .index = 0,
+            };
+        }
+
+        pub fn next(self: *KeyPairIterator) ?KeyPair {
+            const key = while (self.index < self.nodes.len) : (self.index += 1) blk: {
+                if (Ident.toTyped(&self.nodes[self.index])) |c| {
+                    self.index += 1;
+                    break :blk c;
+                }
+            } else return null;
+
+            const value = while (self.index < self.nodes.len) : (self.index += 1) blk: {
+                if (Expr.toTyped(&self.nodes[self.index])) |c| {
+                    self.index += 1;
+                    break :blk c;
+                }
+            } else return null;
+
+            return KeyPair{ .key = key, .value = value };
+        }
+    };
+
+    pub fn elementPairs(self: *List, all_nodes: []const SyntaxNode) KeyPairIterator(Expr) {
+        return KeyPairIterator.init(self.v, all_nodes);
+    }
+};
+
+pub const List = struct {
+    v: *const SyntaxNode,
+    pub const kind: SyntaxKind = .list;
+    pub const totyped = toTypedTemplate(@This(), kind);
+
+    pub fn elements(self: *List, all_nodes: []const SyntaxNode) ASTIterator(Expr) {
+        return ASTIterator(Expr).init(self.v, all_nodes);
     }
 };
 

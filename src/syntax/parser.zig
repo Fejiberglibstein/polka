@@ -175,7 +175,7 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
         break;
     }
 }
-pub fn parseTable(p: *Parser) Allocator.Error!void {
+pub fn parseDictOrList(p: *Parser) Allocator.Error!void {
     const m = p.marker();
 
     try p.expect(.left_brace);
@@ -241,7 +241,7 @@ fn parsePrimary(p: *Parser) Allocator.Error!void {
     switch (p.current.kind) {
         .ident, .string, .number, .bool, .nil => try p.eat(),
         .function => try parseFunctionDef(p),
-        .left_brace => try parseTable(p),
+        .left_brace => try parseDictOrList(p),
         .left_paren => {
             const m = p.marker();
             try p.assert(.left_paren);
