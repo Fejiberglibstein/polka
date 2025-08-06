@@ -158,15 +158,15 @@ pub fn allocateList(self: *Vm, length: usize) RuntimeError!Value {
 }
 
 pub fn allocateDict(self: *Vm, length: usize) RuntimeError!Value {
-    const size = @sizeOf(List) + length * @sizeOf(Value);
+    const size = @sizeOf(Dict) + length * @sizeOf(Dict.KeyPair);
 
-    _, const list = try self.heap.allocate(self, size, List);
-    list.* = List{
-        .base = Object{ .tag = .list },
+    _, const dict = try self.heap.allocate(self, size, Dict);
+    dict.* = Dict{
+        .base = Object{ .tag = .dict },
         .length = length,
     };
 
-    return Value{ .object = @ptrCast(list) };
+    return Value{ .object = @ptrCast(dict) };
 }
 
 pub fn allocateClosure(self: *Vm, function_def: ast.FunctionDef) RuntimeError!Value {
@@ -442,19 +442,30 @@ pub const Heaps = struct {
                 switch (o.tag) {
                     .moved => item.object = o.asMoved().new_ptr,
                     .string => {
-                        item.object = @ptrCast(
-                            @alignCast(move(new_heap, String, o.asString())),
-                        );
+                        item.object = @ptrCast(@alignCast(move(new_heap, String, o.asString())));
                     },
                     .closure => {
                         for (o.asClosure().getCaptures()) |*capture| {
                             collectValue(capture, new_heap);
                         }
-                        item.object = @ptrCast(
-                            @alignCast(move(new_heap, Closure, o.asClosure())),
-                        );
+                        item.object = @ptrCast(@alignCast(move(new_heap, Closure, o.asClosure())));
                     },
-                    else => @panic("TODO"),
+                    .dict => {
+                        for (o.asDict().getKeyPairs()) |*pair| {
+                            var key = Value{ .object = &pair.key.base };
+                            collectValue(&key, new_heap);
+                            pair.key = key.object.asString();
+
+                            collectValue(&pair.value, new_heap);
+                        }
+                        item.object = @ptrCast(@alignCast(move(new_heap, Dict, o.asDict())));
+                    },
+                    .list => {
+                        for (o.asList().getValues()) |*value| {
+                            collectValue(value, new_heap);
+                        }
+                        item.object = @ptrCast(@alignCast(move(new_heap, List, o.asList())));
+                    },
                 }
             },
             else => {},
@@ -553,4 +564,5 @@ const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
 const String = @import("value.zig").String;
 const Closure = @import("value.zig").Closure;
 const List = @import("value.zig").List;
+const Dict = @import("value.zig").Dict;
 const Value = @import("value.zig").Value;

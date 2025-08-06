@@ -112,6 +112,7 @@ pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
 pub fn evalExpr(node: ast.Expr, vm: *Vm) RuntimeError!void {
     switch (node) {
         .list => |v| try evalList(v, vm),
+        .dict => |v| try evalDict(v, vm),
         .nil => |_| try vm.stackPush(.nil),
         .bool => |v| try vm.stackPush(.{ .bool = v.get() }),
         .ident => |v| try vm.stackPush(try vm.getVar(v.get())),
@@ -146,6 +147,32 @@ pub fn evalList(node: ast.List, vm: *Vm) RuntimeError!void {
         vm.stackPeek(0).object.getList().?.getValues()[i] = value;
     }
 }
+
+pub fn evalDict(node: ast.Dict, vm: *Vm) RuntimeError!void {
+    var elements = node.elementPairs(vm.nodes);
+    const length = elements.count();
+    elements = node.elementPairs(vm.nodes);
+
+    // push the dict onto the stack so that it can't be gc'ed
+    try vm.stackPush(try vm.allocateDict(length));
+
+    for (0..length) |i| {
+        const el = elements.next() orelse unreachable;
+
+        try vm.stackPush(try vm.allocateString("{s}", el.key));
+        try evalExpr(el.value, vm);
+        const value = vm.stackPop();
+        const key = vm.stackPop();
+
+        // Dict is on the top of the stack. We shouldn't cache this value since the list can move
+        // around between heaps since evaluating an expression can trigger the gc
+        vm.stackPeek(0).object.getDict().?.getKeyPairs()[i] = .{
+            .key = key.object.getString() orelse unreachable,
+            .value = value,
+        };
+    }
+}
+
 fn pushFunctionArgumentsAndCaptures(
     node: ast.FunctionCall,
     vm: *Vm,

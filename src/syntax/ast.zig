@@ -310,6 +310,12 @@ pub const Dict = struct {
             };
         }
 
+        pub fn count(self: *KeyPairIterator) usize {
+            var i: usize = 0;
+            while (self.next() != null) i += 1;
+            return i;
+        }
+
         pub fn next(self: *KeyPairIterator) ?KeyPair {
             const key = while (self.index < self.nodes.len) : (self.index += 1) blk: {
                 if (Ident.toTyped(&self.nodes[self.index])) |c| {
@@ -329,7 +335,7 @@ pub const Dict = struct {
         }
     };
 
-    pub fn elementPairs(self: *List, all_nodes: []const SyntaxNode) KeyPairIterator(Expr) {
+    pub fn elementPairs(self: Dict, all_nodes: []const SyntaxNode) KeyPairIterator {
         return KeyPairIterator.init(self.v, all_nodes);
     }
 };

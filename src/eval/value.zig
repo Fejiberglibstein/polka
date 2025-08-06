@@ -222,12 +222,12 @@ pub const Dict = extern struct {
         value: Value,
     };
 
-    pub fn getKeyPairs(self: *List) []KeyPair {
+    pub fn getKeyPairs(self: *Dict) []KeyPair {
         const ptr: [*]Value = @ptrCast(&self.items);
         return ptr[0..self.length];
     }
 
-    pub fn asBytes(self: *const List) []align(8) const u8 {
+    pub fn asBytes(self: *const Dict) []align(8) const u8 {
         const ptr: [*]const u8 = @ptrCast(self);
         const size = (self.length * @sizeOf(KeyPair)) + @sizeOf(Dict);
         return @alignCast(ptr[0..size]);
