@@ -303,7 +303,7 @@ pub const Dict = struct {
         index: usize,
         nodes: []const SyntaxNode,
 
-        pub fn init(node: SyntaxNode, all_nodes: []const SyntaxNode) KeyPairIterator {
+        pub fn init(node: *const SyntaxNode, all_nodes: []const SyntaxNode) KeyPairIterator {
             return KeyPairIterator{
                 .nodes = node.children(all_nodes),
                 .index = 0,
@@ -317,21 +317,27 @@ pub const Dict = struct {
         }
 
         pub fn next(self: *KeyPairIterator) ?KeyPair {
-            const key = while (self.index < self.nodes.len) : (self.index += 1) blk: {
-                if (Ident.toTyped(&self.nodes[self.index])) |c| {
-                    self.index += 1;
-                    break :blk c;
+            const key = blk: {
+                while (self.index < self.nodes.len) : (self.index += 1) {
+                    if (Ident.toTyped(&self.nodes[self.index])) |c| {
+                        self.index += 1;
+                        break :blk c;
+                    }
                 }
-            } else return null;
+                return null;
+            };
 
-            const value = while (self.index < self.nodes.len) : (self.index += 1) blk: {
-                if (Expr.toTyped(&self.nodes[self.index])) |c| {
-                    self.index += 1;
-                    break :blk c;
+            const value = blk: {
+                while (self.index < self.nodes.len) : (self.index += 1) {
+                    if (Expr.toTyped(&self.nodes[self.index])) |c| {
+                        self.index += 1;
+                        break :blk c;
+                    }
                 }
-            } else return null;
+                return null;
+            };
 
-            return KeyPair{ .key = key, .value = value };
+            return KeyPair{ .key = key.get(), .value = value };
         }
     };
 

@@ -159,7 +159,7 @@ pub fn evalDict(node: ast.Dict, vm: *Vm) RuntimeError!void {
     for (0..length) |i| {
         const el = elements.next() orelse unreachable;
 
-        try vm.stackPush(try vm.allocateString("{s}", el.key));
+        try vm.stackPush(try vm.allocateString("{s}", .{el.key}));
         try evalExpr(el.value, vm);
         const value = vm.stackPop();
         const key = vm.stackPop();

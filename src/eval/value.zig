@@ -57,8 +57,9 @@ pub const Value = union(ValueType) {
             .object => |o| switch (o.tag) {
                 .string => try writer.print("{s}", .{o.asString().get()}),
                 .closure => try writer.print("<function@{x}>", .{@intFromPtr(o)}),
+                .list => try writer.print("<list@{x}>", .{@intFromPtr(o)}),
+                .dict => try writer.print("<dict@{x}>", .{@intFromPtr(o)}),
                 .moved => unreachable,
-                else => @panic("TODO"),
             },
         }
     }
@@ -223,7 +224,7 @@ pub const Dict = extern struct {
     };
 
     pub fn getKeyPairs(self: *Dict) []KeyPair {
-        const ptr: [*]Value = @ptrCast(&self.items);
+        const ptr: [*]KeyPair = @ptrCast(&self.items);
         return ptr[0..self.length];
     }
 
