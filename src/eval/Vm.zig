@@ -148,11 +148,14 @@ pub fn reinternStrings(self: *Vm) Allocator.Error!void {
 pub fn allocateList(self: *Vm, length: usize) RuntimeError!Value {
     const size = @sizeOf(List) + length * @sizeOf(Value);
 
-    _, const list = try self.heap.allocate(self, size, List);
-    list.* = List{
+    const writer, const list = try self.heap.allocate(self, size, List);
+
+    writer.writeStruct(List{
         .base = Object{ .tag = .list },
         .length = length,
-    };
+    }) catch unreachable;
+
+    writer.writeByteNTimes(undefined, length * @sizeOf(Value)) catch unreachable;
 
     return Value{ .object = @ptrCast(list) };
 }
@@ -160,11 +163,13 @@ pub fn allocateList(self: *Vm, length: usize) RuntimeError!Value {
 pub fn allocateDict(self: *Vm, length: usize) RuntimeError!Value {
     const size = @sizeOf(Dict) + length * @sizeOf(Dict.KeyPair);
 
-    _, const dict = try self.heap.allocate(self, size, Dict);
-    dict.* = Dict{
+    const writer, const dict = try self.heap.allocate(self, size, Dict);
+    writer.writeStruct(Dict{
         .base = Object{ .tag = .dict },
         .length = length,
-    };
+    }) catch unreachable;
+
+    writer.writeByteNTimes(undefined, length * @sizeOf(Dict.KeyPair)) catch unreachable;
 
     return Value{ .object = @ptrCast(dict) };
 }
@@ -480,6 +485,10 @@ pub const Heaps = struct {
         // Cannot overflow since value was already on the other heap.
         new_heap.appendSlice(value.asBytes()) catch unreachable;
 
+        comptime {
+            assert(@sizeOf(T) >= @sizeOf(Moved));
+        }
+
         // Set a `Moved` where the value was on the old heap
         @as(*Moved, @ptrCast(value)).* = .{
             .base = Object{ .tag = .moved },
@@ -524,9 +533,10 @@ pub const Heaps = struct {
             // Move past the object that used to be here.
             self.index += switch (obj.tag) {
                 .moved => obj.asMoved().old_size,
+                .dict => obj.asDict().asBytes().len,
+                .list => obj.asList().asBytes().len,
                 .string => obj.asString().asBytes().len,
                 .closure => obj.asClosure().asBytes().len,
-                else => @panic("TODO"),
             };
 
             return obj;

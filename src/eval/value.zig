@@ -197,6 +197,8 @@ pub const Closure = extern struct {
 pub const List = extern struct {
     base: Object,
     length: u64,
+    /// We need to make the size of this struct at least 24 bytes, since that's the size of `Moved`
+    _padding: [8]u8 = undefined,
     /// Start of the flexible length Value array for the list
     items: void = undefined,
 
@@ -215,6 +217,8 @@ pub const List = extern struct {
 pub const Dict = extern struct {
     base: Object,
     length: u64,
+    /// We need to make the size of this struct at least 24 bytes, since that's the size of `Moved`
+    _padding: [8]u8 = undefined,
     /// Start of the flexible length Value array for the list
     items: void = undefined,
 
