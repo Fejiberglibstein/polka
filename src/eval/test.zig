@@ -206,6 +206,15 @@ test "closures" {
     );
 }
 
+test "list" {
+    try testEval(
+        \\#* let h = { "hi", }
+        \\#* h = ""
+    ,
+        \\ fi
+    );
+}
+
 const Vm = @import("Vm.zig");
 const parser = @import("../syntax/parser.zig");
 
