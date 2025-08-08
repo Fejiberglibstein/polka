@@ -146,7 +146,7 @@ pub fn reinternStrings(self: *Vm) Allocator.Error!void {
 }
 
 pub fn allocateList(self: *Vm, length: usize) RuntimeError!Value {
-    const size = @sizeOf(List) + length * @sizeOf(Value);
+    const size = @sizeOf(List) + (length * @sizeOf(Value));
 
     const writer, const list = try self.heap.allocate(self, size, List);
 
@@ -155,7 +155,11 @@ pub fn allocateList(self: *Vm, length: usize) RuntimeError!Value {
         .length = length,
     }) catch unreachable;
 
-    writer.writeByteNTimes(undefined, length * @sizeOf(Value)) catch unreachable;
+    // Fill the list with nil initially, the caller can fix it as it wishes
+    writer.writeBytesNTimes(
+        &std.mem.toBytes(Value.nil),
+        length * @sizeOf(Value),
+    ) catch unreachable;
 
     return Value{ .object = @ptrCast(list) };
 }
@@ -169,9 +173,15 @@ pub fn allocateDict(self: *Vm, length: usize) RuntimeError!Value {
         .length = length,
     }) catch unreachable;
 
-    writer.writeByteNTimes(undefined, length * @sizeOf(Dict.KeyPair)) catch unreachable;
+    // Fill the list with nil initially, the caller can fix it as it wishes
+    writer.writeBytesNTimes(
+        &std.mem.toBytes(Value.nil),
+        length * @sizeOf(Dict.KeyPair),
+    ) catch unreachable;
 
-    return Value{ .object = @ptrCast(dict) };
+    _ = dict;
+    @panic("TODO");
+    // return Value{ .object = @ptrCast(dict) };
 }
 
 pub fn allocateClosure(self: *Vm, function_def: ast.FunctionDef) RuntimeError!Value {

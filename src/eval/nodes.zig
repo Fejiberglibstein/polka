@@ -135,13 +135,6 @@ pub fn evalList(node: ast.List, vm: *Vm) RuntimeError!void {
 
     // push the list onto the stack so that it can't be gc'ed
     try vm.stackPush(try vm.allocateList(length));
-    // The length needs to be zero since while pushing the elements of the list into the list, that
-    // can cause garbage collection. When gc happens, since the list doesn't have all of its values
-    // yet, it will try to collect undefined values.
-    //
-    // To fix this, we can set the length to 0, and each time we append an element add 1. This will
-    // prevent undefined values from being collected.
-    vm.stackPeek(0).object.asList().length = 0;
 
     for (0..length) |i| {
         const el = elements.next() orelse unreachable;
@@ -149,14 +142,9 @@ pub fn evalList(node: ast.List, vm: *Vm) RuntimeError!void {
         try evalExpr(el, vm);
         const value = vm.stackPop();
 
-        // List is on the top of the stack. We shouldn't cache this value for the entirety of the
-        // loop since the list can move around between heaps since evaluating an expression can
-        // trigger the gc
-        const list = vm.stackPeek(0).object.getList() orelse unreachable;
-        list.length += 1;
-        std.debug.print("STRINGF: {*}\n", .{value.object});
-        std.debug.print("LIST: {*}\n", .{vm.stackPeek(0).object.getList().?.getValues().ptr});
-        list.getValues()[i] = value;
+        // The list is on the top of the stack. We shouldn't cache this value since the list can
+        // move around between heaps since evaluating an expression can trigger the gc
+        vm.stackPeek(0).object.getList().?.getValues()[i] = value;
     }
 
     assert(vm.stackPeek(0).object.getList().?.length == length);
