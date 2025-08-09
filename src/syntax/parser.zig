@@ -179,6 +179,10 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
             }
         }
 
+        if (m == p.marker()) {
+            try p.unexpected();
+        }
+
         break;
     }
 }
@@ -196,16 +200,31 @@ pub fn parseDictOrList(p: *Parser) Allocator.Error!void {
         return;
     }
 
+    // TODO fix this in the future, this is really messy
+
+    _ = try p.eatNewlines();
     const finishing_kind: SyntaxKind = if (try p.eatIf(.ident)) blk: {
         if (try p.eatIf(.comma)) {
             // Parse a list
+            _ = try p.eatNewlines();
             while (!try p.eatIf(.right_brace)) {
                 try parseExpr(p, 0, false);
                 if (!try p.eatIf(.comma)) {
+                    _ = try p.eatNewlines();
                     try p.expect(.right_brace);
                     break;
                 }
+                _ = try p.eatNewlines();
             }
+            break :blk .list;
+        }
+
+        if (try p.eatNewlines()) {
+            try p.expect(.right_brace);
+            break :blk .list;
+        }
+
+        if (try p.eatIf(.right_brace)) {
             break :blk .list;
         }
 
@@ -214,15 +233,18 @@ pub fn parseDictOrList(p: *Parser) Allocator.Error!void {
         try parseExpr(p, 0, false);
         _ = try p.eatIf(.comma);
 
+        _ = try p.eatNewlines();
         while (!try p.eatIf(.right_brace)) {
             try p.expect(.ident);
             try p.expect(.colon);
             try parseExpr(p, 0, false);
 
             if (!try p.eatIf(.comma)) {
+                _ = try p.eatNewlines();
                 try p.expect(.right_brace);
                 break;
             }
+            _ = try p.eatNewlines();
         }
 
         break :blk .dict;
@@ -231,9 +253,11 @@ pub fn parseDictOrList(p: *Parser) Allocator.Error!void {
         while (!try p.eatIf(.right_brace)) {
             try parseExpr(p, 0, false);
             if (!try p.eatIf(.comma)) {
+                _ = try p.eatNewlines();
                 try p.expect(.right_brace);
                 break;
             }
+            _ = try p.eatNewlines();
         }
         break :blk .list;
     };
@@ -502,6 +526,31 @@ const Parser = struct {
             return true;
         }
         return false;
+    }
+
+    fn eatNewlines(self: *Parser) Allocator.Error!bool {
+        var res = false;
+        while (self.at(.newline)) {
+            switch (self.mode()) {
+                Mode.Text,
+                Mode.TopLevelText,
+                Mode.CodeBlock,
+                => {
+                    try self.assert(.newline);
+                    res = true;
+                },
+
+                Mode.CodeLine => {
+                    try self.assert(.newline);
+                    try self.expect(.code_begin);
+                    res = true;
+                },
+
+                Mode.CodeExpr => try self.unexpected(),
+            }
+        }
+
+        return res;
     }
 
     fn expect(self: *Parser, kind: SyntaxKind) Allocator.Error!void {

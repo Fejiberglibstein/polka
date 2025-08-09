@@ -404,6 +404,62 @@ test "dicts" {
     );
 }
 
+test "newlines" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\#* let h = { 
+        \\#*    10,
+        \\#*
+        \\#*    4,
+        \\#* }
+        \\#* let h = {
+        \\#*    foo
+        \\#* }
+    ,
+        \\text_node[
+        \\  code [
+        \\    code_begin,
+        \\    let_expr [
+        \\      let,
+        \\      ident,
+        \\      eq,
+        \\      list [
+        \\        left_brace,
+        \\        newline,
+        \\        code_begin,
+        \\        number,
+        \\        comma,
+        \\        newline,
+        \\        code_begin,
+        \\        newline,
+        \\        code_begin,
+        \\        number,
+        \\        comma,
+        \\        newline,
+        \\        code_begin,
+        \\        right_brace,
+        \\      ]
+        \\    ],
+        \\    newline,
+        \\    code_begin
+        \\    let_expr [
+        \\      let,
+        \\      ident,
+        \\      eq,
+        \\      list [
+        \\        left_brace,
+        \\        newline,
+        \\        code_begin,
+        \\        ident,
+        \\        newline,
+        \\        code_begin,
+        \\        right_brace
+        \\      ]
+        \\    ]
+        \\  ]
+        \\]
+    );
+}
 
 test "simple_text" {
     @setEvalBranchQuota(1000000);
@@ -528,7 +584,7 @@ fn testParser(source: []const u8, comptime expected_source: []const u8) !void {
     var allocator = std.heap.DebugAllocator(.{}).init;
     defer {
         _ = allocator.deinit();
-    } 
+    }
 
     const expected_node, const expected_nodes = comptime blk: {
         break :blk try parseTree(expected_source);
