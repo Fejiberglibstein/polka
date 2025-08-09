@@ -124,8 +124,48 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) RuntimeError!void {
         .binary_op => |v| try evalBinary(v, vm),
         .function_call => |v| try evalFunctionCall(v, vm),
         .grouping => |v| try evalExpr(v.get(vm.nodes), vm),
-        .access => @panic("TODO"),
+        .dot_access => |v| try evalDotAccess(v, vm),
+        .bracket_access => |v| try evalBracketAccess(v, vm),
     }
+}
+
+pub fn evalDotAccess(node: ast.DotAccess, vm: *Vm) RuntimeError!void {
+    try evalExpr(node.lhs(vm.nodes), vm);
+    try vm.stackPush(try vm.allocateString("{s}", .{node.rhs(vm.nodes)}));
+
+    try vm.stackPush(try access(vm));
+}
+
+pub fn evalBracketAccess(node: ast.BracketAccess, vm: *Vm) RuntimeError!void {
+    try evalExpr(node.lhs(vm.nodes), vm);
+    try evalExpr(node.rhs(vm.nodes), vm);
+
+    try vm.stackPush(try access(vm));
+}
+
+fn access(vm: *Vm) RuntimeError!Value {
+    // "bar" in foo.bar
+    const rhs = vm.stackPop();
+    // "foo" in foo.bar
+    const lhs = vm.stackPop();
+
+    return switch (lhs) {
+        .object => switch (lhs.object.tag) {
+            .dict => switch (rhs) {
+                .object => switch (rhs.object.tag) {
+                    .string => lhs.object.asDict().get(rhs.object.asString()) orelse Value.nil,
+                    else => try vm.setError(.{ .invalid_dict_access = rhs }),
+                },
+                else => try vm.setError(.{ .invalid_dict_access = rhs }),
+            },
+            .list => switch (rhs) {
+                .number => lhs.object.asList().get(@intFromFloat(rhs.number)) orelse Value.nil,
+                else => try vm.setError(.{ .invalid_list_access = rhs }),
+            },
+            else => try vm.setError(.{ .invalid_access = lhs }),
+        },
+        else => try vm.setError(.{ .invalid_access = lhs }),
+    };
 }
 
 pub fn evalList(node: ast.List, vm: *Vm) RuntimeError!void {
@@ -157,13 +197,6 @@ pub fn evalDict(node: ast.Dict, vm: *Vm) RuntimeError!void {
 
     // push the dict onto the stack so that it can't be gc'ed
     try vm.stackPush(try vm.allocateDict(length));
-    // The length needs to be zero since while pushing the elements of the dict into the dict, that
-    // can cause garbage collection. When gc happens, since the dict doesn't have all of its values
-    // yet, it will try to collect undefined values.
-    //
-    // To fix this, we can set the length to 0, and each time we append an element add 1. This will
-    // prevent undefined values from being collected.
-    vm.stackPeek(0).object.asDict().length = 0;
 
     for (0..length) |i| {
         const el = elements.next() orelse unreachable;
@@ -173,13 +206,9 @@ pub fn evalDict(node: ast.Dict, vm: *Vm) RuntimeError!void {
         const value = vm.stackPop();
         const key = vm.stackPop();
 
-        // Dict is on the top of the stack. We shouldn't cache this value for the entirety of the
-        // loop since the dict can move around between heaps since evaluating an expression can
-        // trigger the gc
-        const dict = vm.stackPeek(0).object.getDict() orelse unreachable;
-
-        dict.length += 1;
-        dict.getKeyPairs()[i] = .{
+        // The dict is on the top of the stack. We shouldn't cache this value since the dict can
+        // move around between heaps since evaluating an expression can trigger the gc
+        vm.stackPeek(0).object.getDict().?.getKeyPairs()[i] = .{
             .key = key.object.getString() orelse unreachable,
             .value = value,
         };

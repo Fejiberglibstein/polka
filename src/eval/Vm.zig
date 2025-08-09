@@ -173,15 +173,10 @@ pub fn allocateDict(self: *Vm, length: usize) RuntimeError!Value {
         .length = length,
     }) catch unreachable;
 
-    // Fill the list with nil initially, the caller can fix it as it wishes
-    writer.writeBytesNTimes(
-        &std.mem.toBytes(Value.nil),
-        length * @sizeOf(Dict.KeyPair),
-    ) catch unreachable;
+    // Fill the list with zeros initially, the caller can fix it as it wishes
+    writer.writeByteNTimes(0, length * @sizeOf(Dict.KeyPair)) catch unreachable;
 
-    _ = dict;
-    @panic("TODO");
-    // return Value{ .object = @ptrCast(dict) };
+    return Value{ .object = @ptrCast(dict) };
 }
 
 pub fn allocateClosure(self: *Vm, function_def: ast.FunctionDef) RuntimeError!Value {
@@ -467,6 +462,19 @@ pub const Heaps = struct {
                     },
                     .dict => {
                         for (o.asDict().getKeyPairs()) |*pair| {
+                            if (@intFromPtr(pair.key) == 0) {
+                                // The key will be null when the dict is initally allocated but
+                                // hasn't had all of its values set yet. This will rarely happen
+                                // while garbage is being collected.
+                                @branchHint(.unlikely);
+
+                                // If one key is null, the rest will be too since the dicts values
+                                // are set in order.
+                                //
+                                // TODO fix this when dicts are actually hashed if its necessary
+                                break;
+                            }
+
                             var key = Value{ .object = &pair.key.base };
                             collectValue(&key, new_heap);
                             pair.key = key.object.asString();

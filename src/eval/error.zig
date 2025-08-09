@@ -38,6 +38,15 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
     /// Use of undeclared identifier `<name>`
     undeclared_ident: []const u8,
 
+    /// Cannot index a dict with `<Value type name>`
+    invalid_dict_access: Value,
+    /// Cannot index a list with `<Value type name>`
+    invalid_list_access: Value,
+    /// Used in smth like `12[10]`
+    ///
+    /// Cannot index a <Value type name>
+    invalid_access: Value,
+
     /// When the value stack exceeds its limit
     ///
     /// Stack overflow

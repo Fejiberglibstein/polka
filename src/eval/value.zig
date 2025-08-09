@@ -202,6 +202,13 @@ pub const List = extern struct {
     /// Start of the flexible length Value array for the list
     items: void = undefined,
 
+    pub fn get(self: *List, index: i64) ?Value {
+        return if (index > self.length or index < 0)
+            null
+        else
+            self.getValues()[@as(u32, @intCast(index))];
+    }
+
     pub fn getValues(self: *List) []Value {
         const ptr: [*]Value = @ptrCast(&self.items);
         return ptr[0..self.length];
@@ -226,6 +233,15 @@ pub const Dict = extern struct {
         key: *String,
         value: Value,
     };
+
+    pub fn get(self: *Dict, index: *String) ?Value {
+        for (self.getKeyPairs()) |pair| {
+            if (pair.key.equals(index)) {
+                return pair.value;
+            }
+        }
+        return null;
+    }
 
     pub fn getKeyPairs(self: *Dict) []KeyPair {
         const ptr: [*]KeyPair = @ptrCast(&self.items);
@@ -270,6 +286,11 @@ pub const String = extern struct {
     pub fn get(self: *const String) []const u8 {
         const ptr: [*]const u8 = @ptrCast(&self.chars);
         return ptr[0..self.length];
+    }
+
+    pub fn equals(self: *const String, other: *const String) bool {
+        // Because we do string interning, all strings with the same value have the same address.
+        return self == other;
     }
 
     /// Get the bytes of the entire struct, including characters.

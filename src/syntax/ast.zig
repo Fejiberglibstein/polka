@@ -220,13 +220,14 @@ pub const Expr = union(enum(u8)) {
     ident: Ident,
     number: Number,
     string: String,
+    dot_access: DotAccess,
+    bracket_access: BracketAccess,
 
-    access: Access,
     unary_op: Unary,
     binary_op: Binary,
     grouping: Grouping,
-    function_call: FunctionCall,
     function_def: FunctionDef,
+    function_call: FunctionCall,
 
     // Default value to use when `default(Expr)` is called
     pub const default: Expr = .{ .nil = Nil{ .v = &.leafNode(.nil, "") } };
@@ -245,7 +246,8 @@ pub const Expr = union(enum(u8)) {
             .grouping => .{ .grouping = Grouping{ .v = n } },
             .function_def => .{ .function_def = FunctionDef{ .v = n } },
             .function_call => .{ .function_call = FunctionCall{ .v = n } },
-            .dot_access, .bracket_access => .{ .access = Access.toTyped(n) orelse unreachable },
+            .bracket_access => .{ .bracket_access = BracketAccess{ .v = n } },
+            .dot_access => .{ .dot_access = DotAccess{ .v = n } },
 
             else => null,
         };
@@ -717,40 +719,20 @@ pub const ArgumentList = struct {
     }
 };
 
-pub const Access = union(enum(u8)) {
-    bracket_access: BracketAccess,
-    dot_access: DotAccess,
-
-    pub inline fn toTyped(n: *const SyntaxNode) ?Access {
-        return switch (n.kind()) {
-            .bracket_access => .{ .bracket_access = BracketAccess{ .v = n } },
-            .dot_access => .{ .dot_access = DotAccess{ .v = n } },
-
-            else => null,
-        };
-    }
-
-    /// What is on the left side of the access, e.g. "foo" in `foo.bar`
-    pub fn lhs(self: Access, all_nodes: []const SyntaxNode) Expr {
-        return switch (self) {
-            inline else => |v| castFirstChild(v.v, all_nodes, Expr) orelse default(Expr),
-        };
-    }
-
-    /// What is on the right side of the access, e.g. "bar" in `foo.bar`
-    pub fn rhs(self: Access, all_nodes: []const SyntaxNode) Expr {
-        return switch (self) {
-            inline else => |v| castLastChild(v.v, all_nodes, Expr) orelse default(Expr),
-        };
-    }
-};
-
 pub const DotAccess = struct {
     v: *const SyntaxNode,
     pub const kind: SyntaxKind = .dot_access;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    // Implementation handled in `Access`
+    /// What is on the left side of the access, e.g. "foo" in `foo.bar`
+    pub fn lhs(self: DotAccess, all_nodes: []const SyntaxNode) Expr {
+        return castFirstChild(self.v, all_nodes, Expr) orelse default(Expr);
+    }
+
+    /// What is on the right side of the access, e.g. "bar" in `foo.bar`
+    pub fn rhs(self: DotAccess, all_nodes: []const SyntaxNode) Ident {
+        return castLastChild(self.v, all_nodes, Ident) orelse default(Ident);
+    }
 };
 
 pub const BracketAccess = struct {
@@ -758,5 +740,13 @@ pub const BracketAccess = struct {
     pub const kind: SyntaxKind = .bracket_access;
     pub const toTyped = toTypedTemplate(@This(), kind);
 
-    // Implementation handled in `Access`
+    /// What is on the left side of the access, e.g. "foo" in `foo["bar"]`
+    pub fn lhs(self: BracketAccess, all_nodes: []const SyntaxNode) Expr {
+        return castFirstChild(self.v, all_nodes, Expr) orelse default(Expr);
+    }
+
+    // What is on the right side of the access, e.g. "bar" in foo["bar"]
+    pub fn rhs(self: BracketAccess, all_nodes: []const SyntaxNode) Expr {
+        return castLastChild(self.v, all_nodes, Expr) orelse default(Expr);
+    }
 };
