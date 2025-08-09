@@ -152,6 +152,13 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
             continue;
         }
 
+        if (try p.eatIf(.left_bracket)) {
+            try parseExpr(p, 0, false);
+            try p.expect(.right_bracket);
+            try p.wrap(.bracket_access, m);
+            continue;
+        }
+
         if (try p.eatIf(.dot)) {
             try p.expect(.ident);
             try p.wrap(.dot_access, m);

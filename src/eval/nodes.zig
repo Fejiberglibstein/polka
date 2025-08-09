@@ -131,7 +131,7 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) RuntimeError!void {
 
 pub fn evalDotAccess(node: ast.DotAccess, vm: *Vm) RuntimeError!void {
     try evalExpr(node.lhs(vm.nodes), vm);
-    try vm.stackPush(try vm.allocateString("{s}", .{node.rhs(vm.nodes)}));
+    try vm.stackPush(try vm.allocateString("{s}", .{node.rhs(vm.nodes).get()}));
 
     try vm.stackPush(try access(vm));
 }
