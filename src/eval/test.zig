@@ -236,6 +236,35 @@ test "list" {
     );
 }
 
+test "dict" {
+    try testEval(
+        \\#* let b = {"whar"}
+        \\#* let h = {
+        \\#*    red: "red??",
+        \\#*    orange: "orange!?",
+        \\#*    green: "green!",
+        \\#*    blue: "blue.",
+        \\#*    index: "blue",
+        \\#*    func: function(a) [b]
+        \\#*        return a[0] + b[0]
+        \\#*    end,
+        \\#* }
+        \\#* h.red
+        \\#* h["orange"]
+        \\#* h[h.index]
+        \\#* h.green
+        \\#*
+        \\#* b = {"yelp"}
+        \\#*
+        \\#* h.func(b)
+        \\#* h = ""
+        \\#* ""
+    ,
+        \\red?? orange!? blue. green! yelpwhar 
+        \\
+    );
+}
+
 const Vm = @import("Vm.zig");
 const parser = @import("../syntax/parser.zig");
 

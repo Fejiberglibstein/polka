@@ -241,7 +241,6 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
     const scope_depth = vm.locals.scope_depth;
     const old_locals_count = vm.locals.count;
     const old_stack_len = vm.stack.len;
-    // Push the arguments and captures of the function onto the stack.
     const closure_stack_ref = vm.stack.len - 1;
 
     // Push the arguments onto the stack
@@ -323,11 +322,10 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
     // Reset the stack to how it was before the function call
     vm.stack.len -= arity + captures_length;
     vm.locals.count -= arity + captures_length;
-    assert(vm.stack.len == old_stack_len);
-    assert(vm.locals.count == old_locals_count);
-
     vm.locals.function_depth -= 1;
     vm.locals.scope_depth = scope_depth;
+    assert(vm.stack.len == old_stack_len);
+    assert(vm.locals.count == old_locals_count);
 
     // Pop off the closure
     assert(vm.stackPop().object.getClosure() != null);
