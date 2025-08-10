@@ -171,7 +171,9 @@ test "functions" {
         \\#*    return h
         \\#* end
         \\#*
-        \\#* baz("this", " is ")
+        \\#* let is_string = " is "
+        \\#*
+        \\#* baz("this", is_string)
         \\#* "h"
     ,
         \\Hello
@@ -208,10 +210,29 @@ test "closures" {
 
 test "list" {
     try testEval(
-        \\#* let h = { "hi", }
+        \\#* let b = 12
+        \\#* let h = {
+        \\#*    "hi",
+        \\#*    10,
+        \\#*    {
+        \\#*        10,
+        \\#*        2,
+        \\#*    },
+        \\#*    function(h) [b]
+        \\#*        return h + b
+        \\#*    end
+        \\#* }
+        \\#* h[0]
+        \\#* h[1]
+        \\#* h[2][1]
+        \\#* h[3](h[0])
+        \\
+        \\#* h[3](h[2][1])
         \\#* h = ""
     ,
-        \\ fi
+        \\hi 10 2 hi12
+        \\14 
+        \\
     );
 }
 

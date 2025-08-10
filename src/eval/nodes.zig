@@ -114,18 +114,17 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) RuntimeError!void {
         .list => |v| try evalList(v, vm),
         .dict => |v| try evalDict(v, vm),
         .nil => |_| try vm.stackPush(.nil),
+        .unary_op => |v| try evalUnary(v, vm),
+        .binary_op => |v| try evalBinary(v, vm),
+        .dot_access => |v| try evalDotAccess(v, vm),
+        .function_call => |v| try evalFunctionCall(v, vm),
+        .grouping => |v| try evalExpr(v.get(vm.nodes), vm),
+        .bracket_access => |v| try evalBracketAccess(v, vm),
         .bool => |v| try vm.stackPush(.{ .bool = v.get() }),
         .ident => |v| try vm.stackPush(try vm.getVar(v.get())),
         .number => |v| try vm.stackPush(.{ .number = v.get() }),
         .function_def => |v| try vm.stackPush(try vm.allocateClosure(v)),
         .string => |v| try vm.stackPush(try vm.allocateString("{s}", .{v.get()})),
-
-        .unary_op => |v| try evalUnary(v, vm),
-        .binary_op => |v| try evalBinary(v, vm),
-        .function_call => |v| try evalFunctionCall(v, vm),
-        .grouping => |v| try evalExpr(v.get(vm.nodes), vm),
-        .dot_access => |v| try evalDotAccess(v, vm),
-        .bracket_access => |v| try evalBracketAccess(v, vm),
     }
 }
 
@@ -217,41 +216,68 @@ pub fn evalDict(node: ast.Dict, vm: *Vm) RuntimeError!void {
     assert(vm.stackPeek(0).object.getDict().?.length == length);
 }
 
-fn pushFunctionArgumentsAndCaptures(
-    node: ast.FunctionCall,
-    vm: *Vm,
-) RuntimeError!struct { u32, u32 } {
-    // The location on the stack where the closure is
-    const closure_stack_ref = vm.stack.len - 1;
-    var closure = vm.stack.get(closure_stack_ref).object.asClosure();
+pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
+    try evalExpr(node.caller(vm.nodes), vm);
 
-    var args = node.arguments(vm.nodes).get(vm.nodes);
+    // because pushing arguments onto the stack could cause garbage collection, we cannot pop the
+    // closure off the stack until we finish calling it.
+    var closure = switch (vm.stackPeek(0)) {
+        .object => |o| if (o.getClosure()) |v|
+            v
+        else
+            try vm.setError(.{ .bad_function = vm.stackPop() }),
+        else => try vm.setError(.{ .bad_function = vm.stackPop() }),
+    };
+
+    // Push a dummy variable onto the stack. This accounts for the fact that the closure is still on
+    // the stack, offsetting the number of local variables.
+    //
+    // This variable will essentially be set equal to the closure, e.g. _ = <closure>
+    vm.pushVar("_");
+
     const function_def = ast.FunctionDef.toTyped(closure.function) orelse unreachable;
-    var params = function_def.params(vm.nodes).get(vm.nodes);
-    var arity: u32 = 0;
+
+    // Save the current depth
+    const scope_depth = vm.locals.scope_depth;
+    const old_locals_count = vm.locals.count;
+    const old_stack_len = vm.stack.len;
+    // Push the arguments and captures of the function onto the stack.
+    const closure_stack_ref = vm.stack.len - 1;
 
     // Push the arguments onto the stack
-    while (true) {
-        const arg = args.next();
-        const param = params.next();
+    //
+    // The variable name bindings should not be pushed yet, since we need to evaluate arguments in
+    // the scope of the caller. Name bindings would require us to change the scope to be the scope
+    // of the function, which is done after pushing arguments.
+    var args = node.arguments(vm.nodes).get(vm.nodes);
+    var total_arguments: usize = 0;
+    while (args.next()) |arg| {
+        try evalExpr(arg, vm);
+        total_arguments += 1;
+    }
 
-        if (param == null) {
-            if (arg == null) {
-                break;
-            } else {
-                // arguments exceed the amount of parameters
-                try vm.setError(.{ .function_bad_args = arity });
-            }
-        }
+    // Setup the locals scopes for a function
+    vm.locals.function_depth += 1;
+    vm.locals.scope_depth = 0;
+    errdefer {
+        // Ensure that things are cleaned up properly even if there's an error
+        vm.locals.scope_depth = scope_depth;
+        vm.locals.function_depth -= 1;
+    }
 
-        if (arg) |v| {
-            try evalExpr(v, vm);
-        } else {
-            try vm.stackPush(.nil);
-        }
-
-        vm.pushVar(param.?.get());
+    var params = function_def.params(vm.nodes).get(vm.nodes);
+    var arity: u32 = 0;
+    while (params.next()) |param| {
         arity += 1;
+        if (arity > total_arguments) {
+            // Functions use nil if they aren't supplied enough arguments, like lua
+            try vm.stackPush(Value.nil);
+        }
+        vm.pushVar(param.get());
+    }
+
+    if (arity < total_arguments) {
+        try vm.setError(.{ .function_bad_args = arity });
     }
 
     // Because evaluating the functions arguments could have caused garbage to be collected, we need
@@ -274,45 +300,6 @@ fn pushFunctionArgumentsAndCaptures(
             vm.pushVar(capture_name);
         }
     }
-
-    return .{ arity, captures_length };
-}
-
-pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
-    try evalExpr(node.caller(vm.nodes), vm);
-
-    // because pushing arguments onto the stack could cause garbage collection, we cannot pop the
-    // closure off the stack until we finish calling it.
-    const closure = switch (vm.stackPeek(0)) {
-        .object => |o| if (o.getClosure()) |v|
-            v
-        else
-            try vm.setError(.{ .bad_function = vm.stackPop() }),
-        else => try vm.setError(.{ .bad_function = vm.stackPop() }),
-    };
-
-    // Push a dummy variable onto the stack. This accounts for the fact that the closure is still on
-    // the stack, offsetting the number of local variables.
-    //
-    // This variable will essentially be set equal to the closure, e.g. _ = <closure>
-    vm.pushVar("_");
-
-    const function_def = ast.FunctionDef.toTyped(closure.function) orelse unreachable;
-
-    // Save the current depth
-    const scope_depth = vm.locals.scope_depth;
-    const old_locals_count = vm.locals.count;
-    const old_stack_len = vm.stack.len;
-    vm.locals.function_depth += 1;
-    vm.locals.scope_depth = 0;
-    errdefer {
-        // Ensure that things are cleaned up properly even if there's an error
-        vm.locals.scope_depth = scope_depth;
-        vm.locals.function_depth -= 1;
-    }
-
-    // Push the arguments and captures of the function onto the stack.
-    const arity, const captures_length = try pushFunctionArgumentsAndCaptures(node, vm);
 
     // Call the function
     evalTextNode(function_def.body(vm.nodes), vm) catch |e| switch (e) {
