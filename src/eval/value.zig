@@ -14,8 +14,11 @@ pub const Tag = enum(u3) {
     // zig fmt: on
 };
 
-const nan_mask: u64 = 0x7ff8000000000000;
-const tag_mask: u64 = 0x0007000000000000;
+// zig fmt: off
+const nan_mask: u64     = 0x7FF8000000000000;
+const tag_mask: u64     = 0x0007000000000000;
+const payload_mask: u64 = 0x0000FFFFFFFFFFFF;
+// zig fmt: on
 
 const nil_value = nan_mask & (Tag.nil << 48);
 const true_value = nan_mask & (Tag.true << 48);
@@ -34,6 +37,7 @@ pub const ValueType = enum(u8) {
 /// `Value` is the primitive type. It supports nils, booleans, numbers, and object pointers.
 ///
 /// Value is NaN-boxed so that it fits in 8 bytes. The details of the implementation are based on
+/// https://github.com/SimonMeskens/zig-nan-boxing/blob/main/src/lib.zig and
 /// https://craftinginterpreters.com/optimization.html#nan-boxing.
 ///
 /// The bits of a value when it is not a number look like
@@ -50,27 +54,65 @@ pub const Value = packed union {
         nan_mask: u13 = 0b0_11111111111_1,
     },
 
+    pub fn isNaN(self: Value) bool {
+        return self.bits == nan_mask;
+    }
+    pub fn isNumber(self: Value) bool {
+        return self.tagged.nan_mask != 0b0_11111111111_1 or self.isNaN();
+    }
+    pub fn isBoolean(self: Value) bool {
+        return self.bits == true_value or self.bits == false_value;
+    }
+    pub fn isNil(self: Value) bool {
+        return self.bits == nil_value;
+    }
+    pub fn isObject(self: Value) bool {
+        return !self.isNumber() and self.tagged.tag == Tag.object;
+    }
+
+    pub fn asNumber(self: Value) f64 {
+        return self.float;
+    }
+    pub fn asObject(self: Value) *Object {
+        return @ptrFromInt(self.bits & payload_mask);
+    }
+    pub fn asBoolean(self: Value) bool {
+        return self.bits == true_value;
+    }
+
+    pub fn nil() Value {
+        return Value{ .bits = nil_value };
+    }
+    pub fn object(o: *Object) Value {
+        return Value{ .tagged = .{
+            .bits = @truncate(o),
+            .tag = Tag.object,
+        } };
+    }
+    pub fn boolean(b: bool) Value {
+        return Value{ .bits = if (b) true_value else false_value };
+    }
+    pub fn number(n: f64) Value {
+        return Value{ .float = n };
+    }
+
+    pub fn tag(self: Value) ValueType {
+        if (self.isNumber()) {
+            return ValueType.number;
+        }
+        if (self.isBoolean()) {
+            return ValueType.boolean;
+        }
+
+        return @enumFromInt(@as(u8, @intFromEnum(self.tagged.tag)));
+    }
+
     pub fn isTruthy(self: Value) bool {
-        // Lua-like truthy values.
-        return switch (self) {
-            .nil => false,
-            .bool => |b| b,
-            else => true,
-        };
+        return self.bits != nil_value and self.bits != false_value;
     }
 
     pub fn equal(a: Value, b: Value) bool {
-        if (@intFromEnum(a) != @intFromEnum(b)) {
-            return false;
-        }
-        return switch (a) {
-            .object => |o| switch (o.tag) {
-                .string => o == b.object,
-                .moved => unreachable,
-                else => @panic("TODO"),
-            },
-            inline else => |v, tag| @field(b, @tagName(tag)) == v,
-        };
+        return a == b;
     }
 
     pub fn format(
