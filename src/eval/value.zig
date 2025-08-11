@@ -4,18 +4,51 @@ const Vm = @import("Vm.zig");
 const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
 const assert = std.debug.assert;
 
-pub const ValueType = enum(u8) {
-    nil,
-    bool,
-    number,
-    object,
+pub const Tag = enum(u3) {
+    // zig fmt: off
+    nan    = 0b000,
+    nil    = 0b001,
+    true   = 0b010,
+    false  = 0b011,
+    object = 0b100,
+    // zig fmt: on
 };
 
-pub const Value = union(ValueType) {
-    nil,
-    bool: bool,
-    number: f64,
-    object: *Object,
+const nan_mask: u64 = 0x7ff8000000000000;
+const tag_mask: u64 = 0x0007000000000000;
+
+const nil_value = nan_mask & (Tag.nil << 48);
+const true_value = nan_mask & (Tag.true << 48);
+const false_value = nan_mask & (Tag.false << 48);
+
+pub const ValueType = enum(u8) {
+    // The values of the enum are based on the values that the `Tag` enum has.
+    // zig fmt: off
+    number  = 0b000,
+    nil     = 0b001,
+    boolean = 0b010,
+    object  = 0b100,
+    // zig fmt: on
+};
+
+/// `Value` is the primitive type. It supports nils, booleans, numbers, and object pointers.
+///
+/// Value is NaN-boxed so that it fits in 8 bytes. The details of the implementation are based on
+/// https://craftinginterpreters.com/optimization.html#nan-boxing.
+///
+/// The bits of a value when it is not a number look like
+///         +--- NAN MASK ----+ TAG +-------------------- PAYLOAD ---------------------+
+///         | 0_11111111111_1 | xxx | yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy |
+///         +-----------------+-----+--------------------------------------------------+
+pub const Value = packed union {
+    float: f64,
+    /// Raw bits of the value
+    bits: u64,
+    tagged: packed struct {
+        bits: u48,
+        tag: Tag,
+        nan_mask: u13 = 0b0_11111111111_1,
+    },
 
     pub fn isTruthy(self: Value) bool {
         // Lua-like truthy values.
@@ -30,7 +63,6 @@ pub const Value = union(ValueType) {
         if (@intFromEnum(a) != @intFromEnum(b)) {
             return false;
         }
-
         return switch (a) {
             .object => |o| switch (o.tag) {
                 .string => o == b.object,
@@ -49,16 +81,15 @@ pub const Value = union(ValueType) {
     ) !void {
         _ = fmt;
         _ = options;
-
         switch (self) {
             .nil => |_| try writer.writeAll("<nil>"),
             .bool => |v| try writer.print("{}", .{v}),
             .number => |v| try writer.print("{d}", .{v}),
             .object => |o| switch (o.tag) {
                 .string => try writer.print("{s}", .{o.asString().get()}),
-                .closure => try writer.print("<function@{x}>", .{@intFromPtr(o)}),
                 .list => try writer.print("<list@{x}>", .{@intFromPtr(o)}),
                 .dict => try writer.print("<dict@{x}>", .{@intFromPtr(o)}),
+                .closure => try writer.print("<function@{x}>", .{@intFromPtr(o)}),
                 .moved => unreachable,
             },
         }
