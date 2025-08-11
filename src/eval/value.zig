@@ -20,9 +20,9 @@ const tag_mask: u64     = 0x0007000000000000;
 const payload_mask: u64 = 0x0000FFFFFFFFFFFF;
 // zig fmt: on
 
-const nil_value = nan_mask & (Tag.nil << 48);
-const true_value = nan_mask & (Tag.true << 48);
-const false_value = nan_mask & (Tag.false << 48);
+const nil_value = nan_mask & (@as(u64, @intFromEnum(Tag.nil)) << 48);
+const true_value = nan_mask & (@as(u64, @intFromEnum(Tag.true)) << 48);
+const false_value = nan_mask & (@as(u64, @intFromEnum(Tag.false)) << 48);
 
 pub const ValueType = enum(u8) {
     // The values of the enum are based on the values that the `Tag` enum has.
@@ -70,6 +70,16 @@ pub const Value = packed union {
         return !self.isNumber() and self.tagged.tag == Tag.object;
     }
 
+    pub fn getNumber(self: Value) ?f64 {
+        return if (self.isNumber()) self.float else null;
+    }
+    pub fn getObject(self: Value) ?*Object {
+        return if (self.isObject()) @ptrFromInt(self.bits & payload_mask) else null;
+    }
+    pub fn getBoolean(self: Value) ?bool {
+        return if (self.isBoolean()) self.bits == true_value else null;
+    }
+
     pub fn asNumber(self: Value) f64 {
         return self.float;
     }
@@ -85,7 +95,7 @@ pub const Value = packed union {
     }
     pub fn object(o: *Object) Value {
         return Value{ .tagged = .{
-            .bits = @truncate(o),
+            .bits = @truncate(@intFromPtr(o)),
             .tag = Tag.object,
         } };
     }
@@ -112,7 +122,7 @@ pub const Value = packed union {
     }
 
     pub fn equal(a: Value, b: Value) bool {
-        return a == b;
+        return a.bits == b.bits;
     }
 
     pub fn format(
@@ -123,16 +133,20 @@ pub const Value = packed union {
     ) !void {
         _ = fmt;
         _ = options;
-        switch (self) {
+
+        switch (self.tag()) {
             .nil => |_| try writer.writeAll("<nil>"),
-            .bool => |v| try writer.print("{}", .{v}),
-            .number => |v| try writer.print("{d}", .{v}),
-            .object => |o| switch (o.tag) {
-                .string => try writer.print("{s}", .{o.asString().get()}),
-                .list => try writer.print("<list@{x}>", .{@intFromPtr(o)}),
-                .dict => try writer.print("<dict@{x}>", .{@intFromPtr(o)}),
-                .closure => try writer.print("<function@{x}>", .{@intFromPtr(o)}),
-                .moved => unreachable,
+            .boolean => try writer.print("{}", .{self.asBoolean()}),
+            .number => try writer.print("{d}", .{self.asNumber()}),
+            .object => {
+                const o = self.asObject();
+                switch (self.asObject().tag) {
+                    .string => try writer.print("{s}", .{o.asString().get()}),
+                    .list => try writer.print("<list@{x}>", .{@intFromPtr(o)}),
+                    .dict => try writer.print("<dict@{x}>", .{@intFromPtr(o)}),
+                    .closure => try writer.print("<function@{x}>", .{@intFromPtr(o)}),
+                    .moved => unreachable,
+                }
             },
         }
     }

@@ -114,13 +114,13 @@ pub fn allocateString(self: *Vm, comptime fmt: []const u8, args: anytype) !Value
         // TODO: Perhaps try to do interning without allocating memory?
         self.heap.getCurrentHeap().len = old_heap_length;
 
-        return Value{ .object = @ptrCast(@alignCast(interned_string.key_ptr.*)) };
+        return Value.object(@ptrCast(@alignCast(interned_string.key_ptr.*)));
     }
 
     self.strings.put(self.allocator, heap_string, undefined) catch {
         try self.setError(.allocation_error);
     };
-    return Value{ .object = @ptrCast(@alignCast(heap_string)) };
+    return Value.object(@ptrCast(@alignCast(heap_string)));
 }
 
 /// Called after garbage collection occurs to fix the intern pool, since after garbage collection
@@ -157,11 +157,11 @@ pub fn allocateList(self: *Vm, length: usize) RuntimeError!Value {
 
     // Fill the list with nil initially, the caller can fix it as it wishes
     writer.writeBytesNTimes(
-        &std.mem.toBytes(Value.nil),
+        &std.mem.toBytes(Value.nil()),
         length * @sizeOf(Value),
     ) catch unreachable;
 
-    return Value{ .object = @ptrCast(list) };
+    return Value.object(@ptrCast(list));
 }
 
 pub fn allocateDict(self: *Vm, length: usize) RuntimeError!Value {
@@ -176,7 +176,7 @@ pub fn allocateDict(self: *Vm, length: usize) RuntimeError!Value {
     // Fill the list with zeros initially, the caller can fix it as it wishes
     writer.writeByteNTimes(0, length * @sizeOf(Dict.KeyPair)) catch unreachable;
 
-    return Value{ .object = @ptrCast(dict) };
+    return Value.object(@ptrCast(dict));
 }
 
 pub fn allocateClosure(self: *Vm, function_def: ast.FunctionDef) RuntimeError!Value {
@@ -211,7 +211,7 @@ pub fn allocateClosure(self: *Vm, function_def: ast.FunctionDef) RuntimeError!Va
         }
     }
 
-    return Value{ .object = @ptrCast(@alignCast(closure)) };
+    return Value.object(@ptrCast(@alignCast(closure)));
 }
 
 pub fn stackPush(self: *Vm, value: Value) RuntimeError!void {
@@ -447,51 +447,48 @@ pub const Heaps = struct {
     }
 
     fn collectValue(item: *Value, new_heap: *Heap) void {
-        switch (item.*) {
-            .object => |o| {
-                switch (o.tag) {
-                    .moved => item.object = o.asMoved().new_ptr,
-                    .string => {
-                        item.object = @ptrCast(@alignCast(move(new_heap, String, o.asString())));
-                    },
-                    .closure => {
-                        for (o.asClosure().getCaptures()) |*capture| {
-                            collectValue(capture, new_heap);
-                        }
-                        item.object = @ptrCast(@alignCast(move(new_heap, Closure, o.asClosure())));
-                    },
-                    .dict => {
-                        for (o.asDict().getKeyPairs()) |*pair| {
-                            if (@intFromPtr(pair.key) == 0) {
-                                // The key will be null when the dict is initally allocated but
-                                // hasn't had all of its values set yet. This will rarely happen
-                                // while garbage is being collected.
-                                @branchHint(.unlikely);
+        if (item.getObject()) |o| {
+            switch (o.tag) {
+                .moved => item.* = Value.object(o.asMoved().new_ptr),
+                .string => {
+                    item.* = Value.object(@ptrCast(move(new_heap, String, o.asString())));
+                },
+                .closure => {
+                    for (o.asClosure().getCaptures()) |*capture| {
+                        collectValue(capture, new_heap);
+                    }
+                    item.* = Value.object(@ptrCast(move(new_heap, Closure, o.asClosure())));
+                },
+                .dict => {
+                    for (o.asDict().getKeyPairs()) |*pair| {
+                        if (@intFromPtr(pair.key) == 0) {
+                            // The key will be null when the dict is initally allocated but
+                            // hasn't had all of its values set yet. This will rarely happen
+                            // while garbage is being collected.
+                            @branchHint(.unlikely);
 
-                                // If one key is null, the rest will be too since the dicts values
-                                // are set in order.
-                                //
-                                // TODO fix this when dicts are actually hashed if its necessary
-                                break;
-                            }
-
-                            var key = Value{ .object = &pair.key.base };
-                            collectValue(&key, new_heap);
-                            pair.key = key.object.asString();
-
-                            collectValue(&pair.value, new_heap);
+                            // If one key is null, the rest will be too since the dicts values
+                            // are set in order.
+                            //
+                            // TODO fix this when dicts are actually hashed if its necessary
+                            break;
                         }
-                        item.object = @ptrCast(@alignCast(move(new_heap, Dict, o.asDict())));
-                    },
-                    .list => {
-                        for (o.asList().getValues()) |*value| {
-                            collectValue(value, new_heap);
-                        }
-                        item.object = @ptrCast(@alignCast(move(new_heap, List, o.asList())));
-                    },
-                }
-            },
-            else => {},
+
+                        var key = Value.object(&pair.key.base);
+                        collectValue(&key, new_heap);
+                        pair.key = key.asObject().asString();
+
+                        collectValue(&pair.value, new_heap);
+                    }
+                    item.* = Value.object(@ptrCast(move(new_heap, Dict, o.asDict())));
+                },
+                .list => {
+                    for (o.asList().getValues()) |*value| {
+                        collectValue(value, new_heap);
+                    }
+                    item.* = Value.object(@ptrCast(move(new_heap, List, o.asList())));
+                },
+            }
         }
     }
 
@@ -525,7 +522,7 @@ pub const Heaps = struct {
         while (iterator.next()) |obj| {
             switch (obj.tag) {
                 .moved => {},
-                else => std.debug.print(" `{}` was freed\n", .{Value{ .object = obj }}),
+                else => std.debug.print(" `{}` was freed\n", .{Value.object(obj)}),
             }
         }
     }

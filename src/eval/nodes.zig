@@ -58,7 +58,7 @@ pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
                 const value = vm.stackPop();
 
                 // nil shouldn't be printed under normal circumstances
-                if (value != .nil) {
+                if (!value.isNil()) {
                     try vm.outputPrint("{any}", .{value});
                 }
             },
@@ -83,7 +83,7 @@ pub fn evalCode(node: ast.Code, vm: *Vm) ControlFlow!void {
                 if (v.body(vm.nodes)) |ret| {
                     try evalExpr(ret, vm);
                 } else {
-                    try vm.stackPush(.nil);
+                    try vm.stackPush(Value.nil());
                 }
 
                 return ControlFlow.Return;
@@ -113,16 +113,16 @@ pub fn evalExpr(node: ast.Expr, vm: *Vm) RuntimeError!void {
     switch (node) {
         .list => |v| try evalList(v, vm),
         .dict => |v| try evalDict(v, vm),
-        .nil => |_| try vm.stackPush(.nil),
+        .nil => |_| try vm.stackPush(Value.nil()),
         .unary_op => |v| try evalUnary(v, vm),
         .binary_op => |v| try evalBinary(v, vm),
         .dot_access => |v| try evalDotAccess(v, vm),
         .function_call => |v| try evalFunctionCall(v, vm),
         .grouping => |v| try evalExpr(v.get(vm.nodes), vm),
         .bracket_access => |v| try evalBracketAccess(v, vm),
-        .bool => |v| try vm.stackPush(.{ .bool = v.get() }),
+        .bool => |v| try vm.stackPush(Value.boolean(v.get())),
         .ident => |v| try vm.stackPush(try vm.getVar(v.get())),
-        .number => |v| try vm.stackPush(.{ .number = v.get() }),
+        .number => |v| try vm.stackPush(Value.number(v.get())),
         .function_def => |v| try vm.stackPush(try vm.allocateClosure(v)),
         .string => |v| try vm.stackPush(try vm.allocateString("{s}", .{v.get()})),
     }
@@ -148,23 +148,20 @@ fn access(vm: *Vm) RuntimeError!Value {
     // "foo" in foo.bar
     const lhs = vm.stackPop();
 
-    return switch (lhs) {
-        .object => switch (lhs.object.tag) {
-            .dict => switch (rhs) {
-                .object => switch (rhs.object.tag) {
-                    .string => lhs.object.asDict().get(rhs.object.asString()) orelse Value.nil,
-                    else => try vm.setError(.{ .invalid_dict_access = rhs }),
-                },
-                else => try vm.setError(.{ .invalid_dict_access = rhs }),
-            },
-            .list => switch (rhs) {
-                .number => lhs.object.asList().get(@intFromFloat(rhs.number)) orelse Value.nil,
-                else => try vm.setError(.{ .invalid_list_access = rhs }),
-            },
-            else => try vm.setError(.{ .invalid_access = lhs }),
+    if (lhs.getObject()) |l| switch (l.tag) {
+        .dict => {
+            if (rhs.getObject()) |r| if (r.getString()) |str|
+                return l.asDict().get(str) orelse Value.nil();
+            try vm.setError(.{ .invalid_dict_access = rhs });
         },
-        else => try vm.setError(.{ .invalid_access = lhs }),
+        .list => {
+            if (rhs.isNumber())
+                return l.asList().get(@intFromFloat(rhs.asNumber())) orelse Value.nil();
+            try vm.setError(.{ .invalid_list_access = rhs });
+        },
+        else => {}, // Fall out of the switch since the next line sets the error
     };
+    try vm.setError(.{ .invalid_access = lhs });
 }
 
 pub fn evalList(node: ast.List, vm: *Vm) RuntimeError!void {
@@ -183,10 +180,10 @@ pub fn evalList(node: ast.List, vm: *Vm) RuntimeError!void {
 
         // The list is on the top of the stack. We shouldn't cache this value since the list can
         // move around between heaps since evaluating an expression can trigger the gc
-        vm.stackPeek(0).object.getList().?.getValues()[i] = value;
+        vm.stackPeek(0).asObject().asList().getValues()[i] = value;
     }
 
-    assert(vm.stackPeek(0).object.getList().?.length == length);
+    assert(vm.stackPeek(0).asObject().asList().length == length);
 }
 
 pub fn evalDict(node: ast.Dict, vm: *Vm) RuntimeError!void {
@@ -207,13 +204,13 @@ pub fn evalDict(node: ast.Dict, vm: *Vm) RuntimeError!void {
 
         // The dict is on the top of the stack. We shouldn't cache this value since the dict can
         // move around between heaps since evaluating an expression can trigger the gc
-        vm.stackPeek(0).object.getDict().?.getKeyPairs()[i] = .{
-            .key = key.object.getString() orelse unreachable,
+        vm.stackPeek(0).asObject().asDict().getKeyPairs()[i] = .{
+            .key = key.asObject().getString() orelse unreachable,
             .value = value,
         };
     }
 
-    assert(vm.stackPeek(0).object.getDict().?.length == length);
+    assert(vm.stackPeek(0).asObject().asDict().length == length);
 }
 
 pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
@@ -221,12 +218,10 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
 
     // because pushing arguments onto the stack could cause garbage collection, we cannot pop the
     // closure off the stack until we finish calling it.
-    var closure = switch (vm.stackPeek(0)) {
-        .object => |o| if (o.getClosure()) |v|
-            v
-        else
-            try vm.setError(.{ .bad_function = vm.stackPop() }),
-        else => try vm.setError(.{ .bad_function = vm.stackPop() }),
+    var closure = blk: {
+        if (vm.stackPeek(0).getObject()) |o| if (o.getClosure()) |closure|
+            break :blk closure;
+        try vm.setError(.{ .bad_function = vm.stackPop() });
     };
 
     // Push a dummy variable onto the stack. This accounts for the fact that the closure is still on
@@ -270,7 +265,7 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
         arity += 1;
         if (arity > total_arguments) {
             // Functions use nil if they aren't supplied enough arguments, like lua
-            try vm.stackPush(Value.nil);
+            try vm.stackPush(Value.nil());
         }
         vm.pushVar(param.get());
     }
@@ -281,7 +276,7 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
 
     // Because evaluating the functions arguments could have caused garbage to be collected, we need
     // to get a new reference to the closure since it would have been moved.
-    closure = vm.stack.get(closure_stack_ref).object.asClosure();
+    closure = vm.stack.get(closure_stack_ref).asObject().asClosure();
 
     var captures_length: u32 = 0;
     // Push the closure captures onto the stack.
@@ -311,7 +306,7 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
 
     // The return value of the function
     const result = if (vm.stack.len == vm.locals.count)
-        .nil // If the function didn't return anything, it should be nil
+        Value.nil() // If the function didn't return anything, it should be nil
     else
         vm.stackPop();
 
@@ -328,7 +323,7 @@ pub fn evalFunctionCall(node: ast.FunctionCall, vm: *Vm) RuntimeError!void {
     assert(vm.locals.count == old_locals_count);
 
     // Pop off the closure
-    assert(vm.stackPop().object.getClosure() != null);
+    assert(vm.stackPop().asObject().getClosure() != null);
     assert(std.mem.eql(u8, vm.locals.items[vm.locals.count - 1].name, "_"));
     vm.locals.count -= 1; // Remove the dummy variable we set before
 
@@ -339,10 +334,14 @@ pub fn evalUnary(node: ast.Unary, vm: *Vm) RuntimeError!void {
     try evalExpr(node.rhs(vm.nodes), vm);
     const op = node.op(vm.nodes).getOp();
 
+    const v = vm.stackPop();
+
     switch (op) {
-        .negate => switch (vm.stackPop()) {
-            .number => |v| try vm.stackPush(Value{ .number = -v }),
-            else => |v| try vm.setError(.{ .invalid_unary_operands = .{ .rhs = v, .op = op } }),
+        .negate => {
+            if (v.getNumber()) |num|
+                try vm.stackPush(Value.number(-num))
+            else
+                try vm.setError(.{ .invalid_unary_operands = .{ .rhs = v, .op = op } });
         },
     }
 }
@@ -356,47 +355,45 @@ pub fn binaryOp(
 ) RuntimeError!void {
     try evalExpr(lhs, vm);
     try evalExpr(rhs, vm);
-    switch (vm.stackPeek(1)) { // switch on lhs
-        .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
-            .number => |r| {
-                const res = try calculate(l, r, vm);
-                _ = vm.stackPop(); // Pop rhs
-                _ = vm.stackPop(); // Pop lhs
-                try vm.stackPush(res);
-            },
-            else => try Ops.invalidOpError(op, vm),
-        },
-        else => try Ops.invalidOpError(op, vm),
+    if (vm.stackPeek(1).getNumber()) |l| { // switch on lhs
+        if (vm.stackPeek(0).getNumber()) |r| {
+            const res = try calculate(l, r, vm);
+            _ = vm.stackPop(); // Pop rhs
+            _ = vm.stackPop(); // Pop lhs
+            try vm.stackPush(res);
+            return;
+        }
     }
+    try Ops.invalidOpError(op, vm);
 }
 
 const Ops = struct {
     pub fn divide(l: f64, r: f64, _: *Vm) !Value {
-        return Value{ .number = l - r };
+        return Value.number(l - r);
     }
     pub fn subtract(l: f64, r: f64, _: *Vm) !Value {
-        return Value{ .number = l - r };
+        return Value.number(l - r);
     }
     pub fn greater_than(l: f64, r: f64, _: *Vm) !Value {
-        return Value{ .bool = l > r };
+        return Value.boolean(l > r);
     }
     pub fn greater_than_equal(l: f64, r: f64, _: *Vm) !Value {
-        return Value{ .bool = l >= r };
+        return Value.boolean(l >= r);
     }
     pub fn less_than(l: f64, r: f64, _: *Vm) !Value {
-        return Value{ .bool = l < r };
+        return Value.boolean(l < r);
     }
     pub fn less_than_equal(l: f64, r: f64, _: *Vm) !Value {
-        return Value{ .bool = l <= r };
+        return Value.boolean(l <= r);
     }
     pub fn modulo(l: f64, r: f64, _vm: *Vm) !Value {
         return if (r > 0)
-            Value{ .number = @rem(l, r) }
+            Value.number(@rem(l, r))
         else
             try _vm.setError(.{ .modulo_error = .{ .rhs = r } });
     }
     pub fn multiply(l: f64, r: f64, _: *Vm) !Value {
-        return Value{ .number = l * r };
+        return Value.number(l * r);
     }
 
     pub fn invalidOpError(operator: ast.BinaryOperator.Op, vm: *Vm) RuntimeError!noreturn {
@@ -432,8 +429,9 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             try evalExpr(rhs, vm);
 
             try vm.setVar(var_name, vm.stackPop());
-            try vm.stackPush(.nil); // assignment operator returns nil
+            try vm.stackPush(Value.nil()); // assignment operator returns nil
         },
+
         .@"and" => {
             try evalExpr(lhs, vm);
             if (!vm.stackPeek(0).isTruthy()) {
@@ -441,11 +439,11 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             } else {
                 // Pop off lhs
                 _ = vm.stackPop();
-
                 // Push rhs onto the stack.
                 try evalExpr(rhs, vm);
             }
         },
+
         .@"or" => {
             try evalExpr(lhs, vm);
             if (vm.stackPeek(0).isTruthy()) {
@@ -453,56 +451,47 @@ pub fn evalBinary(node: ast.Binary, vm: *Vm) RuntimeError!void {
             } else {
                 // Pop off lhs
                 _ = vm.stackPop();
-
                 // Push rhs onto the stack
                 try evalExpr(rhs, vm);
             }
         },
+
         .add => {
             try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
-            switch (vm.stackPeek(1)) { // switch on lhs
-                .number => |l| switch (vm.stackPeek(0)) { // switch on rhs
-                    .number => |r| {
-                        const res = Value{ .number = l + r };
-                        _ = vm.stackPop(); // Pop rhs
-                        _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(res);
-                    },
-                    else => try Ops.invalidOpError(op, vm),
-                },
-                .object => |o| switch (o.tag) {
-                    .string => {
-                        const res = try vm.allocateString("{any}{any}", .{
-                            StackRef.init(1, vm),
-                            StackRef.init(0, vm),
-                        });
-
-                        _ = vm.stackPop(); // Pop rhs
-                        _ = vm.stackPop(); // Pop lhs
-                        try vm.stackPush(res);
-                    },
-                    else => @panic("TODO"),
-                },
+            const l = vm.stackPeek(1);
+            switch (l.tag()) { // switch on lhs
+                .number => if (vm.stackPeek(0).getNumber()) |r| { // switch on rhs
+                    const res = Value.number(l.asNumber() + r);
+                    _ = vm.stackPop(); // Pop rhs
+                    _ = vm.stackPop(); // Pop lhs
+                    try vm.stackPush(res);
+                } else try Ops.invalidOpError(op, vm),
+                .object => if (l.asObject().getString()) |_| {
+                    const res = try vm.allocateString("{any}{any}", .{
+                        StackRef.init(1, vm),
+                        StackRef.init(0, vm),
+                    });
+                    _ = vm.stackPop(); // Pop rhs
+                    _ = vm.stackPop(); // Pop lhs
+                    try vm.stackPush(res);
+                } else try Ops.invalidOpError(op, vm),
                 else => try Ops.invalidOpError(op, vm),
             }
         },
+
         .equal => {
             try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
-
-            try vm.stackPush(Value{
-                .bool = vm.stackPop().equal(vm.stackPop()),
-            });
+            try vm.stackPush(Value.boolean(vm.stackPop().equal(vm.stackPop())));
         },
+
         .not_equal => {
             try evalExpr(lhs, vm);
             try evalExpr(rhs, vm);
-
-            try vm.stackPush(Value{
-                .bool = !vm.stackPop().equal(vm.stackPop()),
-            });
+            try vm.stackPush(Value.boolean(!vm.stackPop().equal(vm.stackPop())));
         },
+
         .modulo => try binaryOp(vm, lhs, rhs, op, Ops.modulo),
         .divide => try binaryOp(vm, lhs, rhs, op, Ops.divide),
         .multiply => try binaryOp(vm, lhs, rhs, op, Ops.multiply),
