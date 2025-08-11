@@ -3,6 +3,8 @@ const Allocator = std.mem.Allocator;
 const Vm = @import("Vm.zig");
 const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
 const assert = std.debug.assert;
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 pub const Tag = enum(u3) {
     // zig fmt: off
@@ -17,12 +19,13 @@ pub const Tag = enum(u3) {
 // zig fmt: off
 const nan_mask: u64     = 0x7FF8000000000000;
 const tag_mask: u64     = 0x0007000000000000;
+const sign_mask: u64    = 0x8000000000000000;
 const payload_mask: u64 = 0x0000FFFFFFFFFFFF;
 // zig fmt: on
 
-const nil_value = nan_mask & (@as(u64, @intFromEnum(Tag.nil)) << 48);
-const true_value = nan_mask & (@as(u64, @intFromEnum(Tag.true)) << 48);
-const false_value = nan_mask & (@as(u64, @intFromEnum(Tag.false)) << 48);
+const nil_value = nan_mask | (@as(u64, @intFromEnum(Tag.nil)) << 48);
+const true_value = nan_mask | (@as(u64, @intFromEnum(Tag.true)) << 48);
+const false_value = nan_mask | (@as(u64, @intFromEnum(Tag.false)) << 48);
 
 pub const ValueType = enum(u8) {
     // The values of the enum are based on the values that the `Tag` enum has.
@@ -54,11 +57,11 @@ pub const Value = packed union {
         nan_mask: u13 = 0b0_11111111111_1,
     },
 
-    pub fn isNaN(self: Value) bool {
-        return self.bits == nan_mask;
+    pub fn isNan(self: Value) bool {
+        return self.bits & ~sign_mask == nan_mask;
     }
     pub fn isNumber(self: Value) bool {
-        return self.tagged.nan_mask != 0b0_11111111111_1 or self.isNaN();
+        return self.tagged.nan_mask != 0b0_11111111111_1 or self.isNan();
     }
     pub fn isBoolean(self: Value) bool {
         return self.bits == true_value or self.bits == false_value;
@@ -151,6 +154,74 @@ pub const Value = packed union {
         }
     }
 };
+
+test "Value numbers" {
+    const numbers = [_]f64{
+        0.0,               -0.0,
+        0.5,               -0.5,
+        1.0,               -1.0,
+        std.math.nan(f64), -std.math.nan(f64),
+        std.math.inf(f64), -std.math.inf(f64),
+    };
+
+    for (numbers) |num| {
+        const value = Value.number(num);
+
+        try expect(value.isNumber());
+        try expect(!value.isObject());
+        try expect(!value.isBoolean());
+        try expect(!value.isNil());
+        try expect(value.isTruthy());
+
+        try expectEqual(std.math.isNan(num), value.isNan());
+        if (!value.isNan()) {
+            // IEEE 754 says nans can't be compared
+            try expectEqual(value.asNumber(), num);
+        }
+    }
+}
+
+test "Value booleans" {
+    const booleans = [_]bool{ true, false };
+
+    for (booleans) |boolean| {
+        const value = Value.boolean(boolean);
+
+        try expect(value.isBoolean());
+        try expect(!value.isObject());
+        try expect(!value.isNumber());
+        try expect(!value.isNil());
+        try expect(value.isTruthy() == boolean);
+
+        try expectEqual(value.asBoolean(), boolean);
+    }
+}
+
+test "Value nil" {
+    const value = Value.nil();
+
+    try expect(value.isNil());
+    try expect(!value.isObject());
+    try expect(!value.isNumber());
+    try expect(!value.isBoolean());
+    try expect(!value.isTruthy());
+}
+
+test "Value object" {
+    var object = Object{ .tag = .string };
+    const value = Value.object(&object);
+
+    try expectEqual(@intFromPtr(&object), @intFromPtr(value.asObject()));
+
+    try expect(value.isObject());
+    try expect(!value.isNumber());
+    try expect(!value.isBoolean());
+    try expect(!value.isNil());
+    try expect(value.isTruthy());
+
+    value.asObject().tag = .moved;
+    try expectEqual(value.asObject().*.tag, .moved);
+}
 
 pub const ObjectType = enum(u8) {
     /// If the object has already been moved to the new heap by the garbage collector during
