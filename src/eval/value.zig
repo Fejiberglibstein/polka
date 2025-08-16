@@ -120,6 +120,21 @@ pub const Value = packed union {
         return @enumFromInt(@as(u8, @intFromEnum(self.tagged.tag)));
     }
 
+    pub fn typeName(self: Value) []const u8 {
+        return switch (self.tag()) {
+            .nil => "nil",
+            .boolean => "bool",
+            .number => "number",
+            .object => switch (self.asObject().tag) {
+                .list => "list",
+                .dict => "dict",
+                .string => "string",
+                .closure => "closure",
+                .moved => unreachable,
+            },
+        };
+    }
+
     pub fn isTruthy(self: Value) bool {
         return self.bits != nil_value and self.bits != false_value;
     }
