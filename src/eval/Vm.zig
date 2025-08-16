@@ -66,7 +66,9 @@ pub fn eval(self: *Vm, start_node: *const SyntaxNode) RuntimeError![]const u8 {
         assert(self.heap.getCurrentHeap().len == 0);
     }
 
-    return self.output.items;
+    return self.output.toOwnedSlice(self.allocator) catch {
+        self.setError(.allocation_error);
+    };
 }
 
 pub const StackRef = struct {

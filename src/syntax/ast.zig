@@ -244,10 +244,10 @@ pub const Expr = union(enum(u8)) {
             .unary => .{ .unary_op = Unary{ .v = n } },
             .binary => .{ .binary_op = Binary{ .v = n } },
             .grouping => .{ .grouping = Grouping{ .v = n } },
+            .dot_access => .{ .dot_access = DotAccess{ .v = n } },
             .function_def => .{ .function_def = FunctionDef{ .v = n } },
             .function_call => .{ .function_call = FunctionCall{ .v = n } },
             .bracket_access => .{ .bracket_access = BracketAccess{ .v = n } },
-            .dot_access => .{ .dot_access = DotAccess{ .v = n } },
 
             else => null,
         };
@@ -589,8 +589,15 @@ pub const BinaryOperator = struct {
         @"and",
         @"or",
 
-        pub fn toString(self: Op) []const u8 {
-            switch (self) {
+        pub fn format(
+            self: @This(),
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = fmt;
+            _ = options;
+            try writer.print(switch (self) {
                 .add => "+",
                 .subtract => "-",
                 .divide => "/",
@@ -605,7 +612,7 @@ pub const BinaryOperator = struct {
                 .assign => "=",
                 .@"and" => "and",
                 .@"or" => "or",
-            }
+            }, .{});
         }
     };
 

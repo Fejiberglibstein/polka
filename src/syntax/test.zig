@@ -590,7 +590,7 @@ fn testParser(source: []const u8, comptime expected_source: []const u8) !void {
         break :blk try parseTree(expected_source);
     };
     const parsed_node, const parsed_nodes = try parser.parse(source, allocator.allocator());
-    defer parsed_nodes.deinit();
+    defer allocator.allocator().free(parsed_nodes);
 
     assertNodeEql(
         parsed_node,

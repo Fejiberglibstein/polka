@@ -279,8 +279,8 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     std.debug.print("\nnew test ------------\n", .{});
 
     const node, const nodes = try parser.parse(source, allocator.allocator());
-    defer nodes.deinit();
-    var vm = try Vm.init(allocator.allocator(), nodes.items);
+    defer allocator.allocator().free(nodes);
+    var vm = try Vm.init(allocator.allocator(), nodes);
     defer vm.deinit();
 
     const result = try vm.eval(&node);

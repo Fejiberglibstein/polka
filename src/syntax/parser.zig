@@ -14,14 +14,14 @@ const SyntaxSet = syntax_set.SyntaxSet;
 pub fn parse(
     text: []const u8,
     allocator: std.mem.Allocator,
-) Allocator.Error!struct { SyntaxNode, std.ArrayList(SyntaxNode) } {
+) Allocator.Error!struct { SyntaxNode, []SyntaxNode } {
     var parser = Parser.init(text, allocator);
     try parseText(&parser);
 
     std.debug.assert(parser.stack.items.len == 1);
     const node = parser.stack.items[0];
     parser.stack.deinit();
-    return .{ node, parser.nodes };
+    return .{ node, try parser.nodes.toOwnedSlice() };
 }
 
 fn parseText(p: *Parser) Allocator.Error!void {
