@@ -6,15 +6,17 @@ const Lexer = @import("Lexer.zig");
 const Mode = @import("Lexer.zig").Mode;
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;
-const TreeNode = @import("node.zig").TreeNode;
 const syntax_set = @import("syntax_set.zig");
 const SyntaxSet = syntax_set.SyntaxSet;
 
+const ParseResult = struct {
+    root_node: SyntaxNode,
+    all_nodes: []SyntaxNode,
+    has_error: bool,
+};
+
 /// Parses top level text of a file
-pub fn parse(
-    text: []const u8,
-    allocator: std.mem.Allocator,
-) Allocator.Error!struct { SyntaxNode, []SyntaxNode } {
+pub fn parse(text: []const u8, allocator: std.mem.Allocator) Allocator.Error!ParseResult {
     var parser = Parser.init(text, allocator);
     try parseText(&parser);
 
@@ -471,6 +473,8 @@ const Parser = struct {
     current: Token,
     /// If `SyntaxKind.end` should be considered an ending character
     finish_on: *const SyntaxSet,
+    /// If the parser has had an error
+    has_error: bool,
 
     const Marker = usize;
     const Token = struct {
@@ -493,6 +497,9 @@ const Parser = struct {
     }
 
     fn eat(self: *Parser) Allocator.Error!void {
+        if (self.current.node.isError()) {
+            self.has_error = true;
+        }
         try self.stack.append(self.current.node);
         self.current = parseToken(&self.l);
     }
@@ -532,24 +539,18 @@ const Parser = struct {
         var res = false;
         while (self.at(.newline)) {
             switch (self.mode()) {
-                Mode.Text,
-                Mode.TopLevelText,
-                Mode.CodeBlock,
-                => {
+                Mode.Text, Mode.TopLevelText, Mode.CodeBlock => {
                     try self.assert(.newline);
                     res = true;
                 },
-
                 Mode.CodeLine => {
                     try self.assert(.newline);
                     try self.expect(.code_begin);
                     res = true;
                 },
-
                 Mode.CodeExpr => try self.unexpected(),
             }
         }
-
         return res;
     }
 
@@ -561,6 +562,7 @@ const Parser = struct {
     }
 
     fn unexpected(self: *Parser) Allocator.Error!void {
+        self.has_error = true;
         (try self.eatGet()).unexpected();
     }
 

@@ -582,20 +582,17 @@ fn assertNodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []const SyntaxNode, all2:
 
 fn testParser(source: []const u8, comptime expected_source: []const u8) !void {
     var allocator = std.heap.DebugAllocator(.{}).init;
-    defer {
-        _ = allocator.deinit();
-    }
+    defer std.testing.expect(allocator.deinit() == .ok);
 
-    const expected_node, const expected_nodes = comptime blk: {
-        break :blk try parseTree(expected_source);
-    };
-    const parsed_node, const parsed_nodes = try parser.parse(source, allocator.allocator());
-    defer allocator.allocator().free(parsed_nodes);
+    const expected_node, const expected_nodes = comptime try parseTree(expected_source);
+    const parsed = try parser.parse(source, allocator.allocator());
+    std.testing.expect(!parsed.has_error);
+    defer allocator.allocator().free(parsed.all_nodes);
 
     assertNodeEql(
-        parsed_node,
+        parsed.root_node,
         expected_node,
-        parsed_nodes.items,
+        parsed.all_nodes,
         expected_nodes.slice(),
     ) catch |err| {
         std.debug.print("{s}\n", .{source});
@@ -603,7 +600,7 @@ fn testParser(source: []const u8, comptime expected_source: []const u8) !void {
         printNode(expected_node, expected_nodes.slice(), 0);
 
         std.debug.print("\nGot \n", .{});
-        printNode(parsed_node, parsed_nodes.items, 0);
+        printNode(parsed.root_node, parsed.all_nodes, 0);
         return err;
     };
 }

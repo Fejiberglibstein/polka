@@ -278,12 +278,13 @@ fn testEval(source: []const u8, expected: []const u8) !void {
 
     std.debug.print("\nnew test ------------\n", .{});
 
-    const node, const nodes = try parser.parse(source, allocator.allocator());
-    defer allocator.allocator().free(nodes);
-    var vm = try Vm.init(allocator.allocator(), nodes);
+    const parsed = try parser.parse(source, allocator.allocator());
+    std.testing.expect(!parsed.has_error);
+    defer allocator.allocator().free(parsed.root_node);
+    var vm = try Vm.init(allocator.allocator(), parsed.all_nodes);
     defer vm.deinit();
 
-    const result = try vm.eval(&node);
+    const result = try vm.eval(&parsed.root_node);
 
     try std.testing.expectEqualStrings(expected, result);
 }
