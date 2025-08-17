@@ -26,13 +26,23 @@ pub fn runFile(path: []const u8, cwd: fs.Dir, gpa: std.mem.Allocator) !void {
     const file_text = try file.readToEndAlloc(gpa, std.math.maxInt(u64));
     defer gpa.free(file_text);
 
-    const root_node, const nodes = try parser.parse(file_text, gpa);
-    defer gpa.free(nodes);
+    const parsed = try parser.parse(file_text, gpa);
+    defer gpa.free(parsed.all_nodes);
 
-    var vm = try Vm.init(gpa, nodes);
+    if (parsed.has_error) {
+        var err_iter = try ErrorIterator.init(parsed.root_node, parsed.all_nodes, gpa);
+
+        std.debug.print("polka: Syntax error:\n", .{});
+        while (err_iter.next()) |err|
+            std.debug.print("  {} (line: {}, col: {})\n", .{ err.err, err.line, err.col });
+
+        return;
+    }
+
+    var vm = try Vm.init(gpa, parsed.all_nodes);
     defer vm.deinit();
 
-    const result = vm.eval(&root_node) catch {
+    const result = vm.eval(&parsed.root_node) catch {
         std.debug.print(
             \\polka: Error while executing {}
             \\  {}
@@ -67,3 +77,4 @@ const std = @import("std");
 const fs = std.fs;
 const parser = @import("syntax/parser.zig");
 const Vm = @import("eval/Vm.zig");
+const ErrorIterator = @import("syntax/node.zig").ErrorIterator;

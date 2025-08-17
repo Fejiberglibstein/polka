@@ -348,11 +348,10 @@ pub const SyntaxNode = struct {
         };
     }
 
-    pub fn precedingWhitespace(self: SyntaxNode) u16 {
-        return switch (self) {
-            .tree => |_| 0,
-            .leaf => |v| v.preceding_whitespace,
-            .@"error" => |v| v.preceding_whitespace,
+    pub fn isError(self: SyntaxNode) bool {
+        return switch (self.inner) {
+            .@"error" => true,
+            else => false,
         };
     }
 
@@ -396,13 +395,103 @@ pub const SyntaxError = union(enum(u8)) {
     unexpected_token: SyntaxKind,
     unexpected_character: u8,
 
-    fn toString(self: SyntaxError, a: std.mem.Allocator) []const u8 {
-        // TODO perhaps make this do comptime string concatenation instead of `allocPrint`ing ?
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options;
+        _ = fmt;
+
         switch (self) {
-            .unterminated_string => std.fmt.allocPrint(a, "Unterminated string", .{}),
-            .expected_token => |k| std.fmt.allocPrint(a, "Expected token {s}", .{k.name()}),
-            .unexpected_token => |k| std.fmt.allocPrint(a, "Unexpected token {s}", .{k.name()}),
-            .unexpected_character => |c| std.fmt.allocPrint(a, "Unexpected character {c}", .{c}),
+            .unterminated_string => writer.print("Unterminated string", .{}),
+            .expected_token => |v| writer.print("Expected token {s}", .{v.name()}),
+            .unexpected_token => |v| writer.print("Unexpected token {s}", .{v.name()}),
+            .unexpected_character => |v| writer.print("Unexpected character {c}", .{v}),
+        }
+    }
+};
+
+pub const ErrorIterator = struct {
+    /// The current line in the file
+    line: usize,
+    /// The current column of the line in the file
+    column: usize,
+    /// All of the nodes in the CST
+    all_nodes: []const SyntaxNode,
+    /// Root node of the CST
+    root_node: SyntaxNode,
+    /// The path that has currently been traversed through the tree nodes of the CST.
+    /// It is a stack of indices for each level of tree nodes
+    path: Path,
+
+    const Path = std.ArrayList(struct { node: SyntaxNode, index: u32 });
+
+    pub fn init(
+        root_node: SyntaxNode,
+        all_nodes: []const SyntaxNode,
+        gpa: std.mem.Allocator,
+    ) !ErrorIterator {
+        var path = try Path.initCapacity(gpa, 16);
+        // Initialize path with the root node and index 0
+        path.append(.{ .node = root_node, .index = 0 });
+
+        return ErrorIterator{
+            .line = 0,
+            .column = 0,
+            .all_nodes = all_nodes,
+            .root_node = root_node,
+            .path = path,
+        };
+    }
+
+    pub fn deinit(self: ErrorIterator) void {
+        self.path.deinit();
+    }
+
+    pub const Error = struct {
+        err: SyntaxError,
+        line: usize,
+        col: usize,
+    };
+
+    pub fn next(self: *ErrorIterator) ?Error {
+        while (true) {
+            if (self.path.items.len == 0)
+                return null;
+
+            var curr = &self.path.items[self.path.items.len];
+            var child_nodes = curr.node.children(self.all_nodes);
+
+            while (curr.index < child_nodes.len) {
+                const child_node = child_nodes[curr.index];
+
+                if (child_node.isError()) {
+                    return Error{
+                        .err = child_node.inner.@"error".err,
+                        .line = self.line,
+                        .col = self.column,
+                    };
+                } else if (child_node.kind() == .newline) {
+                    self.line += 1;
+                    self.column = 0;
+                } else {
+                    self.column += child_node.range.len;
+                }
+
+                if (child_node.children(self.all_nodes).len > 0) {
+                    const added = self.path.addOne();
+                    added.* = .{ child_node, 0 };
+
+                    curr = added;
+                    child_nodes = curr.node.children(self.all_nodes);
+                } else {
+                    curr.index += 1;
+                }
+            }
+
+            _ = self.path.pop();
         }
     }
 };
