@@ -67,9 +67,9 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
     ) !void {
         _ = fmt;
         _ = options;
-        switch (self) {
+        try switch (self) {
             .invalid_binary_operands => |v| writer.print(
-                \\Invalid operands to binary operation. {} {} {} is not allowed
+                \\Invalid operands to binary operation. {s} {} {s} is not allowed
             , .{ v.lhs.typeName(), v.op, v.rhs.typeName() }),
             .modulo_error => |v| writer.print(
                 \\The rhs of the modulus operator must be > 0. (got {})
@@ -78,7 +78,7 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
                 \\Invalid operand to unary {} (got {})
             , .{ v.op, v.rhs }),
             .bad_function => |v| writer.print(
-                \\Cannot call {}
+                \\Cannot call {s}
             , .{v.typeName()}),
             .function_bad_args => |v| writer.print(
                 \\Function called with too many parameters. Expected {}
@@ -102,13 +102,13 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
                 \\Use of undeclared identifier `{s}`
             , .{v}),
             .invalid_dict_access => |v| writer.print(
-                \\Cannot index a dict with a {}
+                \\Cannot index a dict with a {s}
             , .{v.typeName()}),
             .invalid_list_access => |v| writer.print(
-                \\Cannot index a list with a {}
+                \\Cannot index a list with a {s}
             , .{v.typeName()}),
             .invalid_access => |v| writer.print(
-                \\Cannot index a {}
+                \\Cannot index a {s}
             , .{v.typeName()}),
             .stack_overflow => writer.print(
                 \\Stack overflow
@@ -119,7 +119,7 @@ pub const RuntimeErrorPayload = union(enum(u8)) {
             .allocation_error => writer.print(
                 \\An internal allocation error
             , .{}),
-        }
+        };
     }
 };
 

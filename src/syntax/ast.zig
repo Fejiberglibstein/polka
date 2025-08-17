@@ -597,7 +597,7 @@ pub const BinaryOperator = struct {
         ) !void {
             _ = fmt;
             _ = options;
-            try writer.print(switch (self) {
+            try writer.print("{s}", .{switch (self) {
                 .add => "+",
                 .subtract => "-",
                 .divide => "/",
@@ -612,7 +612,7 @@ pub const BinaryOperator = struct {
                 .assign => "=",
                 .@"and" => "and",
                 .@"or" => "or",
-            }, .{});
+            }});
         }
     };
 

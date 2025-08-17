@@ -67,7 +67,7 @@ pub fn eval(self: *Vm, start_node: *const SyntaxNode) RuntimeError![]const u8 {
     }
 
     return self.output.toOwnedSlice(self.allocator) catch {
-        self.setError(.allocation_error);
+        try self.setError(.allocation_error);
     };
 }
 
