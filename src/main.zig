@@ -4,7 +4,7 @@ pub fn main() !void {
         dbg_allocator.allocator()
     else
         std.heap.smp_allocator;
-    defer if (builtin.mode == .Debug) std.debug.assert(dbg_allocator.deinit());
+    defer if (builtin.mode == .Debug) std.debug.assert(dbg_allocator.deinit() == .ok);
 
     const stderr = std.io.getStdErr().writer();
     const stdout = std.io.getStdOut().writer();
@@ -17,7 +17,6 @@ pub fn main() !void {
         \\<str>...
         \\
     );
-
     var diag: clap.Diagnostic = .{};
     var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
         .diagnostic = &diag,
@@ -29,8 +28,26 @@ pub fn main() !void {
     defer res.deinit();
 
     if (res.args.help != 0) {
-        return clap.help(stderr, clap.Help, &params, .{});
+        return clap.help(stderr, clap.Help, &params, .{ .spacing_between_parameters = 0 });
     }
+
+    if (res.args.init != 0) {
+        return cli.init();
+    }
+
+    if (res.positionals[0].len == 0) fatal(
+        \\Usage: polka [option]... [file]...
+        \\Try 'polka --help' for more information.
+        \\
+    , .{});
+
+    cli.run(res.positionals[0], std.fs.cwd(), res.args, allocator);
+}
+
+pub fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
+    std.debug.print("polka: ", .{});
+    std.debug.print(fmt, args);
+    std.process.exit(1);
 }
 
 test "all" {
@@ -40,14 +57,16 @@ test "all" {
 }
 
 const std = @import("std");
+const builtin = @import("builtin");
 
+const clap = @import("clap");
+
+const eval_test = @import("eval/test.zig");
+const Vm = @import("eval/Vm.zig");
+const cli = @import("cli.zig");
 const ast = @import("syntax/ast.zig");
 const SyntaxNode = @import("syntax/node.zig").SyntaxNode;
 const SyntaxKind = @import("syntax/node.zig").SyntaxKind;
 const parse = @import("syntax/parser.zig");
 const Scanner = @import("syntax/Scanner.zig");
 const syntax_tests = @import("syntax/test.zig");
-const eval_test = @import("eval/test.zig");
-const Vm = @import("eval/Vm.zig");
-const clap = @import("clap");
-const builtin = @import("builtin");
