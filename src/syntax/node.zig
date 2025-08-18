@@ -224,6 +224,7 @@ pub const SyntaxKind = enum(u8) {
             .plus => "+",
             .minus => "-",
             .star => "*",
+            .colon => ":",
             .slash => "/",
             .perc => "%",
             .left_bracket => "[",
@@ -262,8 +263,11 @@ pub const SyntaxKind = enum(u8) {
             .ident => "identifier",
             .number => "number",
             .string => "string",
+            .list => "list",
+            .dict => "dict",
             .grouping => "grouping",
             .function_def => "function definition",
+            .closure_captures => "closure captures",
             .function_parameters => "function parameters",
             .return_expr => "return expression",
             .conditional => "`if then` expression",
@@ -271,7 +275,6 @@ pub const SyntaxKind = enum(u8) {
             .while_loop => "`while` expression",
             .export_expr => "`export` expression",
             .let_expr => "variable declaration",
-            .assignment => "variable assignment",
             .binary => "binary expression",
             .unary => "unary expression",
             .function_call => "function call",
@@ -325,13 +328,18 @@ pub const SyntaxNode = struct {
         };
 
         // Get the range that this tree node encompasses
-        const childSlice = tree.getChildren(all_nodes);
-        const start = childSlice[0].range;
-        const end = childSlice[childSlice.len - 1].range;
+        const child_slice = tree.getChildren(all_nodes);
+        const range_start = child_slice[0].range;
+        const end = child_slice[child_slice.len - 1].range;
+        const range_end = if (end.len == 0)
+            @as(*const u8, @ptrCast(end.ptr))
+        else
+            &end[end.len - 1];
+
         const range = if (@inComptime())
             " " // Ensure everything works in our tests since pointer math doesnt work at comptime
         else
-            start.ptr[0..(&end[end.len - 1] - start.ptr)];
+            range_start.ptr[0..(range_end - range_start.ptr)];
 
         return SyntaxNode{
             .range = range,
@@ -351,6 +359,20 @@ pub const SyntaxNode = struct {
     pub fn isError(self: SyntaxNode) bool {
         return switch (self.inner) {
             .@"error" => true,
+            else => false,
+        };
+    }
+
+    pub fn isLeaf(self: SyntaxNode) bool {
+        return switch (self.inner) {
+            .leaf => true,
+            else => false,
+        };
+    }
+
+    pub fn isTree(self: SyntaxNode) bool {
+        return switch (self.inner) {
+            .tree => true,
             else => false,
         };
     }
@@ -404,12 +426,12 @@ pub const SyntaxError = union(enum(u8)) {
         _ = options;
         _ = fmt;
 
-        switch (self) {
+        try switch (self) {
             .unterminated_string => writer.print("Unterminated string", .{}),
             .expected_token => |v| writer.print("Expected token {s}", .{v.name()}),
             .unexpected_token => |v| writer.print("Unexpected token {s}", .{v.name()}),
             .unexpected_character => |v| writer.print("Unexpected character {c}", .{v}),
-        }
+        };
     }
 };
 
@@ -435,7 +457,7 @@ pub const ErrorIterator = struct {
     ) !ErrorIterator {
         var path = try Path.initCapacity(gpa, 16);
         // Initialize path with the root node and index 0
-        path.append(.{ .node = root_node, .index = 0 });
+        try path.append(.{ .node = root_node, .index = 0 });
 
         return ErrorIterator{
             .line = 0,
@@ -456,16 +478,17 @@ pub const ErrorIterator = struct {
         col: usize,
     };
 
-    pub fn next(self: *ErrorIterator) ?Error {
+    pub fn next(self: *ErrorIterator) !?Error {
         while (true) {
             if (self.path.items.len == 0)
                 return null;
 
-            var curr = &self.path.items[self.path.items.len];
+            var curr = &self.path.items[self.path.items.len - 1];
             var child_nodes = curr.node.children(self.all_nodes);
 
             while (curr.index < child_nodes.len) {
                 const child_node = child_nodes[curr.index];
+                curr.index += 1;
 
                 if (child_node.isError()) {
                     return Error{
@@ -476,18 +499,16 @@ pub const ErrorIterator = struct {
                 } else if (child_node.kind() == .newline) {
                     self.line += 1;
                     self.column = 0;
-                } else {
+                } else if (child_node.isLeaf()) {
                     self.column += child_node.range.len;
                 }
 
                 if (child_node.children(self.all_nodes).len > 0) {
-                    const added = self.path.addOne();
-                    added.* = .{ child_node, 0 };
+                    const added = try self.path.addOne();
+                    added.* = .{ .node = child_node, .index = 0 };
 
                     curr = added;
                     child_nodes = curr.node.children(self.all_nodes);
-                } else {
-                    curr.index += 1;
                 }
             }
 

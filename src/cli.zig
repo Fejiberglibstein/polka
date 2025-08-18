@@ -31,10 +31,11 @@ pub fn runFile(path: []const u8, cwd: fs.Dir, gpa: std.mem.Allocator) !void {
 
     if (parsed.has_error) {
         var err_iter = try ErrorIterator.init(parsed.root_node, parsed.all_nodes, gpa);
+        defer err_iter.deinit();
 
         std.debug.print("polka: Syntax error:\n", .{});
-        while (err_iter.next()) |err|
-            std.debug.print("  {} (line: {}, col: {})\n", .{ err.err, err.line, err.col });
+        while (err_iter.next() catch oom()) |err|
+            std.debug.print("  {} (line: {}, col: {})\n", .{ err.err, err.line + 1, err.col + 1 });
 
         return;
     }

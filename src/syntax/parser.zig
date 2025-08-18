@@ -23,7 +23,11 @@ pub fn parse(text: []const u8, allocator: std.mem.Allocator) Allocator.Error!Par
     std.debug.assert(parser.stack.items.len == 1);
     const node = parser.stack.items[0];
     parser.stack.deinit();
-    return .{ node, try parser.nodes.toOwnedSlice() };
+    return .{
+        .root_node = node,
+        .all_nodes = try parser.nodes.toOwnedSlice(),
+        .has_error = parser.has_error,
+    };
 }
 
 fn parseText(p: *Parser) Allocator.Error!void {
@@ -557,6 +561,7 @@ const Parser = struct {
     fn expect(self: *Parser, kind: SyntaxKind) Allocator.Error!void {
         const tok = try self.eatGet();
         if (tok.kind() != kind) {
+            self.has_error = true;
             tok.unexpected();
         }
     }
@@ -596,6 +601,7 @@ const Parser = struct {
             .stack = .init(allocator),
             .finish_on = syntax_set.isEof,
             .current = token,
+            .has_error = false,
         };
     }
 
