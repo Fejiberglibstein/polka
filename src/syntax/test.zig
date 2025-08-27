@@ -582,11 +582,11 @@ fn assertNodeEql(n1: SyntaxNode, n2: SyntaxNode, all1: []const SyntaxNode, all2:
 
 fn testParser(source: []const u8, comptime expected_source: []const u8) !void {
     var allocator = std.heap.DebugAllocator(.{}).init;
-    defer std.testing.expect(allocator.deinit() == .ok);
+    defer std.debug.assert(allocator.deinit() == .ok);
 
     const expected_node, const expected_nodes = comptime try parseTree(expected_source);
     const parsed = try parser.parse(source, allocator.allocator());
-    std.testing.expect(!parsed.has_error);
+    try std.testing.expect(!parsed.has_error);
     defer allocator.allocator().free(parsed.all_nodes);
 
     assertNodeEql(
