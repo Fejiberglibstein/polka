@@ -107,14 +107,10 @@ fn code(self: *Lexer) SyntaxKind {
         '%' => .perc,
         '/' => .slash,
         // TODO: Fix this and make `self.eat_codeblockend`
-        '*' => if (self.s.eatIf("*#"))
-            .codeblock_end
-        else
-            .star,
+        '*' => .star,
         '-' => .minus,
         '.' => .dot,
         ',' => .comma,
-        '`' => .backtick,
         ':' => .colon,
         '=' => if (self.s.eatIf('=')) .eq_eq else .eq,
         '!' => if (self.s.eatIf('=')) .not_eq else continue :sw 0,

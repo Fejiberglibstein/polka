@@ -41,7 +41,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
         switch (p.current.kind) {
             .text => try p.eat(),
             .newline => try p.eat(),
-            .codeblock_begin => {
+            .codeblock_delim => {
                 p.setMode(.code_block);
                 // TODO
                 break;

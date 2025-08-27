@@ -8,9 +8,7 @@ pub const SyntaxKind = enum(u8) {
     /// Begins code `#*`
     code_begin,
     /// Begins code block `#**`
-    codeblock_begin,
-    /// Ends code block `**#`
-    codeblock_end,
+    codeblock_delim,
 
     /// Body of text, either a line not beginning with `#*`, or content inside `
     text,
@@ -178,9 +176,6 @@ pub const SyntaxKind = enum(u8) {
     /// would be one text node with three children, foo (text), bar (code), and baz (text)
     text_node,
 
-    /// Begins text mode while in code mode ```
-    backtick,
-
     /// Newline, a literal `\n`.
     newline,
 
@@ -217,8 +212,7 @@ pub const SyntaxKind = enum(u8) {
             .err => "Syntax error",
             .eof => "eof",
             .code_begin => "#*",
-            .codeblock_begin => "#**",
-            .codeblock_end => "**#",
+            .codeblock_delim => "#**",
             .text => "text block",
             .code => "code block",
             .plus => "+",
@@ -282,7 +276,6 @@ pub const SyntaxKind = enum(u8) {
             .dot_access => "field access via .",
             .bracket_access => "field access via []",
             .text_node => "text",
-            .backtick => "`",
             .newline => "newline",
         };
     }
