@@ -42,7 +42,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
             .text => try p.eat(),
             .newline => try p.eat(),
             .codeblock_begin => {
-                p.setMode(.CodeBlock);
+                p.setMode(.code_block);
                 // TODO
                 break;
             },
@@ -50,12 +50,12 @@ fn parseText(p: *Parser) Allocator.Error!void {
                 // Save current mode, will be either top level text or normal text
                 const old_mode = p.mode();
 
-                p.setMode(if (p.lastKind() == .newline) .CodeLine else .CodeExpr);
+                p.setMode(if (p.lastKind() == .newline) .code_line else .code_expr);
 
                 const m2 = p.marker();
                 try p.assert(.code_begin);
 
-                if (p.mode() == .CodeLine) {
+                if (p.mode() == .code_line) {
                     try parseCode(p);
                 } else {
                     try parseExpr(p, 0, true);
@@ -89,16 +89,16 @@ fn parseCode(p: *Parser) Allocator.Error!void {
             .newline => {
                 try p.eat();
                 switch (p.mode()) {
-                    .CodeLine => if (p.current.kind == .code_begin) {
+                    .code_line => if (p.current.kind == .code_begin) {
                         try p.eat();
                     } else {
                         break;
                     },
 
-                    .CodeBlock => {},
+                    .code_block => {},
 
                     // This should never happen
-                    .TopLevelText, .Text, .CodeExpr => try p.unexpected(),
+                    .text, .code_expr => try p.unexpected(),
                 }
             },
             .@"export" => try parseExportExpr(p),
@@ -140,7 +140,7 @@ fn parseArgs(p: *Parser) Allocator.Error!void {
 
 /// Parse an expression
 fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
-    if (expr and p.current.whitespace == .PrecedingWhitespace) {
+    if (expr and p.current.whitespace == .preceding_whitespace) {
         return;
     }
 
@@ -148,7 +148,7 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
     try parsePrimary(p);
 
     while (true) {
-        if (expr and p.current.whitespace == .PrecedingWhitespace) {
+        if (expr and p.current.whitespace == .preceding_whitespace) {
             break;
         }
 
@@ -353,7 +353,7 @@ fn parseIfExpr(p: *Parser) Allocator.Error!void {
     const old_end = p.finish_on;
     p.finish_on = syntax_set.isConditionalEnd;
     const mode = p.mode();
-    p.setMode(.TopLevelText);
+    p.setMode(.text);
 
     // Parse the body
     p.reparse(); // Reparse the last token since we just switched modes
@@ -442,7 +442,7 @@ pub fn parseBlock(p: *Parser) Allocator.Error!void {
     const old_end = p.finish_on;
     p.finish_on = syntax_set.isBlockEnd;
     const mode = p.mode();
-    p.setMode(.TopLevelText);
+    p.setMode(.text);
 
     // Parse the body
     p.reparse(); // Reparse the last token since we just switched modes
@@ -543,16 +543,16 @@ const Parser = struct {
         var res = false;
         while (self.at(.newline)) {
             switch (self.mode()) {
-                Mode.Text, Mode.TopLevelText, Mode.CodeBlock => {
+                .text, .code_block => {
                     try self.assert(.newline);
                     res = true;
                 },
-                Mode.CodeLine => {
+                .code_line => {
                     try self.assert(.newline);
                     try self.expect(.code_begin);
                     res = true;
                 },
-                Mode.CodeExpr => try self.unexpected(),
+                .code_expr => try self.unexpected(),
             }
         }
         return res;

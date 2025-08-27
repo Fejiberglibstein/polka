@@ -1,10 +1,43 @@
-const std = @import("std");
+pub const Mode = enum {
+    /// Lines beginning with `#*`. If any text comes before the `#*`, then the Mode would be
+    /// .code_expr instead
+    ///
+    /// ```text
+    ///     #* if (sys.hostname == "foo")
+    ///     #*   // ...
+    ///     #* end
+    /// ```
+    code_line,
+    /// While in text mode, expressions beginning with `#*`
+    ///
+    /// ```text
+    ///     The hostname is #*sys.hostname
+    /// ```
+    code_expr,
+    /// Code block beginning with `#**` and ending with `**#`
+    ///
+    /// Code expressions inside a block do not need to begin with the normal `#*`
+    ///
+    /// ```text
+    ///     #**
+    ///     local bar = function()
+    ///         return "not"
+    ///     end
+    ///
+    ///     local foo = {
+    ///         bar = bar
+    ///     }
+    ///     **#
+    /// ```
+    code_block,
+    /// Normal file contents
+    text,
 
-const ErrorNode = @import("node.zig").ErrorNode;
-const Scanner = @import("Scanner.zig");
-const SyntaxError = @import("node.zig").SyntaxError;
-const SyntaxKind = @import("node.zig").SyntaxKind;
-const SyntaxNode = @import("node.zig").SyntaxNode;
+    fn isCode(self: Mode) bool {
+        return self == .Codeline or self == .code_block or self == .code_expr;
+    }
+};
+pub const Whitespace = enum { preceding_whitespace, none };
 
 const Lexer = @This();
 
@@ -14,7 +47,7 @@ currentError: ?SyntaxError,
 
 pub fn init(source: []const u8) Lexer {
     return Lexer{
-        .mode = .TopLevelText,
+        .mode = .text,
         .s = Scanner.init(source),
         .currentError = null,
     };
@@ -25,17 +58,18 @@ pub fn next(self: *Lexer) struct { SyntaxNode, SyntaxKind, Whitespace } {
     self.s.eatSpaces();
     const start = self.s.cursor;
     const whitespace: Whitespace = if (start - before_spaces != 0)
-        .PrecedingWhitespace
+        .preceding_whitespace
     else
-        .None;
+        .none;
 
     const kind = if (self.s.eatNewline())
         .newline
     else if (self.s.peek() == null)
         .eof
     else switch (self.mode) {
-        .CodeLine, .CodeExpr, .CodeBlock => self.code(),
-        .TopLevelText, .Text => self.text(),
+        .code_line, .code_expr, .code_block => self.code(),
+        .text,
+        => self.text(),
     };
 
     const node: SyntaxNode = if (self.currentError) |err|
@@ -200,7 +234,7 @@ fn text(self: *Lexer) SyntaxKind {
                 break;
             },
 
-            '`' => if (self.mode != .TopLevelText) {
+            '`' => if (self.mode != .text) {
                 // Consume the `
                 _ = self.s.eat();
                 break;
@@ -215,51 +249,14 @@ fn text(self: *Lexer) SyntaxKind {
 }
 
 fn eatCodebegin(self: *Lexer) bool {
-    return if (self.mode != .CodeBlock)
+    return if (self.mode != .code_block)
         self.s.eatIf("#*") or self.s.eatIf(";*")
     else
         true;
 }
+const std = @import("std");
 
-pub const Mode = enum {
-    /// Lines beginning with `#*`. If any text comes before the `#*`, then the Mode would be
-    /// [Mode::CodeExpr] instead
-    ///
-    /// ```text
-    ///     #* if (sys.hostname == "foo")
-    ///     #*   // ...
-    ///     #* end
-    /// ```
-    CodeLine,
-    /// While in text mode, expressions beginning with `#*`
-    ///
-    /// ```text
-    ///     The hostname is #*sys.hostname
-    /// ```
-    CodeExpr,
-    /// Code block beginning with `#**` and ending with `**#`
-    ///
-    /// Code expressions inside a block do not need to begin with the normal `#*`
-    ///
-    /// ```text
-    ///     #**
-    ///     local bar = function()
-    ///         return "not"
-    ///     end
-    ///
-    ///     local foo = {
-    ///         bar = bar
-    ///     }
-    ///     **#
-    /// ```
-    CodeBlock,
-    /// Normal file contents
-    TopLevelText,
-    /// Text inside ``
-    Text,
-
-    fn isCode(self: Mode) bool {
-        return self == .Codeline or self == .CodeBlock or self == .CodeExpr;
-    }
-};
-pub const Whitespace = enum { PrecedingWhitespace, None };
+const Scanner = @import("Scanner.zig");
+const SyntaxError = @import("node.zig").SyntaxError;
+const SyntaxKind = @import("node.zig").SyntaxKind;
+const SyntaxNode = @import("node.zig").SyntaxNode;
