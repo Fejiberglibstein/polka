@@ -174,47 +174,31 @@ fn ident(self: *Lexer) SyntaxKind {
         .ident;
 }
 
+const keywords: std.StaticStringMap(SyntaxKind) = .initComptime(.{
+    .{ "in", .in },
+    .{ "do", .do },
+    .{ "let", .let },
+    .{ "end", .end },
+    .{ "nil", .nil },
+    .{ "or", .@"or" },
+    .{ "if", .@"if" },
+    .{ "then", .then },
+    .{ "true", .bool },
+    .{ "false", .bool },
+    .{ "and", .@"and" },
+    .{ "for", .@"for" },
+    .{ "fun", .function },
+    .{ "else", .@"else" },
+    .{ "break", .@"break" },
+    .{ "while", .@"while" },
+    .{ "return", .@"return" },
+    .{ "export", .@"export" },
+    .{ "function", .function },
+    .{ "continue", .@"continue" },
+});
+
 fn keyword(t: []const u8) ?SyntaxKind {
-    return if (std.mem.eql(u8, t, "let"))
-        .let
-    else if (std.mem.eql(u8, t, "export"))
-        .@"export"
-    else if (std.mem.eql(u8, t, "if"))
-        .@"if"
-    else if (std.mem.eql(u8, t, "then"))
-        .then
-    else if (std.mem.eql(u8, t, "do"))
-        .do
-    else if (std.mem.eql(u8, t, "in"))
-        .in
-    else if (std.mem.eql(u8, t, "for"))
-        .@"for"
-    else if (std.mem.eql(u8, t, "while"))
-        .@"while"
-    else if (std.mem.eql(u8, t, "function"))
-        .function
-    else if (std.mem.eql(u8, t, "else"))
-        .@"else"
-    else if (std.mem.eql(u8, t, "end"))
-        .end
-    else if (std.mem.eql(u8, t, "or"))
-        .@"or"
-    else if (std.mem.eql(u8, t, "and"))
-        .@"and"
-    else if (std.mem.eql(u8, t, "true"))
-        .bool
-    else if (std.mem.eql(u8, t, "false"))
-        .bool
-    else if (std.mem.eql(u8, t, "nil"))
-        .nil
-    else if (std.mem.eql(u8, t, "return"))
-        .@"return"
-    else if (std.mem.eql(u8, t, "continue"))
-        .@"continue"
-    else if (std.mem.eql(u8, t, "break"))
-        .@"break"
-    else
-        null;
+    return keywords.get(t);
 }
 
 /// Parse a token while in text mode
