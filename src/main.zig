@@ -11,9 +11,9 @@ pub fn main() !void {
     _ = stdout;
 
     const params = comptime clap.parseParamsComptime(
-        \\-h, --help    Display this help and exit.
+        \\-h, --help     Display this help and exit.
         \\-r, --dry-run  Print out the files that will be changed instead of overwriting them.
-        \\--init     Initialize polka in the current directory
+        \\--init         Initialize polka in the current directory
         \\<str>...
         \\
     );
@@ -23,7 +23,7 @@ pub fn main() !void {
         .allocator = allocator,
     }) catch |err| {
         try diag.report(stderr, err);
-        std.posix.exit(1);
+        std.process.exit(1);
     };
     defer res.deinit();
 
@@ -45,7 +45,6 @@ pub fn main() !void {
 }
 
 pub fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
-    std.debug.print("polka: ", .{});
     std.debug.print(fmt, args);
     std.process.exit(1);
 }
