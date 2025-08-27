@@ -58,11 +58,8 @@ pub fn init(source: []const u8) Lexer {
 pub fn next(self: *Lexer) struct { SyntaxNode, SyntaxKind, Whitespace } {
     const before_spaces = self.s.cursor;
     self.s.eatSpaces();
+
     const start = self.s.cursor;
-    const whitespace: Whitespace = if (start - before_spaces != 0)
-        .preceding_whitespace
-    else
-        .none;
 
     const kind = if (self.s.eatNewline())
         .newline
@@ -77,8 +74,14 @@ pub fn next(self: *Lexer) struct { SyntaxNode, SyntaxKind, Whitespace } {
     const node: SyntaxNode = if (self.currentError) |err|
         .errorNode(err, self.s.from(start))
     else
-        .leafNode(kind, self.s.from(start));
+        // Text nodes should retain leading spaces so that indentation works.
+        .leafNode(kind, self.s.from(if (kind == .text) before_spaces else start));
     self.currentError = null;
+
+    const whitespace: Whitespace = if (start - before_spaces != 0 and kind != .text)
+        .preceding_whitespace
+    else
+        .none;
 
     return .{ node, kind, whitespace };
 }
