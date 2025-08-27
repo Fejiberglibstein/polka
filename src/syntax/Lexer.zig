@@ -27,7 +27,7 @@ pub const Mode = enum {
     ///     local foo = {
     ///         bar = bar
     ///     }
-    ///     **#
+    ///     #**
     /// ```
     code_block,
     /// Normal file contents
@@ -38,6 +38,8 @@ pub const Mode = enum {
     }
 };
 pub const Whitespace = enum { preceding_whitespace, none };
+
+const comment_beginnings = [_]u8{ ';', '#' };
 
 const Lexer = @This();
 
@@ -93,25 +95,27 @@ fn setErr(self: *Lexer, err: SyntaxError) SyntaxKind {
 }
 
 fn code(self: *Lexer) SyntaxKind {
+    if (eatCodebegin(&self.s)) |tok| {
+        return tok;
+    }
+
     const c = self.s.eat() orelse unreachable;
 
     return sw: switch (c) {
-        '#' => if (self.s.eatIf('*')) .code_begin else continue :sw 0,
-        '[' => .left_bracket,
-        ']' => .right_bracket,
-        '(' => .left_paren,
-        ')' => .right_paren,
-        '{' => .left_brace,
-        '}' => .right_brace,
+        '.' => .dot,
         '+' => .plus,
         '%' => .perc,
-        '/' => .slash,
-        // TODO: Fix this and make `self.eat_codeblockend`
         '*' => .star,
         '-' => .minus,
-        '.' => .dot,
+        '/' => .slash,
         ',' => .comma,
         ':' => .colon,
+        '(' => .left_paren,
+        '{' => .left_brace,
+        ')' => .right_paren,
+        '}' => .right_brace,
+        '[' => .left_bracket,
+        ']' => .right_bracket,
         '=' => if (self.s.eatIf('=')) .eq_eq else .eq,
         '!' => if (self.s.eatIf('=')) .not_eq else continue :sw 0,
         '<' => if (self.s.eatIf('=')) .lt_eq else .lt,
@@ -199,40 +203,34 @@ fn keyword(t: []const u8) ?SyntaxKind {
 
 /// Parse a token while in text mode
 fn text(self: *Lexer) SyntaxKind {
-    if (self.eatCodebegin()) {
-        return .code_begin;
+    if (eatCodebegin(&self.s)) |tok| {
+        return tok;
     }
 
     while (true) {
-        self.s.eatUntil([_]u8{ '\r', '\n', '\\', '`', '#' });
+        self.s.eatUntil([_]u8{ '\r', '\n' } ++ comment_beginnings);
 
         var s = self.s;
 
-        switch (s.eat() orelse 0) {
-            '\\' => _ = s.eatIf('`'),
-            '#' => if (s.at('*')) {
-                break;
-            },
-
-            '`' => if (self.mode != .text) {
-                // Consume the `
-                _ = self.s.eat();
-                break;
-            },
-            else => break,
+        if (eatCodebegin(&s) != null or s.eatNewline() or s.eat() == null) {
+            break;
         }
 
-        self.s = s;
+        _ = self.s.eat(); // Skip past the comment beginning that didn't end up creating code
     }
 
     return .text;
 }
 
-fn eatCodebegin(self: *Lexer) bool {
-    return if (self.mode != .code_block)
-        self.s.eatIf("#*") or self.s.eatIf(";*")
-    else
-        true;
+fn eatCodebegin(s: *Scanner) ?SyntaxKind {
+    if (s.eatIf(comment_beginnings)) {
+        if (s.eatIf('*')) {
+            return if (s.eatIf('*')) .codeblock_delim else .code_begin;
+        }
+        s.moveTo(s.cursor - 1);
+    }
+
+    return null;
 }
 const std = @import("std");
 
