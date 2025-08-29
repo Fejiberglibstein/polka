@@ -6,8 +6,7 @@ const Lexer = @import("Lexer.zig");
 const Mode = @import("Lexer.zig").Mode;
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;
-const syntax_set = @import("syntax_set.zig");
-const SyntaxSet = syntax_set.SyntaxSet;
+const SyntaxSet = @import("SyntaxSet.zig");
 
 const ParseResult = struct {
     root_node: SyntaxNode,
@@ -32,6 +31,12 @@ pub fn parse(text: []const u8, allocator: std.mem.Allocator) Allocator.Error!Par
 
 fn parseText(p: *Parser) Allocator.Error!void {
     const m = p.marker();
+    if (p.mode() == .code_block) {
+        try parseCode(p);
+        try p.wrap(.code, m);
+        try p.wrap(.text_node, m);
+        return;
+    }
 
     while (true) {
         if (p.isEndingKind(p.current.kind)) {
@@ -43,13 +48,22 @@ fn parseText(p: *Parser) Allocator.Error!void {
             .newline => try p.eat(),
             .codeblock_delim => {
                 p.setMode(.code_block);
-                // TODO
-                break;
+
+                const old_end = p.finish_on;
+                p.finish_on.addKind(.codeblock_delim);
+
+                const m2 = p.marker();
+                try p.assert(.codeblock_delim);
+                try parseCode(p);
+
+                p.finish_on = old_end;
+                // Set the mode before expecting delim since we need the next token to be parsed in
+                // text mode.
+                p.setMode(.text);
+                try p.expect(.codeblock_delim);
+                try p.wrap(.code, m2);
             },
             .code_begin => {
-                // Save current mode, will be either top level text or normal text
-                const old_mode = p.mode();
-
                 p.setMode(if (p.lastKind() == .newline) .code_line else .code_expr);
 
                 const m2 = p.marker();
@@ -62,7 +76,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
                 }
 
                 try p.wrap(.code, m2);
-                p.setMode(old_mode);
+                p.setMode(.text);
 
                 if (!p.isEndingKind(p.current.kind)) {
                     // Since the mode was just switched, the current token will be a code mode
@@ -351,9 +365,12 @@ fn parseIfExpr(p: *Parser) Allocator.Error!void {
 
     // Set things up for parsing body
     const old_end = p.finish_on;
-    p.finish_on = syntax_set.isConditionalEnd;
+    p.finish_on.addKind(.end);
+    p.finish_on.addKind(.@"else");
     const mode = p.mode();
-    p.setMode(.text);
+    if (p.mode() != .code_block) {
+        p.setMode(.text);
+    }
 
     // Parse the body
     p.reparse(); // Reparse the last token since we just switched modes
@@ -440,9 +457,11 @@ fn parseFunctionDef(p: *Parser) Allocator.Error!void {
 pub fn parseBlock(p: *Parser) Allocator.Error!void {
     // Set things up for parsing body
     const old_end = p.finish_on;
-    p.finish_on = syntax_set.isBlockEnd;
+    p.finish_on.addKind(.end);
     const mode = p.mode();
-    p.setMode(.text);
+    if (p.mode() != .code_block) {
+        p.setMode(.text);
+    }
 
     // Parse the body
     p.reparse(); // Reparse the last token since we just switched modes
@@ -476,7 +495,7 @@ const Parser = struct {
     /// Current token we're looking at
     current: Token,
     /// If `SyntaxKind.end` should be considered an ending character
-    finish_on: *const SyntaxSet,
+    finish_on: SyntaxSet,
     /// If the parser has had an error
     has_error: bool,
 
@@ -587,7 +606,7 @@ const Parser = struct {
     }
 
     fn isEndingKind(self: Parser, kind: SyntaxKind) bool {
-        return self.finish_on(kind);
+        return self.finish_on.hasKind(kind);
     }
 
     fn init(t: []const u8, allocator: std.mem.Allocator) Parser {
@@ -599,7 +618,7 @@ const Parser = struct {
             .l = lexer,
             .nodes = .init(allocator),
             .stack = .init(allocator),
-            .finish_on = syntax_set.isEof,
+            .finish_on = SyntaxSet.init(&.{.eof}),
             .current = token,
             .has_error = false,
         };

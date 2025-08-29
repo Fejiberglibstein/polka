@@ -106,6 +106,50 @@ test "complex_text" {
     );
 }
 
+test "code delim" {
+    @setEvalBranchQuota(1000000);
+    try testParser(
+        \\#**
+        \\let h = 2
+        \\while true do
+        \\  h()
+        \\end
+        \\#**
+    ,
+        \\text_node [
+        \\  code [
+        \\    codeblock_delim,
+        \\    newline,
+        \\    let_expr [
+        \\      let,
+        \\      ident,
+        \\      eq,
+        \\      number,
+        \\    ],
+        \\    newline,
+        \\    while_loop [
+        \\      while,
+        \\      bool,
+        \\      do,
+        \\      newline,
+        \\      text_node [
+        \\        code [
+        \\          function_call [
+        \\            ident,
+        \\            argument_list [ left_paren, right_paren ]
+        \\          ]
+        \\          newline
+        \\        ]
+        \\      ],
+        \\      end
+        \\    ],
+        \\    newline,
+        \\    codeblock_delim
+        \\  ]
+        \\]
+    );
+}
+
 test "forloop" {
     @setEvalBranchQuota(1000000);
     try testParser(

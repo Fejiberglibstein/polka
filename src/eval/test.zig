@@ -269,6 +269,7 @@ const Vm = @import("Vm.zig");
 const parser = @import("../syntax/parser.zig");
 
 const std = @import("std");
+const gc_logging = @import("build_options").gc_logging;
 
 fn testEval(source: []const u8, expected: []const u8) !void {
     var allocator = std.heap.DebugAllocator(.{}).init;
@@ -276,7 +277,9 @@ fn testEval(source: []const u8, expected: []const u8) !void {
         _ = allocator.deinit();
     }
 
-    std.debug.print("\nnew test ------------\n", .{});
+    if (gc_logging) {
+        std.debug.print("\new test ------------\n", .{});
+    }
 
     const parsed = try parser.parse(source, allocator.allocator());
     try std.testing.expect(!parsed.has_error);
