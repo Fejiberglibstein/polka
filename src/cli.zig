@@ -1,81 +1,13 @@
-/// Initialize `conf.polk` in the current directory
-pub fn init() void {}
-
-pub fn run(paths: []const []const u8, cwd: fs.Dir, cli_args: anytype, gpa: std.mem.Allocator) void {
-    _ = cli_args;
-
-    for (paths) |path| {
-        runFile(path, cwd, gpa) catch |err| switch (err) {
-            anyerror.IsDir => runDir(path, cwd, gpa) catch |dir_err|
-                fatal("Error while accessing {s}: {s]}\n", .{ path, @errorName(dir_err) }),
-
-            anyerror.RuntimeError => {},
-            else => fatal("Error while accessing {s}: {s]}\n", .{ path, @errorName(err) }),
-        };
-    }
-}
-
-pub fn runFile(path: []const u8, cwd: fs.Dir, gpa: std.mem.Allocator) !void {
-    const file = try cwd.openFile(path, .{});
-    defer file.close();
-
-    const stat = try file.stat();
-    if (stat.kind == .directory)
-        return error.IsDir;
-
-    const file_text = try file.readToEndAlloc(gpa, std.math.maxInt(u64));
-    defer gpa.free(file_text);
-
-    const parsed = try parser.parse(file_text, gpa);
-    defer gpa.free(parsed.all_nodes);
-
-    if (parsed.has_error) {
-        var err_iter = try ErrorIterator.init(parsed.root_node, parsed.all_nodes, gpa);
-        defer err_iter.deinit();
-
-        std.debug.print("polka: Syntax error:\n", .{});
-        while (err_iter.next() catch oom()) |err|
-            std.debug.print("  {} (line: {}, col: {})\n", .{ err.err, err.line + 1, err.col + 1 });
-
-        return;
-    }
-
-    var vm = try Vm.init(gpa, parsed.all_nodes);
-    defer vm.deinit();
-
-    const result = vm.eval(&parsed.root_node) catch {
-        std.debug.print(
-            \\polka: Error while executing {}
-            \\  {}
-            \\
-        , .{ file, vm.err.? });
-
-        return error.RuntimeError;
-    };
-    defer gpa.free(result);
-
-    std.debug.print("{s}", .{result});
-}
-
-pub fn runDir(path: []const u8, cwd: fs.Dir, gpa: std.mem.Allocator) !void {
-    _ = path; // autofix
-    _ = cwd; // autofix
-    _ = gpa; // autofix
-
-}
+pub const run_cmd = @import("cli/run.zig");
+pub const init_cmd = @import("cli/init.zig");
 
 pub fn oom() noreturn {
-    fatal("out of memory\n", .{});
+    fatal("out of memory", .{});
 }
 
 pub fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
-    std.debug.print("polka: ", .{});
-    std.debug.print(fmt, args);
+    std.debug.print("polka: " ++ fmt ++ "\n", args);
     std.process.exit(1);
 }
 
 const std = @import("std");
-const fs = std.fs;
-const parser = @import("syntax/parser.zig");
-const Vm = @import("eval/Vm.zig");
-const ErrorIterator = @import("syntax/node.zig").ErrorIterator;

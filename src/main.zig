@@ -32,7 +32,7 @@ pub fn main() !void {
     }
 
     if (res.args.init != 0) {
-        return cli.init();
+        return cli.init_cmd.run();
     }
 
     if (res.positionals[0].len == 0) fatal(
@@ -41,7 +41,7 @@ pub fn main() !void {
         \\
     , .{});
 
-    cli.run(res.positionals[0], std.fs.cwd(), res.args, allocator);
+    cli.run_cmd.run(res.positionals[0], std.fs.cwd(), res.args, allocator);
 }
 
 pub fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
