@@ -11,6 +11,7 @@ pub fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
 }
 
 pub const Colors = struct {
+    pub const reset = "\x1b[0m";
     pub const black = "\x1b[30m";
     pub const black_bg = "\x1b[40m";
     pub const red = "\x1b[31m";

@@ -44,13 +44,13 @@ pub fn init(gpa: Allocator, all_nodes: []const SyntaxNode) Allocator.Error!Vm {
 
 pub fn deinit(self: *Vm) void {
     self.heap.deinit(self.allocator);
-    self.output.deinit(self.allocator);
     self.strings.deinit(self.allocator);
     self.globals.deinit(self.allocator);
 }
 
 pub fn eval(self: *Vm, start_node: *const SyntaxNode) RuntimeError![]const u8 {
     const root = ast.TextNode.toTyped(start_node) orelse unreachable;
+    errdefer self.output.deinit(self.allocator);
 
     base.evalTextNode(root, self) catch |e| switch (e) {
         ControlFlow.Error => return RuntimeError.Error,

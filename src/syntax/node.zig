@@ -322,17 +322,19 @@ pub const SyntaxNode = struct {
 
         // Get the range that this tree node encompasses
         const child_slice = tree.getChildren(all_nodes);
-        const range_start = child_slice[0].range;
-        const end = child_slice[child_slice.len - 1].range;
-        const range_end = if (end.len == 0)
-            @as(*const u8, @ptrCast(end.ptr))
-        else
-            &end[end.len - 1];
+        const range = if (child_slice.len > 0) blk: {
+            const range_start = child_slice[0].range;
+            const end = child_slice[child_slice.len - 1].range;
+            const range_end = if (end.len == 0)
+                @as(*const u8, @ptrCast(end.ptr))
+            else
+                &end[end.len - 1];
 
-        const range = if (@inComptime())
-            " " // Ensure everything works in our tests since pointer math doesnt work at comptime
-        else
-            range_start.ptr[0..(range_end - range_start.ptr)];
+            if (@inComptime())
+                break :blk " " // Ensure everything works in our tests since pointer math doesnt work at comptime
+            else
+                break :blk range_start.ptr[0..(range_end - range_start.ptr)];
+        } else "";
 
         return SyntaxNode{
             .range = range,
