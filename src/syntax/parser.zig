@@ -17,6 +17,10 @@ const ParseResult = struct {
 /// Parses top level text of a file
 pub fn parse(text: []const u8, allocator: std.mem.Allocator) Allocator.Error!ParseResult {
     var parser = Parser.init(text, allocator);
+    errdefer {
+        parser.nodes.deinit();
+        parser.stack.deinit();
+    }
     try parseText(&parser);
 
     std.debug.assert(parser.stack.items.len == 1);
@@ -206,7 +210,7 @@ fn parseExpr(p: *Parser, prec: usize, expr: bool) Allocator.Error!void {
         break;
     }
 }
-pub fn parseDictOrList(p: *Parser) Allocator.Error!void {
+fn parseDictOrList(p: *Parser) Allocator.Error!void {
     const m = p.marker();
 
     try p.expect(.left_brace);
@@ -454,7 +458,7 @@ fn parseFunctionDef(p: *Parser) Allocator.Error!void {
 }
 
 /// Parse a block like that inside of a function or loop
-pub fn parseBlock(p: *Parser) Allocator.Error!void {
+fn parseBlock(p: *Parser) Allocator.Error!void {
     // Set things up for parsing body
     const old_end = p.finish_on;
     p.finish_on.addKind(.end);

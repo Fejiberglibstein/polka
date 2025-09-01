@@ -28,7 +28,7 @@ const HashContext = struct {
     }
 };
 
-pub fn init(gpa: Allocator, all_nodes: []const SyntaxNode) !Vm {
+pub fn init(gpa: Allocator, all_nodes: []const SyntaxNode) Allocator.Error!Vm {
     return Vm{
         .err = null,
         .locals = .init,
@@ -37,7 +37,7 @@ pub fn init(gpa: Allocator, all_nodes: []const SyntaxNode) !Vm {
         .strings = .empty,
         .globals = .empty,
         .nodes = all_nodes,
-        .stack = try .init(0),
+        .stack = std.BoundedArray(Value, stack_size).init(0) catch unreachable,
         .heap = try .init(gpa),
     };
 }
@@ -587,7 +587,7 @@ const Moved = @import("value.zig").Moved;
 const Object = @import("value.zig").Object;
 const RuntimeError = @import("error.zig").RuntimeError;
 const ControlFlow = @import("error.zig").ControlFlow;
-const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
+pub const RuntimeErrorPayload = @import("error.zig").RuntimeErrorPayload;
 const String = @import("value.zig").String;
 const Closure = @import("value.zig").Closure;
 const List = @import("value.zig").List;
