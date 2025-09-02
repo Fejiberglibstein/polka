@@ -584,14 +584,31 @@ const Parser = struct {
     fn expect(self: *Parser, kind: SyntaxKind) Allocator.Error!void {
         const tok = try self.eatGet();
         if (tok.kind() != kind) {
+            if (tok.kind() == .newline) {
+                // We want line numbers to be accurate even if there was an error.
+                //
+                // The cst error iterator will use each newline token in order to determine line &
+                // column number
+                try self.stack.append(SyntaxNode.leafNode(.newline, "\n"));
+            }
+
             self.has_error = true;
-            tok.unexpected();
+            tok.expected(kind);
         }
     }
 
     fn unexpected(self: *Parser) Allocator.Error!void {
         self.has_error = true;
-        (try self.eatGet()).unexpected();
+
+        const tok = try self.eatGet();
+        if (tok.kind() == .newline) {
+            // We want line numbers to be accurate even if there was an error.
+            //
+            // The cst error iterator will use each newline token in order to determine line &
+            // column number
+            try self.stack.append(SyntaxNode.leafNode(.newline, "\n"));
+        }
+        tok.unexpected();
     }
 
     fn wrap(self: *Parser, kind: SyntaxKind, m: Marker) Allocator.Error!void {

@@ -73,7 +73,7 @@ fn handleFile(file: fs.File, path: []const u8, gpa: Allocator) void {
     const heading_width = path.len + padding;
 
     const color: struct { fg: []const u8, bg: []const u8 } = switch (run_result) {
-        .success => .{ .fg = Colors.green, .bg = Colors.green_bg },
+        .success => .{ .fg = Colors.cyan, .bg = Colors.cyan_bg },
         else => .{ .fg = Colors.red, .bg = Colors.red_bg },
     };
     _ = stdout.writeAll(color.fg) catch {};
@@ -122,7 +122,7 @@ fn handleFile(file: fs.File, path: []const u8, gpa: Allocator) void {
                     \\Error while parsing (line: {d}, col: {d})
                     \\  {}
                     \\
-                , .{ cst_err.line, cst_err.col, cst_err.err }) catch {};
+                , .{ cst_err.line + 1, cst_err.col + 1, cst_err.err }) catch {};
             }
         },
         .runtime_error => |err| {
