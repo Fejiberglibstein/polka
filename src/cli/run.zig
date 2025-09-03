@@ -72,14 +72,18 @@ fn handleFile(file: fs.File, path: []const u8, gpa: Allocator) void {
     const padding = 2;
     const heading_width = path.len + padding;
 
-    const color: struct { fg: []const u8, bg: []const u8 } = switch (run_result) {
-        // .success => |f| {
-        //     gpa.free(f);
-        //     return;
-        // },
+    const tty_config = tty.detectConfig(stdout);
+
+    const Color = struct {
+        fg: []const u8,
+        bg: []const u8,
+    };
+
+    const color: Color = if (tty_config == .escape_codes) switch (run_result) {
         .success => .{ .fg = Colors.cyan, .bg = Colors.cyan_bg },
         else => .{ .fg = Colors.red, .bg = Colors.red_bg },
-    };
+    } else .{ .fg = "", .bg = "" };
+
     _ = stdout.writeAll(color.fg) catch {};
 
     // Print the filename header
@@ -180,5 +184,6 @@ const Vm = @import("../eval/Vm.zig");
 const CstErrorIterator = @import("../syntax/node.zig").ErrorIterator;
 const cli = @import("../cli.zig");
 const Colors = cli.Colors;
+const tty = std.io.tty;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
