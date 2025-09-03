@@ -73,6 +73,10 @@ fn handleFile(file: fs.File, path: []const u8, gpa: Allocator) void {
     const heading_width = path.len + padding;
 
     const color: struct { fg: []const u8, bg: []const u8 } = switch (run_result) {
+        // .success => |f| {
+        //     gpa.free(f);
+        //     return;
+        // },
         .success => .{ .fg = Colors.cyan, .bg = Colors.cyan_bg },
         else => .{ .fg = Colors.red, .bg = Colors.red_bg },
     };
@@ -90,14 +94,13 @@ fn handleFile(file: fs.File, path: []const u8, gpa: Allocator) void {
     switch (run_result) {
         .success => |res| {
             defer gpa.free(res);
-
             if (res.len == 0) {
                 return;
             }
 
+            // TODO - maybe return line count along with res?
             const lines = std.mem.count(u8, res, "\n");
-            const number_width = std.math.log10(lines);
-
+            const number_width = std.math.log10(lines + 1);
             var len: u64 = 0;
 
             for (0..lines) |i| {
@@ -105,7 +108,7 @@ fn handleFile(file: fs.File, path: []const u8, gpa: Allocator) void {
                 len += line.len + 1;
                 std.fmt.formatInt(i + 1, 10, .lower, .{
                     .width = number_width + 1,
-                    .fill = '0',
+                    .fill = ' ',
                 }, stdout.writer()) catch {};
                 stdout.writer().print(" │ {s}\n", .{line}) catch {};
             }
@@ -119,7 +122,7 @@ fn handleFile(file: fs.File, path: []const u8, gpa: Allocator) void {
 
             while (iter.next() catch cli.oom()) |cst_err| {
                 stdout.writer().print(
-                    \\Error while parsing (line: {d}, col: {d})
+                    \\Syntax error (line: {d}, col: {d})
                     \\  {}
                     \\
                 , .{ cst_err.line + 1, cst_err.col + 1, cst_err.err }) catch {};
@@ -129,7 +132,7 @@ fn handleFile(file: fs.File, path: []const u8, gpa: Allocator) void {
             defer gpa.free(err.src);
 
             stdout.writer().print(
-                \\Error while parsing (line: TODO, col: TODO)
+                \\Runtime error (line: TODO, col: TODO)
                 \\  {}
                 \\
             , .{err.err}) catch {};
