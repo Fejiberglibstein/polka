@@ -231,7 +231,7 @@ pub fn stackPeek(self: *Vm, back: usize) Value {
 }
 
 pub fn setError(self: *Vm, err: RuntimeErrorPayload) RuntimeError!noreturn {
-    if (self.err != null) self.err = err;
+    if (self.err == null) self.err = err;
     return RuntimeError.Error;
 }
 
