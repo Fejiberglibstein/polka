@@ -179,8 +179,8 @@ pub const NodeKind = enum {
     while_loop,
     /// If expression with an optional else at the end
     ///
-    /// 'if' EXPRESSION 'then' newline text 
-    /// ('elseif' newline EXPRESSION text)* 
+    /// 'if' EXPRESSION 'then' newline text
+    /// ('elseif' newline EXPRESSION text)*
     /// ('else' newline EXPRESSION)? 'end'
     conditional,
     /// Unary expression
