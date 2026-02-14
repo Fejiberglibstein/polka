@@ -1,4 +1,4 @@
-pub const NodeKind = enum {
+pub const SyntaxKind = enum(u7) {
     // Leaf tokens
 
     /// End of file
@@ -202,8 +202,8 @@ pub const NodeKind = enum {
     /// EXPRESSION '[ EXPRESSION ']'
     bracket_access,
 
-    pub const NodeType = enum { tree, leaf };
-    pub fn getType(self: NodeKind) NodeType {
+    pub const SyntaxNodeType = enum { tree, leaf };
+    pub fn getType(self: SyntaxKind) SyntaxNodeType {
         return switch (self) {
             .eof,
             .code_begin,
@@ -281,4 +281,31 @@ pub const NodeKind = enum {
     }
 };
 
+pub const SyntaxNode = packed struct {
+    kind: SyntaxKind,
+    data: packed union {
+        /// A tree SyntaxNode. It is made up of a slice of children. The children of every
+        /// SyntaxNode are located in a single list; .offset is the offset into that list where this
+        /// node's children start, and .len is the number of children that this node has.
+        tree: packed struct { offset: u32, len: u25 },
+        /// A leaf SyntaxNode. It is made up of a slice of characters of the range this node takes
+        /// up in the source string. .offset is the offset into that source string where this node's
+        /// range starts, and .len is the length of the node's range.
+        leaf: packed struct { offset: u32, len: u25 },
+    },
+
+    pub fn getLeafSource(self: SyntaxNode, src: []const u8) []const u8 {
+        assert(self.kind.getType() == .leaf);
+        const range = self.data.leaf;
+        return src[range.offset .. range.offset + range.len];
+    }
+
+    pub fn getTreeChildren(self: SyntaxNode, all_nodes: []const SyntaxNode) []const SyntaxNode {
+        assert(self.kind.getType() == .tree);
+        const children = self.data.tree;
+        return all_nodes[children.offset .. children.offset + children.len];
+    }
+};
+
 const std = @import("std");
+const assert = std.debug.assert;
