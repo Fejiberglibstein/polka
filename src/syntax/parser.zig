@@ -2,6 +2,7 @@ pub fn parse(src: []const u8, mode: Lexer.Mode, gpa: Allocator) Allocator.Error!
 
 const Parser = struct {
     text: []const u8,
+    gpa: Allocator,
     l: Lexer,
     /// Stack of the current nodes we haven't yet parsed into a tree node.
     stack: std.ArrayList(SyntaxNode),
@@ -9,8 +10,8 @@ const Parser = struct {
     nodes: std.ArrayList(SyntaxNode),
     /// Current token we're looking at
     current: Token,
-    /// If the parser has had an error
-    has_error: bool,
+    /// List of all errors that have been encountered while parsing
+    errors: std.ArrayList(SyntaxError),
 
     const Marker = usize;
     const Token = struct {
@@ -31,12 +32,12 @@ const Parser = struct {
     }
 
     fn eat(self: *Parser) Allocator.Error!void {
-        try self.stack.append(self.current.node);
-        self.current = parseToken(&self.l);
+        try self.stack.append(self.gpa, self.current.node);
+        try self.nextToken();
     }
 
-    fn assert(self: *Parser, kind: SyntaxKind) Allocator.Error!void {
-        std.debug.assert(self.current.kind == kind);
+    fn eatAssert(self: *Parser, kind: SyntaxKind) Allocator.Error!void {
+        std.debug.assert(self.current.node.kind == kind);
         try self.eat();
     }
 
@@ -52,18 +53,18 @@ const Parser = struct {
         return false;
     }
 
-    fn wrap(self: *Parser, kind: SyntaxKind, m: Marker) Allocator.Error!void {
+    fn wrap(self: *Parser, m: Marker, kind: SyntaxKind) Allocator.Error!void {
         const offset = self.nodes.items.len;
 
-        try self.nodes.appendSlice(self.stack.items[m..]);
+        try self.nodes.appendSlice(self.gpa, self.stack.items[m..]);
 
         // Sizing down, so can't get an allocation error
         std.debug.assert(m <= self.stack.items.len);
-        self.stack.resize(m) catch unreachable;
+        self.stack.resize(self.gpa, m) catch unreachable;
 
         const len = self.nodes.items.len - offset;
 
-        try self.stack.append(SyntaxNode{
+        try self.stack.append(self.gpa, SyntaxNode{
             .kind = kind,
             .data = .{ .tree = .{ .len = @intCast(len), .offset = @intCast(offset) } },
         });
@@ -73,27 +74,58 @@ const Parser = struct {
         return self.finish_on.hasKind(kind);
     }
 
-    fn init(t: []const u8, gpa: std.mem.Allocator) Parser {
-        var lexer = Lexer.init(t);
-        const token = Parser.parseToken(&lexer);
+    fn init(src: []const u8, m: Lexer.Mode, gpa: Allocator) !Parser {
+        const lexer = Lexer.init(src, m, "#");
 
-        return Parser{
-            .text = t,
+        var self: Parser = .{
+            .text = src,
             .l = lexer,
-            .nodes = .init(gpa),
-            .stack = .init(gpa),
-            .current = token,
-            .has_error = false,
+            .nodes = .empty,
+            .stack = .empty,
+            .errors = .empty,
+            .current = undefined,
+            .gpa = gpa,
         };
+
+        try self.nextToken();
+
+        return self;
     }
 
-    fn parseToken(l: *Lexer) Token {
-        const node, const kind, const whitespace = l.next();
+    fn addError(self: *Parser, err: SyntaxError) !void {
+        try self.errors.append(self.gpa, err);
+    }
 
-        return Token{
+    fn eatUnexpected(self: *Parser) !void {
+        try self.addError(.{
+            .pos = self.current.position,
+            .range = self.current.node.getLeafSource(self.text),
+            .kind = .{ .unexpected_token = self.current.node.kind },
+        });
+        try self.eat();
+    }
+
+    fn eatExpect(self: *Parser, kind: SyntaxKind) !void {
+        if (self.current.node.kind != kind) {
+            try self.addError(.{
+                .pos = self.current.position,
+                .range = self.current.node.getLeafSource(self.text),
+                .kind = .{
+                    .expected_token = .{ .expected = kind, .actual = self.current.node.kind },
+                },
+            });
+        }
+        try self.eat();
+    }
+
+    fn nextToken(self: *Parser) !void {
+        const node, const position, const err = self.l.next();
+
+        if (err) |e| try self.addError(e);
+
+        self.current = .{
             .node = node,
-            .kind = kind,
-            .whitespace = whitespace,
+            .position = position,
         };
     }
 };
@@ -104,3 +136,4 @@ const Allocator = std.mem.Allocator;
 const Lexer = @import("Lexer.zig");
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;
+const SyntaxError = @import("errors.zig").SyntaxError;

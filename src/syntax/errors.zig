@@ -1,10 +1,14 @@
 pub const SyntaxErrorKind = union(enum) {
-    unexpected_character,
+    unexpected_character: u8,
+    unexpected_token: SyntaxKind,
+    expected_token: struct { expected: SyntaxKind, actual: SyntaxKind },
 };
 
 pub const SyntaxError = struct {
     kind: SyntaxErrorKind,
     range: []const u8,
-    line: u32,
-    col: u32,
+    pos: Position,
 };
+
+const SyntaxKind = @import("node.zig").SyntaxKind;
+const Position = @import("Lexer.zig").Position;
