@@ -3,6 +3,8 @@ pub const SyntaxKind = enum(u7) {
 
     /// End of file
     eof,
+    /// Syntax error
+    unexpected_token,
     /// Begins a codeline `#*`
     ///
     /// The symbol doesn't need to begin with a hash, it will use whatever the filetype's comment
@@ -24,7 +26,7 @@ pub const SyntaxKind = enum(u7) {
     /// *
     star,
     /// %
-    perc,
+    percent,
     /// -
     minus,
     /// /
@@ -32,17 +34,17 @@ pub const SyntaxKind = enum(u7) {
     /// ,
     comma,
     /// (
-    left_paren,
+    l_paren,
     /// )
-    right_paren,
+    r_paren,
     /// {
-    left_brace,
+    l_brace,
     /// }
-    right_brace,
+    r_brace,
     /// [
-    left_bracket,
+    l_bracket,
     /// ]
-    right_bracket,
+    r_bracket,
     /// =
     eq,
     /// ==
@@ -63,48 +65,27 @@ pub const SyntaxKind = enum(u7) {
     string,
     /// Identifier, used for variables, functions, etc. `foo`
     ident,
-    nil,
-    /// `true` keyword; the true constant
-    true,
-    /// `false` keyword; the false constant
-    false,
-    //// `in` keyword, used for iterables and as a binary operator `h in list`
-    in,
-    /// `or` keyword, used as a binary operator or
-    @"or",
-    /// `and` keyword, used as a binary operator and
-    @"and",
-    /// `not` keyword, used as unary operator not
-    not,
-    /// `for` keyword, used for for loops
-    @"for",
-    /// `while` keyword, used in while loops
-    @"while",
-    /// `do` keyword, used in for loops (for i in list do)
-    do,
-    /// `if` keyword, used in conditional expressions
-    @"if",
-    /// `then` keyword, used in conditional expressions
-    then,
-    /// `else` keyword, used in conditional expressions
-    @"else",
-    /// `elseif` keyword, used in conditional expressions
-    elseif,
-    /// `end` keyword, used to terminate a block
-    end,
-    /// `nil` keyword; the nil constant
-    /// `export` keyword, used to declare a variable or function as global outside the file
-    @"export",
-    /// `return` keyword, used to return from a function
-    @"return",
-    /// `let` keyword, used for variable declarations
-    let,
-    /// `func` keyword, used to declare a function
-    func,
-    /// `continue` keyword, used to continue to the next iteration in a loop
-    @"continue",
-    /// `break` keyword, used to break out of loops
-    @"break",
+    keyword_nil,
+    keyword_true,
+    keyword_false,
+    keyword_in,
+    keyword_or,
+    keyword_and,
+    keyword_not,
+    keyword_for,
+    keyword_while,
+    keyword_do,
+    keyword_if,
+    keyword_then,
+    keyword_else,
+    keyword_elseif,
+    keyword_end,
+    keyword_export,
+    keyword_return,
+    keyword_let,
+    keyword_func,
+    keyword_continue,
+    keyword_break,
 
     // Tree tokens
     //

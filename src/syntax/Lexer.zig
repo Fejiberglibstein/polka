@@ -10,31 +10,216 @@ pub const Mode = enum {
 };
 
 src: []const u8,
-line: u32,
-col: u32,
+position: Position,
 s: Scanner,
 mode: Mode,
+comment_string: []const u8,
 
 pub const Lexer = @This();
 
-pub fn init(src: []const u8, mode: Mode) Lexer {
+pub fn init(src: []const u8, mode: Mode, comment_string: []const u8) Lexer {
     return .{
-        .col = 1,
-        .line = 1,
+        .position = .{
+            .col = 1,
+            .line = 1,
+        },
         .src = src,
         .s = Scanner.init(src),
         .mode = mode,
+        .comment_string = comment_string,
     };
 }
 
-pub fn next(self: *Lexer) SyntaxNode {
-    _ = self;
-    return undefined;
+pub const Position = struct {
+    line: u32,
+    col: u32,
+};
+
+pub fn next(self: *Lexer) struct { SyntaxNode, Position, ?SyntaxError } {
+    const before_whitespace = self.s.cursor;
+    self.s.eatWhitespace();
+    const start = self.s.cursor;
+    self.position.col += @intCast(start - before_whitespace);
+
+    const position = self.position;
+
+    const kind: SyntaxKind = if (self.s.peek() == null)
+        .eof
+    else if (self.s.eatNewline()) blk: {
+        self.position.line += 1;
+        self.position.col = 1;
+        break :blk .newline;
+    } else switch (self.mode) {
+        .text => blk: {
+            if (self.eatCodeBeginOrDelim()) |kind| break :blk kind;
+            self.s.eatUntil([_]u8{ '\r', '\n' });
+            self.position.col += @intCast(self.s.cursor - start);
+            break :blk .text_line;
+        },
+        .code_file, .code_block, .code_line => blk: {
+            const kind = self.code();
+            self.position.col += @intCast(self.s.cursor - start);
+            break :blk kind;
+        },
+    };
+
+    const end = self.s.cursor;
+
+    const node: SyntaxNode = .{
+        .kind = kind,
+        .data = .{
+            .leaf = .{ .offset = @intCast(start), .len = @intCast(end - start) },
+        },
+    };
+
+    return .{ node, position, null };
+}
+
+fn code(self: *Lexer) SyntaxKind {
+    if (eatCodeBeginOrDelim(self)) |tok| return tok;
+
+    return sw: switch (self.s.eat() orelse 0) {
+        '.' => .dot,
+        '+' => .plus,
+        '*' => .star,
+        '-' => .minus,
+        '/' => .slash,
+        ',' => .comma,
+        '%' => .percent,
+        '(' => .l_paren,
+        ')' => .r_paren,
+        '{' => .l_brace,
+        '}' => .r_brace,
+        '[' => .l_bracket,
+        ']' => .r_bracket,
+        '=' => if (self.s.eatIf('=')) .eq_eq else .eq,
+        '<' => if (self.s.eatIf('=')) .lt_eq else .lt,
+        '>' => if (self.s.eatIf('=')) .gt_eq else .gt,
+        '~' => if (self.s.eatIf('=')) .not_eq else continue :sw 0,
+        '0'...'9' => self.number(),
+        '"' => string(self),
+        'a'...'z', 'A'...'Z', '_' => ident(self),
+
+        else => .unexpected_token,
+    };
+}
+
+fn isDigit(c: u8) bool {
+    return c >= '0' and c <= '9';
+}
+
+fn isIdentChar(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or isDigit(c) or c == '_';
+}
+
+fn number(self: *Lexer) SyntaxKind {
+    self.s.eatWhile(isDigit);
+    if (self.s.eatIf('.')) {
+        self.s.eatWhile(isDigit);
+    }
+    return .number;
+}
+
+fn ident(self: *Lexer) SyntaxKind {
+    // we already parsed the first character of the ident
+    const cursor = self.s.cursor - 1;
+    self.s.eatWhile(isIdentChar);
+
+    return if (keyword(self.s.from(cursor))) |k|
+        k
+    else
+        .ident;
+}
+
+const keywords: std.StaticStringMap(SyntaxKind) = .initComptime(.{
+    .{ "nil", .keyword_nil },
+    .{ "true", .keyword_true },
+    .{ "false", .keyword_false },
+    .{ "in", .keyword_in },
+    .{ "or", .keyword_or },
+    .{ "and", .keyword_and },
+    .{ "not", .keyword_not },
+    .{ "for", .keyword_for },
+    .{ "while", .keyword_while },
+    .{ "do", .keyword_do },
+    .{ "if", .keyword_if },
+    .{ "then", .keyword_then },
+    .{ "else", .keyword_else },
+    .{ "elseif", .keyword_elseif },
+    .{ "end", .keyword_end },
+    .{ "export", .keyword_export },
+    .{ "return", .keyword_return },
+    .{ "let", .keyword_let },
+    .{ "func", .keyword_func },
+    .{ "continue", .keyword_continue },
+    .{ "break", .keyword_break },
+});
+
+pub fn keyword(str: []const u8) ?SyntaxKind {
+    return keywords.get(str);
+}
+
+fn string(self: *Lexer) SyntaxKind {
+    while (true) {
+        self.s.eatUntil([_]u8{ '\\', '"', '\n', '\r' });
+
+        if (self.s.eatNewline()) {
+            return .unexpected_token;
+        }
+
+        switch (self.s.eat() orelse 0) {
+            '\\' => _ = self.s.eatIf('"'),
+            '"' => break,
+
+            else => {},
+        }
+    }
+    return .string;
+}
+
+fn eatCodeBegin(self: *Lexer) ?SyntaxKind {
+    const start = self.s.cursor;
+    if (self.s.eatIf(self.comment_string)) {
+        if (self.s.eat('*')) {
+            return .code_begin;
+        } else {
+            self.s.moveTo(start);
+        }
+    }
+    return null;
+}
+
+fn eatCodeDelim(self: *Lexer) ?SyntaxKind {
+    const start = self.s.cursor;
+    if (self.s.eatIf(self.comment_string)) {
+        if (self.s.eat("**")) {
+            return .code_delim;
+        } else {
+            self.s.moveTo(start);
+        }
+    }
+    return null;
+}
+
+fn eatCodeBeginOrDelim(self: *Lexer) ?SyntaxKind {
+    const start = self.s.cursor;
+    if (self.s.eatIf(self.comment_string)) {
+        if (self.s.eatIf('*')) {
+            return if (self.s.eatIf('*'))
+                .codeblock_delim
+            else
+                .code_begin;
+        } else {
+            self.s.moveTo(start);
+        }
+    }
+    return null;
 }
 
 const std = @import("std");
 
-const node = @import("node.zig");
-const SyntaxNode = node.SyntaxNode;
-const SyntaxKind = node.SyntaxKind;
+const SyntaxNode = @import("node.zig").SyntaxNode;
+const SyntaxKind = @import("node.zig").SyntaxKind;
 const Scanner = @import("Scanner.zig");
+const errors = @import("errors.zig");
+const SyntaxError = errors.SyntaxError;

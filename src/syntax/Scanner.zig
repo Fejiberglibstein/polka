@@ -43,14 +43,14 @@ pub fn from(self: *Scanner, cursor: usize) []const u8 {
 }
 
 /// Check if the cursor is on top of the pattern
-pub fn at(self: *Scanner, comptime pattern: anytype) bool {
+pub fn at(self: *Scanner, pattern: anytype) bool {
     const pat = Pattern.get(pattern);
 
     if (self.isDone()) return false;
     return pat.matches(self.after());
 }
 
-pub fn eatIf(self: *Scanner, comptime pattern: anytype) bool {
+pub fn eatIf(self: *Scanner, pattern: anytype) bool {
     const pat = Pattern.get(pattern);
 
     if (self.isDone()) return false;
@@ -61,7 +61,7 @@ pub fn eatIf(self: *Scanner, comptime pattern: anytype) bool {
     return false;
 }
 
-pub fn eatUntil(self: *Scanner, comptime pattern: anytype) void {
+pub fn eatUntil(self: *Scanner, pattern: anytype) void {
     const pat = Pattern.get(pattern);
 
     if (self.isDone()) return;
@@ -71,7 +71,7 @@ pub fn eatUntil(self: *Scanner, comptime pattern: anytype) void {
     }
 }
 
-pub fn eatWhile(self: *Scanner, comptime pattern: anytype) void {
+pub fn eatWhile(self: *Scanner, pattern: anytype) void {
     const pat = Pattern.get(pattern);
 
     if (self.isDone()) return;
@@ -139,28 +139,28 @@ fn isZigString(comptime T: type) bool {
     };
 }
 
-const Pattern = union(enum) {
+pub const Pattern = union(enum) {
     string: []const u8,
     any: []const u8,
     char: u8,
-    @"fn": fn (u8) callconv(.@"inline") bool,
+    @"fn": *const fn (u8) bool,
 
-    pub fn get(comptime pat: anytype) Pattern {
-        return sw: switch (@typeInfo(@TypeOf(pat))) {
+    pub fn get(pat: anytype) Pattern {
+        return switch (@typeInfo(@TypeOf(pat))) {
             .comptime_int => .{ .char = pat },
             .int => |_| .{ .Char = pat },
-            .pointer => |_| if (isZigString(@TypeOf(pat)))
+            .pointer => |_| if (isZigString(@TypeOf(pat)) or @TypeOf(pat) == []const u8)
                 .{ .string = pat }
             else
-                continue :sw .void,
+                @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
             .array => |v| if (v.child == u8)
                 .{ .any = pat[0..] }
             else
-                continue :sw .void,
+                @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
             .@"fn" => |_| if (@TypeOf(pat) == @FieldType(Pattern, "fn"))
                 .{ .@"fn" = pat }
             else
-                continue :sw .void,
+                @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
             else => @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
         };
     }
