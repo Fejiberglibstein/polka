@@ -127,8 +127,8 @@ pub const SyntaxKind = enum(u7) {
     /// Expression inside parens
     /// '(' EXPRESSION ')'
     grouping,
-    /// Function definition statement. Functions can be anonymous `func(a, b) ... end`, and they also come in
-    /// two flavors: The first is the typical lua-style function:
+    /// Function definition statement. Functions can be anonymous `func(a, b) ... end`, and they
+    /// also come in two flavors: The first is the typical lua-style function:
     ///     #* func add(a, b)
     ///     #*   return a + b
     ///     #* end
@@ -175,7 +175,7 @@ pub const SyntaxKind = enum(u7) {
     function_call,
     /// Argument list in a function.
     /// '(' (EXPRESSION (',' EXPRESSION)* ','?)? ')'
-    argument_list,
+    function_args,
     /// Dot access expression, used to access fields of expressions
     /// EXPRESSION '.' ident
     dot_access,
@@ -254,7 +254,7 @@ pub const SyntaxKind = enum(u7) {
             .unary,
             .binary,
             .function_call,
-            .argument_list,
+            .function_args,
             .dot_access,
             .bracket_access,
             => .tree,
