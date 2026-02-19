@@ -151,13 +151,15 @@ pub const Pattern = union(enum) {
             .int => |_| .{ .Char = pat },
             .pointer => |_| if (isZigString(@TypeOf(pat)) or @TypeOf(pat) == []const u8)
                 .{ .string = pat }
+            else if (@TypeOf(pat) == *const fn (u8) bool)
+                .{ .@"fn" = pat }
             else
                 @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
             .array => |v| if (v.child == u8)
                 .{ .any = pat[0..] }
             else
                 @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
-            .@"fn" => |_| if (@TypeOf(pat) == @FieldType(Pattern, "fn"))
+            .@"fn" => |_| if (@TypeOf(pat) == fn (u8) bool)
                 .{ .@"fn" = pat }
             else
                 @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
