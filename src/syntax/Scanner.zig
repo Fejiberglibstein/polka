@@ -1,5 +1,3 @@
-const std = @import("std");
-
 source: []const u8,
 cursor: usize,
 
@@ -78,15 +76,18 @@ pub fn eatSpaces(self: *Scanner) void {
 }
 
 pub fn eatWhitespace(self: *Scanner) void {
-    self.eatWhile(.{ .any = &.{ ' ', '\t', '\n', '\r' } });
+    self.eatWhile(.{ .any = &.{ ' ', '\t', 0x0B, 0x0C } });
 }
 
 pub fn eatNewline(self: *Scanner) bool {
     if (self.isDone()) return false;
 
     if (self.at(.{ .any = &.{ '\n', '\r' } })) {
-        if (self.eat() == '\r') {
+        const char = self.eat();
+        if (char == '\r') {
             _ = self.eatIf(.{ .char = '\n' });
+        } else {
+            assert(char == '\n');
         }
         return true;
     }
@@ -197,3 +198,6 @@ test "scanner" {
     try expect(s.eatIf(.{ .char = 'h' }));
     try expectEql(s.eat(), null);
 }
+
+const std = @import("std");
+const assert = std.debug.assert;

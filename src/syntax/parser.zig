@@ -87,6 +87,7 @@ fn parseCode(p: *Parser) Allocator.Error!void {
 }
 
 fn parseStatement(p: *Parser) !void {
+    if (try eatNewline(p)) return;
     switch (p.current.node.kind) {
         .keyword_for => try parseForLoop(p),
         .keyword_while => try parseWhileLoop(p),
@@ -96,11 +97,18 @@ fn parseStatement(p: *Parser) !void {
         .keyword_break, .keyword_continue => try p.eat(),
         else => try parseExpression(p, 0),
     }
-    try p.eatExpect(.newline);
+    try expectNewline(p);
 }
 
 fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
     const m = p.marker();
+
+    if (ast.toASTNode(ast.UnaryOperator, p.current.node)) |op| {
+        try p.eat();
+        try parseExpression(p, op.precedence()); // Plus 1 since unary ops are right associative
+        try p.wrap(m, .unary);
+        return;
+    }
 
     switch (p.current.node.kind) {
         .ident,
@@ -124,12 +132,6 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
         .keyword_func => try parseFunctionDefinition(p),
 
         else => {},
-    }
-
-    if (ast.toASTNode(ast.UnaryOperator, p.current.node)) |op| {
-        try p.eat();
-        try parseExpression(p, op.precedence() + 1); // Plus 1 since unary ops are right associative
-        try p.wrap(m, .unary);
     }
 
     while (true) {
@@ -338,6 +340,19 @@ fn parseLetStatement(p: *Parser) !void {
 
 fn skipNewlines(p: *Parser) !void {
     while (try eatNewline(p)) {}
+}
+
+fn expectNewline(p: *Parser) !void {
+    if (p.at(.eof)) return;
+
+    switch (p.mode()) {
+        .code_line => {
+            try p.eatExpect(.newline);
+            try p.eatExpect(.code_begin);
+        },
+        .code_file, .code_block => _ = try p.eatIf(.newline),
+        .text => _ = try p.eatIf(.newline),
+    }
 }
 
 fn eatNewline(p: *Parser) !bool {
