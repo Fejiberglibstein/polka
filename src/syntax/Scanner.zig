@@ -43,16 +43,12 @@ pub fn from(self: *Scanner, cursor: usize) []const u8 {
 }
 
 /// Check if the cursor is on top of the pattern
-pub fn at(self: *Scanner, pattern: anytype) bool {
-    const pat = Pattern.get(pattern);
-
+pub fn at(self: *Scanner, pat: Pattern) bool {
     if (self.isDone()) return false;
     return pat.matches(self.after());
 }
 
-pub fn eatIf(self: *Scanner, pattern: anytype) bool {
-    const pat = Pattern.get(pattern);
-
+pub fn eatIf(self: *Scanner, pat: Pattern) bool {
     if (self.isDone()) return false;
     if (pat.matches(self.after())) {
         self.cursor += pat.length();
@@ -61,9 +57,7 @@ pub fn eatIf(self: *Scanner, pattern: anytype) bool {
     return false;
 }
 
-pub fn eatUntil(self: *Scanner, pattern: anytype) void {
-    const pat = Pattern.get(pattern);
-
+pub fn eatUntil(self: *Scanner, pat: Pattern) void {
     if (self.isDone()) return;
     while (!pat.matches(self.after())) {
         _ = self.eat();
@@ -71,9 +65,7 @@ pub fn eatUntil(self: *Scanner, pattern: anytype) void {
     }
 }
 
-pub fn eatWhile(self: *Scanner, pattern: anytype) void {
-    const pat = Pattern.get(pattern);
-
+pub fn eatWhile(self: *Scanner, pat: Pattern) void {
     if (self.isDone()) return;
     while (pat.matches(self.after())) {
         self.cursor += pat.length();
@@ -86,15 +78,15 @@ pub fn eatSpaces(self: *Scanner) void {
 }
 
 pub fn eatWhitespace(self: *Scanner) void {
-    self.eatWhile([_]u8{ ' ', '\t', '\n', '\r' });
+    self.eatWhile(.{ .any = &.{ ' ', '\t', '\n', '\r' } });
 }
 
 pub fn eatNewline(self: *Scanner) bool {
     if (self.isDone()) return false;
 
-    if (self.at([_]u8{ '\n', '\r' })) {
+    if (self.at(.{ .any = &.{ '\n', '\r' } })) {
         if (self.eat() == '\r') {
-            _ = self.eatIf('\n');
+            _ = self.eatIf(.{ .char = '\n' });
         }
         return true;
     }
@@ -120,7 +112,6 @@ fn isZigString(comptime T: type) bool {
         const ptr = &info.pointer;
         // Check for CV qualifiers that would prevent coerction to []const u8
         if (ptr.is_volatile or ptr.is_allowzero) break :blk false;
-
         // If it's already a slice, simple check.
         if (ptr.size == .slice) {
             break :blk ptr.child == u8;
@@ -140,94 +131,69 @@ fn isZigString(comptime T: type) bool {
 }
 
 pub const Pattern = union(enum) {
-    string: []const u8,
-    any: []const u8,
     char: u8,
-    @"fn": *const fn (u8) bool,
-
-    pub fn get(pat: anytype) Pattern {
-        return switch (@typeInfo(@TypeOf(pat))) {
-            .comptime_int => .{ .char = pat },
-            .int => |_| .{ .Char = pat },
-            .pointer => |_| if (isZigString(@TypeOf(pat)) or @TypeOf(pat) == []const u8)
-                .{ .string = pat }
-            else if (@TypeOf(pat) == *const fn (u8) bool)
-                .{ .@"fn" = pat }
-            else
-                @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
-            .array => |v| if (v.child == u8)
-                .{ .any = pat[0..] }
-            else
-                @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
-            .@"fn" => |_| if (@TypeOf(pat) == fn (u8) bool)
-                .{ .@"fn" = pat }
-            else
-                @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
-            else => @compileError("Type " ++ @typeName(@TypeOf(pat)) ++ " is not a pattern"),
-        };
-    }
+    str: []const u8,
+    any: []const u8,
+    func: *const fn (u8) bool,
 
     pub fn matches(self: Pattern, source: []const u8) bool {
-        switch (self) {
-            .string => |str| {
-                return std.mem.eql(u8, str, source[0..str.len]);
-            },
+        return switch (self) {
+            .str => |str| std.mem.eql(u8, str, source[0..str.len]),
+            .char => |c| c == source[0],
+            .func => |f| f(source[0]),
 
-            .any => |chars| {
+            .any => |chars| blk: {
                 for (chars) |c| {
-                    if (c == source[0]) {
-                        return true;
-                    }
+                    if (c == source[0]) break :blk true;
                 }
-                return false;
+                break :blk false;
             },
-
-            .char => |c| {
-                return c == source[0];
-            },
-
-            .@"fn" => |f| {
-                return f(source[0]);
-            },
-        }
+        };
     }
 
     pub fn length(self: Pattern) usize {
         switch (self) {
-            .string => |str| return str.len,
+            .str => |str| return str.len,
             else => return 1,
         }
     }
 };
 
+fn dbo(h: u8) bool {
+    return h == 'd' or h == 'b' or h == 'o';
+}
+
 test "scanner" {
     const expect = @import("std").testing.expect;
     const expectEql = @import("std").testing.expectEqual;
 
-    var s = Scanner.init("hello world");
+    var s = Scanner.init("hello worldboh");
     try expectEql(s.cursor, 0);
 
     try expect(s.eat() == 'h');
     try expectEql(s.cursor, 1);
 
-    try expect(!s.eatIf('h'));
+    try expect(!s.eatIf(.{ .char = 'h' }));
     try expectEql(s.cursor, 1);
 
-    try expect(s.eatIf('e'));
+    try expect(s.eatIf(.{ .char = 'e' }));
     try expectEql(s.cursor, 2);
 
-    s.eatWhile('l');
+    s.eatWhile(.{ .char = 'l' });
     try expectEql(s.cursor, 4);
 
-    s.eatUntil("or");
+    s.eatUntil(.{ .str = "or" });
     try expectEql(s.cursor, 7);
 
-    s.eatUntil([_]u8{ 'h', 'b', 'd' });
+    s.eatUntil(.{ .any = &.{ 'h', 'b', 'd' } });
     try expectEql(s.cursor, 10);
 
-    try expect(s.at([_]u8{ 'h', 'b', 'd' }));
+    try expect(s.at(.{ .any = &.{ 'h', 'b', 'd' } }));
+    try expectEql(s.cursor, 10);
 
-    try expect(s.eatIf('d'));
+    s.eatWhile(.{ .func = dbo });
+    try expectEql(s.cursor, 13);
 
+    try expect(s.eatIf(.{ .char = 'h' }));
     try expectEql(s.eat(), null);
 }

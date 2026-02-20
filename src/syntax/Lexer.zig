@@ -74,7 +74,7 @@ pub fn next(self: *Lexer) Token {
     } else switch (self.mode) {
         .text => blk: {
             if (self.eatCodeBeginOrDelim()) |kind| break :blk kind;
-            self.s.eatUntil([_]u8{ '\r', '\n' });
+            self.s.eatUntil(.{ .any = &.{ '\r', '\n' } });
             self.position.col += @intCast(self.s.cursor - start);
             break :blk .text_line;
         },
@@ -119,10 +119,10 @@ fn code(self: *Lexer) SyntaxKind {
         '}' => .r_brace,
         '[' => .l_bracket,
         ']' => .r_bracket,
-        '=' => if (self.s.eatIf('=')) .eq_eq else .eq,
-        '<' => if (self.s.eatIf('=')) .lt_eq else .lt,
-        '>' => if (self.s.eatIf('=')) .gt_eq else .gt,
-        '~' => if (self.s.eatIf('=')) .not_eq else continue :sw 0,
+        '=' => if (self.s.eatIf(.{ .char = '=' })) .eq_eq else .eq,
+        '<' => if (self.s.eatIf(.{ .char = '=' })) .lt_eq else .lt,
+        '>' => if (self.s.eatIf(.{ .char = '=' })) .gt_eq else .gt,
+        '~' => if (self.s.eatIf(.{ .char = '=' })) .not_eq else continue :sw 0,
         '0'...'9' => self.number(),
         '"' => string(self),
         'a'...'z', 'A'...'Z', '_' => ident(self),
@@ -140,9 +140,9 @@ fn isIdentChar(c: u8) bool {
 }
 
 fn number(self: *Lexer) SyntaxKind {
-    self.s.eatWhile(isDigit);
-    if (self.s.eatIf('.')) {
-        self.s.eatWhile(isDigit);
+    self.s.eatWhile(.{ .func = isDigit });
+    if (self.s.eatIf(.{ .char = '.' })) {
+        self.s.eatWhile(.{ .func = isDigit });
     }
     return .number;
 }
@@ -150,7 +150,7 @@ fn number(self: *Lexer) SyntaxKind {
 fn ident(self: *Lexer) SyntaxKind {
     // we already parsed the first character of the ident
     const cursor = self.s.cursor - 1;
-    self.s.eatWhile(isIdentChar);
+    self.s.eatWhile(.{ .func = isIdentChar });
 
     return if (keyword(self.s.from(cursor))) |k|
         k
@@ -188,14 +188,14 @@ pub fn keyword(str: []const u8) ?SyntaxKind {
 
 fn string(self: *Lexer) SyntaxKind {
     while (true) {
-        self.s.eatUntil([_]u8{ '\\', '"', '\n', '\r' });
+        self.s.eatUntil(.{ .any = &.{ '\\', '"', '\n', '\r' } });
 
         if (self.s.eatNewline()) {
             return .unexpected_character;
         }
 
         switch (self.s.eat() orelse 0) {
-            '\\' => _ = self.s.eatIf('"'),
+            '\\' => _ = self.s.eatIf(.{ .char = '"' }),
             '"' => break,
 
             else => {},
@@ -206,8 +206,8 @@ fn string(self: *Lexer) SyntaxKind {
 
 fn eatCodeBegin(self: *Lexer) ?SyntaxKind {
     const start = self.s.cursor;
-    if (self.s.eatIf(self.comment_string)) {
-        if (self.s.eat('*')) {
+    if (self.s.eatIf(.{ .str = self.comment_string })) {
+        if (self.s.eatIf(.{ .char = '*' })) {
             return .code_begin;
         } else {
             self.s.moveTo(start);
@@ -218,8 +218,8 @@ fn eatCodeBegin(self: *Lexer) ?SyntaxKind {
 
 fn eatCodeDelim(self: *Lexer) ?SyntaxKind {
     const start = self.s.cursor;
-    if (self.s.eatIf(self.comment_string)) {
-        if (self.s.eat("**")) {
+    if (self.s.eatIf(.{ .str = self.comment_string })) {
+        if (self.s.eatIf(.{ .str = "**" })) {
             return .code_delim;
         } else {
             self.s.moveTo(start);
@@ -230,9 +230,9 @@ fn eatCodeDelim(self: *Lexer) ?SyntaxKind {
 
 fn eatCodeBeginOrDelim(self: *Lexer) ?SyntaxKind {
     const start = self.s.cursor;
-    if (self.s.eatIf(self.comment_string)) {
-        if (self.s.eatIf('*')) {
-            return if (self.s.eatIf('*'))
+    if (self.s.eatIf(.{ .str = self.comment_string })) {
+        if (self.s.eatIf(.{ .char = '*' })) {
+            return if (self.s.eatIf(.{ .char = '*' }))
                 .codeblock_delim
             else
                 .code_begin;
