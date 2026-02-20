@@ -287,6 +287,37 @@ pub const SyntaxNode = packed struct {
         const children = self.data.tree;
         return all_nodes[children.offset .. children.offset + children.len];
     }
+
+    pub fn print(
+        self: SyntaxNode,
+        all_nodes: []const SyntaxNode,
+        src: []const u8,
+        depth: usize,
+        writer: *std.Io.Writer,
+    ) !void {
+        for (0..depth) |_| {
+            try writer.print("  ", .{});
+        }
+
+        switch (self.kind.getType()) {
+            .leaf => {
+                const range = if (self.kind == .newline) "" else self.getLeafSource(src);
+                try writer.print("{s} `{s}`,\n", .{ @tagName(self.kind), range });
+            },
+            .tree => {
+                try writer.print("{s} [\n", .{@tagName(self.kind)});
+                const children = self.getTreeChildren(all_nodes);
+                for (children) |child| {
+                    try child.print(all_nodes, src, depth + 1, writer);
+                }
+
+                for (0..depth) |_| {
+                    try writer.print("  ", .{});
+                }
+                try writer.print("],\n", .{});
+            },
+        }
+    }
 };
 
 const std = @import("std");
