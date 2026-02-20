@@ -29,6 +29,7 @@ pub fn toASTNode(comptime T: type, node: SyntaxNode) ?T {
         else
             null,
         .@"union" => |u| blk: {
+            @setEvalBranchQuota(5000);
             inline for (u.fields) |field| {
                 switch (node.kind) {
                     inline else => if (toASTNode(field.type, node)) |v|
