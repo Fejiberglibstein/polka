@@ -35,9 +35,31 @@ pub const Position = struct {
     col: u32,
 };
 
-pub fn next(self: *Lexer) struct { SyntaxNode, Position, ?SyntaxError } {
+pub const Token = struct {
+    node: SyntaxNode,
+    position: Position,
+    start_index: u32,
+    before_whitespace_index: u32,
+};
+
+pub fn reparse(self: *Lexer, token: Token) void {
+    self.position = .{
+        .line = token.position.line,
+        .col = if (token.position.col != 1)
+            token.position.col - (token.start_index - token.before_whitespace_index)
+        else
+            // It is 1 when we just started the newline and thus there wouldn't be any previous
+            // whitespace
+            1,
+    };
+    self.s.moveTo(token.before_whitespace_index);
+}
+
+pub fn next(self: *Lexer) Token {
     const before_whitespace = self.s.cursor;
-    self.s.eatWhitespace();
+    if (self.mode != .text) {
+        self.s.eatWhitespace();
+    }
     const start = self.s.cursor;
     self.position.col += @intCast(start - before_whitespace);
 
@@ -72,7 +94,12 @@ pub fn next(self: *Lexer) struct { SyntaxNode, Position, ?SyntaxError } {
         },
     };
 
-    return .{ node, position, null };
+    return .{
+        .node = node,
+        .position = position,
+        .start_index = @intCast(start),
+        .before_whitespace_index = @intCast(before_whitespace),
+    };
 }
 
 fn code(self: *Lexer) SyntaxKind {
@@ -100,7 +127,7 @@ fn code(self: *Lexer) SyntaxKind {
         '"' => string(self),
         'a'...'z', 'A'...'Z', '_' => ident(self),
 
-        else => .unexpected_token,
+        else => .unexpected_character,
     };
 }
 
@@ -164,7 +191,7 @@ fn string(self: *Lexer) SyntaxKind {
         self.s.eatUntil([_]u8{ '\\', '"', '\n', '\r' });
 
         if (self.s.eatNewline()) {
-            return .unexpected_token;
+            return .unexpected_character;
         }
 
         switch (self.s.eat() orelse 0) {
@@ -217,9 +244,10 @@ fn eatCodeBeginOrDelim(self: *Lexer) ?SyntaxKind {
 }
 
 const std = @import("std");
+const assert = std.debug.assert;
 
-const SyntaxNode = @import("node.zig").SyntaxNode;
-const SyntaxKind = @import("node.zig").SyntaxKind;
-const Scanner = @import("Scanner.zig");
 const errors = @import("errors.zig");
 const SyntaxError = errors.SyntaxError;
+const Scanner = @import("Scanner.zig");
+const SyntaxKind = @import("node.zig").SyntaxKind;
+const SyntaxNode = @import("node.zig").SyntaxNode;

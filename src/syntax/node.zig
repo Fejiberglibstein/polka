@@ -4,7 +4,7 @@ pub const SyntaxKind = enum(u7) {
     /// End of file
     eof,
     /// Syntax error
-    unexpected_token,
+    unexpected_character,
     /// Begins a codeline `#*`
     ///
     /// The symbol doesn't need to begin with a hash, it will use whatever the filetype's comment
@@ -186,7 +186,7 @@ pub const SyntaxKind = enum(u7) {
     pub const SyntaxNodeType = enum { tree, leaf };
     pub fn getType(self: SyntaxKind) SyntaxNodeType {
         return switch (self) {
-            .unexpected_token,
+            .unexpected_character,
             .eof,
             .code_begin,
             .codeblock_delim,

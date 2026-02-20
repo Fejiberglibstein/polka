@@ -1,20 +1,57 @@
-pub fn parse(src: []const u8, mode: Lexer.Mode, gpa: Allocator) Allocator.Error![]const SyntaxNode {
+pub const ParseResult = struct {
+    /// Flattened list of all the nodes.
+    nodes: []const SyntaxNode,
+    /// List of all syntax errors.
+    errors: []const SyntaxError,
+
+    pub fn rootNode(self: ParseResult) ?ast.Text {
+        if (self.nodes.len == 0) return null;
+        assert(self.nodes[self.nodes.len - 1].kind == .text);
+        return ast.toASTNode(ast.Text, self.nodes[self.nodes.len - 1]) orelse unreachable;
+    }
+
+    pub fn deinit(self: ParseResult, gpa: Allocator) !void {
+        gpa.free(self.nodes);
+        gpa.free(self.errors);
+    }
+};
+
+pub fn parse(src: []const u8, mode: Lexer.Mode, gpa: Allocator) Allocator.Error!ParseResult {
     var parser: Parser = try .init(src, mode, gpa);
     try parseText(&parser);
 
-    return &.{};
+    try parser.eatExpect(.eof);
+    _ = parser.stack.pop(); // Discard the eof node
+
+    const root_node = parser.stack.pop() orelse unreachable;
+    assert(root_node.kind == .text);
+    assert(parser.stack.items.len == 0);
+    parser.stack.deinit(gpa);
+
+    try parser.nodes.append(gpa, root_node);
+
+    return .{
+        .nodes = try parser.nodes.toOwnedSlice(gpa),
+        .errors = try parser.errors.toOwnedSlice(gpa),
+    };
 }
 
 fn parseText(p: *Parser) Allocator.Error!void {
     const m = p.marker();
-    while (true) {
-        if (p.at(.eof)) {
-            break;
-        }
 
+    // Even when in a `.polka` file, all nodes are still wrapped in text
+    if (p.mode() == .code_file) {
+        try parseCode(p);
+        try p.wrap(m, .text);
+        return;
+    }
+
+    while (true) {
         switch (p.current.node.kind) {
-            .text_line => try p.eat(),
+            .eof => break,
             .newline => try p.eat(),
+            .text_line => try p.eat(),
+
             .code_begin => {
                 p.setMode(.code_line);
                 const m2 = p.marker();
@@ -23,14 +60,17 @@ fn parseText(p: *Parser) Allocator.Error!void {
                 try p.wrap(m2, .code);
                 p.setMode(.text);
             },
+
             .codeblock_delim => {
                 p.setMode(.code_block);
                 const m2 = p.marker();
                 try p.eatAssert(.codeblock_delim);
                 try parseCode(p);
+                try p.eatExpect(.codeblock_delim);
                 try p.wrap(m2, .code);
                 p.setMode(.text);
             },
+
             // Lexer doesn't produce any other tokens
             else => unreachable,
         }
@@ -41,20 +81,25 @@ fn parseText(p: *Parser) Allocator.Error!void {
 
 fn parseCode(p: *Parser) Allocator.Error!void {
     while (true) {
+        if (p.isEndingKind(p.current.node.kind)) break;
         try parseStatement(p);
     }
 }
 
 fn parseStatement(p: *Parser) !void {
     switch (p.current.node.kind) {
-        .keyword_while => try parseWhileLoop(p),
         .keyword_for => try parseForLoop(p),
+        .keyword_while => try parseWhileLoop(p),
         .keyword_let => try parseLetStatement(p),
-        else => try parseExpression(p),
+        .keyword_export => try parseExportStatement(p),
+        .keyword_return => try parseReturnStatement(p),
+        .keyword_break, .keyword_continue => try p.eat(),
+        else => try parseExpression(p, 0),
     }
+    try p.eatExpect(.newline);
 }
 
-fn parseExpression(p: *Parser) Allocator.Error!void {
+fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
     const m = p.marker();
 
     switch (p.current.node.kind) {
@@ -64,12 +109,12 @@ fn parseExpression(p: *Parser) Allocator.Error!void {
         .keyword_nil,
         .keyword_true,
         .keyword_false,
-        => try p.eatAssert(.ident),
+        => try p.eat(),
 
         .l_paren => {
             const m2 = p.marker();
             try p.eatAssert(.l_paren);
-            try parseExpression(p);
+            try parseExpression(p, 0);
             try p.eatExpect(.r_paren);
             try p.wrap(m2, .grouping);
         },
@@ -81,6 +126,12 @@ fn parseExpression(p: *Parser) Allocator.Error!void {
         else => {},
     }
 
+    if (ast.toASTNode(ast.UnaryOperator, p.current.node)) |op| {
+        try p.eat();
+        try parseExpression(p, op.precedence() + 1); // Plus 1 since unary ops are right associative
+        try p.wrap(m, .unary);
+    }
+
     while (true) {
         // Parse a function call
         if (p.current.node.kind == .l_paren) {
@@ -90,7 +141,7 @@ fn parseExpression(p: *Parser) Allocator.Error!void {
         }
 
         if (try p.eatIf(.l_bracket)) {
-            try parseExpression(p);
+            try parseExpression(p, 0);
             try p.eatExpect(.r_bracket);
             try p.wrap(m, .bracket_access);
             continue;
@@ -101,6 +152,19 @@ fn parseExpression(p: *Parser) Allocator.Error!void {
             try p.eatExpect(.ident);
             try p.wrap(m, .dot_access);
             continue;
+        }
+
+        if (ast.toASTNode(ast.BinaryOperator, p.current.node)) |op| {
+            if (op.precedence() >= precedence) {
+                const new_precedence = switch (op.associativity()) {
+                    .left => op.precedence() + 1,
+                    .right => op.precedence(),
+                };
+                try p.eat();
+                try parseExpression(p, new_precedence);
+                try p.wrap(m, .binary);
+                continue;
+            }
         }
 
         if (m == p.marker()) try p.eatUnexpected();
@@ -114,7 +178,7 @@ fn parseFunctionCallArguments(p: *Parser) !void {
     try p.eatAssert(.l_paren);
 
     while (!try p.eatIf(.r_paren)) {
-        try parseExpression(p);
+        try parseExpression(p, 0);
         if (!try p.eatIf(.comma)) {
             try p.eatExpect(.r_paren);
             break;
@@ -123,47 +187,164 @@ fn parseFunctionCallArguments(p: *Parser) !void {
     }
 }
 
-fn parseFunctionDefinition(p: *Parser) !void {
-    try p.eatAssert(.keyword_func);
+fn parseBlock(p: *Parser) !void {
+    const old_end = p.ending_kind;
+    const old_mode = p.switchToTextMode();
+    p.ending_kind.addKind(.keyword_end);
 
+    p.reparse();
+    try parseText(p);
+
+    // Switch mode before eating the end so that the next token is in the correct mode.
+    p.setMode(old_mode);
+    p.ending_kind = old_end;
+
+    try p.eatExpect(.keyword_end);
+}
+
+fn parseFunctionParameters(p: *Parser) !void {
     const m = p.marker();
     try p.eatExpect(.l_paren);
-
     while (!try p.eatIf(.r_paren)) {
         try p.eatExpect(.ident);
         if (!try p.eatIf(.comma)) {
             try p.eatExpect(.r_paren);
             break;
         }
-        try p.wrap(m, .function_parameters);
     }
+    try p.wrap(m, .function_parameters);
+}
+
+fn parseFunctionDefinition(p: *Parser) !void {
+    const m = p.marker();
+    try p.eatAssert(.keyword_func);
+    _ = try p.eatIf(.ident);
+    try parseFunctionParameters(p);
+    if (try p.eatIf(.newline))
+        try parseBlock(p)
+    else
+        try parseExpression(p, 0);
+    try p.wrap(m, .function_def);
 }
 
 fn parseConditional(p: *Parser) !void {
+    const m = p.marker();
     try p.eatAssert(.keyword_if);
-    try parseExpression(p);
+    try parseExpression(p, 0);
     try p.eatExpect(.keyword_then);
+    // Switch nodes before consuming the newline so that the next token is tokenized in text mode
+    const old_mode = p.switchToTextMode();
+    try p.eatExpect(.newline);
+
+    // Setup block to be parsed
+    const old_end = p.ending_kind;
+    p.ending_kind.addKind(.keyword_end);
+    p.ending_kind.addKind(.keyword_else);
+    p.ending_kind.addKind(.keyword_elseif);
+    try parseText(p);
+
+    while (true) {
+        switch (p.current.node.kind) {
+            .keyword_elseif => {
+                try p.eatAssert(.keyword_elseif);
+                try parseExpression(p, 0);
+                try p.eatExpect(.keyword_then);
+                _ = p.switchToTextMode();
+                try p.eatExpect(.newline);
+
+                try parseText(p);
+            },
+
+            .keyword_else => {
+                try p.eatAssert(.keyword_else);
+                _ = p.switchToTextMode();
+                try p.eatExpect(.newline);
+
+                p.ending_kind.removeKind(.keyword_else);
+                p.ending_kind.removeKind(.keyword_elseif);
+                try parseText(p);
+            },
+
+            .keyword_end => {
+                try p.eatAssert(.keyword_end);
+                break;
+            },
+
+            else => {
+                try p.eatUnexpected();
+                break;
+            },
+        }
+    }
+
+    // Switch mode before eating the end so that the next token is in the correct mode.
+    p.setMode(old_mode);
+    p.ending_kind = old_end;
+
+    try p.eatExpect(.keyword_end);
+
+    try p.wrap(m, .conditional);
 }
 
-fn parseWhileLoop(p: *Parser) !void {}
-fn parseForLoop(p: *Parser) !void {}
+fn parseWhileLoop(p: *Parser) !void {
+    const m = p.marker();
+    try p.eatAssert(.keyword_while);
+    try parseExpression(p, 0);
+    try p.eatExpect(.keyword_do);
+    try p.eatExpect(.newline);
+    try parseBlock(p);
+    try p.wrap(m, .while_loop);
+}
+
+fn parseForLoop(p: *Parser) !void {
+    const m = p.marker();
+    try p.eatAssert(.keyword_for);
+    try p.eatExpect(.ident);
+    try p.eatExpect(.keyword_in);
+    try parseExpression(p, 0);
+    try p.eatExpect(.keyword_do);
+    try p.eatExpect(.newline);
+    try parseBlock(p);
+    try p.wrap(m, .for_loop);
+}
+
+fn parseReturnStatement(p: *Parser) !void {
+    const m = p.marker();
+    try p.eatAssert(.keyword_return);
+    if (!p.at(.newline)) {
+        try parseExpression(p, 0);
+    }
+    try p.wrap(m, .return_statement);
+}
+
+fn parseExportStatement(p: *Parser) !void {
+    const m = p.marker();
+    try p.eatAssert(.keyword_export);
+    switch (p.current.node.kind) {
+        .keyword_let => try parseLetStatement(p),
+        .keyword_export => try parseExportStatement(p),
+        else => try p.eatUnexpected(),
+    }
+    try p.wrap(m, .export_statement);
+}
+
 fn parseLetStatement(p: *Parser) !void {
     const m = p.marker();
     try p.eatAssert(.keyword_let);
     try p.eatExpect(.ident);
-    if (try p.eatIf(.eq)) try parseExpression(p);
+    if (try p.eatIf(.eq)) try parseExpression(p, 0);
     try p.wrap(m, .let_statement);
 }
 
 fn skipNewlines(p: *Parser) !void {
-    while (eatNewline(p)) {}
+    while (try eatNewline(p)) {}
 }
 
 fn eatNewline(p: *Parser) !bool {
     return switch (p.mode()) {
         .code_line => blk: {
             if (try p.eatIf(.newline)) {
-                try p.eatExpect(.code_start);
+                try p.eatExpect(.code_begin);
                 break :blk true;
             }
             break :blk false;
@@ -182,15 +363,31 @@ const Parser = struct {
     /// A flattened list of the entire AST
     nodes: std.ArrayList(SyntaxNode),
     /// Current token we're looking at
-    current: Token,
+    current: Lexer.Token,
     /// List of all errors that have been encountered while parsing
     errors: std.ArrayList(SyntaxError),
+    /// List of all SyntaxKinds that will cause the parser to break out of parsing code. This always
+    /// include EOF, and may include `end`, `codeblock_delim`, and others.
+    ending_kind: SyntaxSet,
 
-    const Marker = usize;
-    const Token = struct {
-        node: SyntaxNode,
-        position: Lexer.Position,
-    };
+    fn init(src: []const u8, m: Lexer.Mode, gpa: Allocator) !Parser {
+        const lexer = Lexer.init(src, m, "#");
+
+        var self: Parser = .{
+            .text = src,
+            .l = lexer,
+            .nodes = .empty,
+            .stack = .empty,
+            .errors = .empty,
+            .current = undefined,
+            .gpa = gpa,
+            .ending_kind = .init(&.{.eof}),
+        };
+
+        self.current = self.l.next();
+
+        return self;
+    }
 
     fn mode(self: *Parser) Lexer.Mode {
         return self.l.mode;
@@ -200,30 +397,86 @@ const Parser = struct {
         self.l.mode = m;
     }
 
-    fn marker(self: Parser) Marker {
-        return self.stack.items.len;
+    fn switchToTextMode(self: *Parser) Lexer.Mode {
+        const ret = self.mode();
+        switch (self.mode()) {
+            .code_file,
+            .code_block,
+            .text,
+            => {},
+            .code_line => self.setMode(.text),
+        }
+        return ret;
     }
 
-    fn eat(self: *Parser) Allocator.Error!void {
-        try self.stack.append(self.gpa, self.current.node);
-        try self.nextToken();
-    }
-
-    fn eatAssert(self: *Parser, kind: SyntaxKind) Allocator.Error!void {
-        std.debug.assert(self.current.node.kind == kind);
-        try self.eat();
+    fn isEndingKind(self: Parser, kind: SyntaxKind) bool {
+        return self.ending_kind.hasKind(kind);
     }
 
     fn at(self: Parser, kind: SyntaxKind) bool {
         return self.current.node.kind == kind;
     }
 
-    fn eatIf(self: *Parser, kind: SyntaxKind) Allocator.Error!bool {
+    fn eat(self: *Parser) !void {
+        if (self.current.node.kind == .unexpected_character) {
+            try self.addError(.{
+                .position = self.current.position,
+                .range = self.current.node.getLeafSource(self.text),
+                .kind = .invalid_token,
+            });
+        }
+
+        try self.stack.append(self.gpa, self.current.node);
+        self.current = self.l.next();
+    }
+
+    fn eatAssert(self: *Parser, kind: SyntaxKind) !void {
+        std.debug.assert(self.current.node.kind == kind);
+        try self.eat();
+    }
+
+    fn eatIf(self: *Parser, kind: SyntaxKind) !bool {
         if (self.at(kind)) {
             try self.eat();
             return true;
         }
         return false;
+    }
+
+    fn reparse(self: *Parser) void {
+        self.l.reparse(self.current);
+        self.current = self.l.next();
+    }
+
+    fn eatExpect(self: *Parser, kind: SyntaxKind) !void {
+        if (self.current.node.kind != kind) {
+            try self.addError(.{
+                .position = self.current.position,
+                .range = self.current.node.getLeafSource(self.text),
+                .kind = .{
+                    .expected_token = .{ .expected = kind, .actual = self.current.node.kind },
+                },
+            });
+        }
+        try self.eat();
+    }
+
+    fn eatUnexpected(self: *Parser) !void {
+        try self.addError(.{
+            .position = self.current.position,
+            .range = self.current.node.getLeafSource(self.text),
+            .kind = .{ .unexpected_token = self.current.node.kind },
+        });
+        try self.eat();
+    }
+
+    fn addError(self: *Parser, err: SyntaxError) !void {
+        try self.errors.append(self.gpa, err);
+    }
+
+    const Marker = usize;
+    fn marker(self: Parser) Marker {
+        return self.stack.items.len;
     }
 
     fn wrap(self: *Parser, m: Marker, kind: SyntaxKind) Allocator.Error!void {
@@ -237,76 +490,21 @@ const Parser = struct {
 
         const len = self.nodes.items.len - offset;
 
+        assert(kind.getType() == .tree);
         try self.stack.append(self.gpa, SyntaxNode{
             .kind = kind,
             .data = .{ .tree = .{ .len = @intCast(len), .offset = @intCast(offset) } },
         });
-    }
-
-    fn isEndingKind(self: Parser, kind: SyntaxKind) bool {
-        return self.finish_on.hasKind(kind);
-    }
-
-    fn init(src: []const u8, m: Lexer.Mode, gpa: Allocator) !Parser {
-        const lexer = Lexer.init(src, m, "#");
-
-        var self: Parser = .{
-            .text = src,
-            .l = lexer,
-            .nodes = .empty,
-            .stack = .empty,
-            .errors = .empty,
-            .current = undefined,
-            .gpa = gpa,
-        };
-
-        try self.nextToken();
-
-        return self;
-    }
-
-    fn addError(self: *Parser, err: SyntaxError) !void {
-        try self.errors.append(self.gpa, err);
-    }
-
-    fn eatUnexpected(self: *Parser) !void {
-        try self.addError(.{
-            .pos = self.current.position,
-            .range = self.current.node.getLeafSource(self.text),
-            .kind = .{ .unexpected_token = self.current.node.kind },
-        });
-        try self.eat();
-    }
-
-    fn eatExpect(self: *Parser, kind: SyntaxKind) !void {
-        if (self.current.node.kind != kind) {
-            try self.addError(.{
-                .pos = self.current.position,
-                .range = self.current.node.getLeafSource(self.text),
-                .kind = .{
-                    .expected_token = .{ .expected = kind, .actual = self.current.node.kind },
-                },
-            });
-        }
-        try self.eat();
-    }
-
-    fn nextToken(self: *Parser) !void {
-        const node, const position, const err = self.l.next();
-
-        if (err) |e| try self.addError(e);
-
-        self.current = .{
-            .node = node,
-            .position = position,
-        };
     }
 };
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const ast = @import("ast.zig");
 const Lexer = @import("Lexer.zig");
+const SyntaxError = @import("errors.zig").SyntaxError;
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;
-const SyntaxError = @import("errors.zig").SyntaxError;
+const SyntaxSet = @import("SyntaxSet.zig");
+const assert = std.debug.assert;
