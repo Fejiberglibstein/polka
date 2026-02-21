@@ -72,7 +72,10 @@ fn parseText(p: *Parser) Allocator.Error!void {
             },
 
             // Lexer doesn't produce any other tokens
-            else => unreachable,
+            else => {
+                try p.unexpected();
+                try p.eat();
+            },
         }
     }
 
@@ -83,11 +86,14 @@ fn parseCode(p: *Parser) Allocator.Error!void {
     while (true) {
         if (p.isEndingKind(p.current.node.kind)) break;
         try parseStatement(p);
+        if (p.mode() == .code_line) {
+            if (!try p.eatIf(.code_begin)) break;
+        }
     }
 }
 
 fn parseStatement(p: *Parser) !void {
-    if (try eatNewline(p)) return;
+    if (try p.eatIf(.newline)) return;
     switch (p.current.node.kind) {
         .keyword_for => try parseForLoop(p),
         .keyword_while => try parseWhileLoop(p),
@@ -97,7 +103,10 @@ fn parseStatement(p: *Parser) !void {
         .keyword_break, .keyword_continue => try p.eat(),
         else => try parseExpression(p, 0),
     }
-    try expectNewline(p);
+
+    if (!p.at(.eof)) {
+        try p.eatExpect(.newline);
+    }
 }
 
 fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
@@ -107,7 +116,6 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
         try p.eat();
         try parseExpression(p, op.precedence()); // Plus 1 since unary ops are right associative
         try p.wrap(m, .unary);
-        return;
     }
 
     switch (p.current.node.kind) {
@@ -136,7 +144,7 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
 
     while (true) {
         // Parse a function call
-        if (p.current.node.kind == .l_paren) {
+        if (p.at(.l_paren)) {
             try parseFunctionCallArguments(p);
             try p.wrap(m, .function_call);
             continue;
@@ -169,7 +177,7 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
             }
         }
 
-        if (m == p.marker()) try p.eatUnexpected();
+        if (m == p.marker()) try p.unexpected();
 
         break;
     }
@@ -185,8 +193,8 @@ fn parseFunctionCallArguments(p: *Parser) !void {
             try p.eatExpect(.r_paren);
             break;
         }
-        try p.wrap(m, .function_args);
     }
+    try p.wrap(m, .function_args);
 }
 
 fn parseBlock(p: *Parser) !void {
@@ -273,7 +281,7 @@ fn parseConditional(p: *Parser) !void {
             },
 
             else => {
-                try p.eatUnexpected();
+                try p.unexpected();
                 break;
             },
         }
@@ -325,7 +333,7 @@ fn parseExportStatement(p: *Parser) !void {
     switch (p.current.node.kind) {
         .keyword_let => try parseLetStatement(p),
         .keyword_export => try parseExportStatement(p),
-        else => try p.eatUnexpected(),
+        else => try p.unexpected(),
     }
     try p.wrap(m, .export_statement);
 }
@@ -476,13 +484,12 @@ const Parser = struct {
         try self.eat();
     }
 
-    fn eatUnexpected(self: *Parser) !void {
+    fn unexpected(self: *Parser) !void {
         try self.addError(.{
             .position = self.current.position,
             .range = self.current.node.getLeafSource(self.text),
             .kind = .{ .unexpected_token = self.current.node.kind },
         });
-        try self.eat();
     }
 
     fn addError(self: *Parser, err: SyntaxError) !void {

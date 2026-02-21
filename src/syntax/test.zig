@@ -34,6 +34,12 @@ test "Empty code" {
             x.leaf(.code_begin),
             x.leaf(.newline),
             x.leaf(.code_begin),
+            x.leaf(.newline),
+        }),
+        x.leaf(.newline),
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.leaf(.newline),
         }),
     }));
 }
@@ -51,8 +57,6 @@ test "simple statements" {
         \\#* let foo = 10
         \\#* export let foo
         \\#* export let foo = 10
-        \\#*
-        \\
     , x.root(&.{
         x.leaf(.newline),
         x.tree(.code, &.{
@@ -95,9 +99,50 @@ test "simple statements" {
                     x.leaf(.number),
                 }),
             }),
+        }),
+    }));
+}
+
+test "Expressions" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#*"n"
+        \\#*2 + f
+        \\#*-"n"
+        \\#*
+        \\#*2 + -3 * 2
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.leaf(.string),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{
+                x.leaf(.number),
+                x.leaf(.plus),
+                x.leaf(.ident),
+            }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.unary, &.{
+                x.leaf(.minus),
+                x.leaf(.string),
+            }),
             x.leaf(.newline),
             x.leaf(.code_begin),
             x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{
+                x.leaf(.number),
+                x.leaf(.plus),
+                x.tree(.binary, &.{
+                    x.tree(.unary, &.{ x.leaf(.minus), x.leaf(.number) }),
+                    x.leaf(.star),
+                    x.leaf(.number),
+                }),
+            }),
         }),
     }));
 }
@@ -165,9 +210,8 @@ const TreeConstructor = struct {
 fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const SyntaxNode) !void {
     const parsed = try parser.parse(source, .text, gpa);
 
-    std.debug.print(" \n", .{});
     for (parsed.errors) |err| {
-        std.debug.print("ERROR: {}\n", .{err});
+        std.log.err(" \nERROR: {}", .{err});
     }
     try expectEqual(0, parsed.errors.len);
     defer parsed.deinit(gpa) catch unreachable;
