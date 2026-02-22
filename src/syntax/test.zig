@@ -28,6 +28,7 @@ test "Empty code" {
         \\
         \\#*
         \\
+        \\
     , x.root(&.{
         x.leaf(.newline),
         x.tree(.code, &.{
@@ -41,10 +42,11 @@ test "Empty code" {
             x.leaf(.code_begin),
             x.leaf(.newline),
         }),
+        x.leaf(.newline),
     }));
 }
 
-test "simple statements" {
+test "Statements" {
     var gpa = std.heap.DebugAllocator(.{}).init;
     var x: TreeConstructor = .init(gpa.allocator());
     try testParser(gpa.allocator(),
@@ -103,44 +105,216 @@ test "simple statements" {
     }));
 }
 
-test "Expressions" {
+test "Single expressions" {
     std.testing.log_level = .debug;
     var gpa = std.heap.DebugAllocator(.{}).init;
     var x: TreeConstructor = .init(gpa.allocator());
     try testParser(gpa.allocator(),
-        \\#*"n"
-        \\#*2 + f
-        \\#*-"n"
+        \\#* "n"
+        \\#* foo
+        \\#* 10
+        \\#* nil
+        \\#* true
+        \\#* false
+        \\#* (3)
         \\#*
-        \\#*2 + -3 * 2
     , x.root(&.{
         x.tree(.code, &.{
             x.leaf(.code_begin),
             x.leaf(.string),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.binary, &.{
+            x.leaf(.ident),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.leaf(.number),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.leaf(.keyword_nil),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.leaf(.keyword_true),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.leaf(.keyword_false),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.grouping, &.{
+                x.leaf(.l_paren),
                 x.leaf(.number),
-                x.leaf(.plus),
-                x.leaf(.ident),
+                x.leaf(.r_paren),
             }),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.unary, &.{
-                x.leaf(.minus),
-                x.leaf(.string),
-            }),
+        }),
+    }));
+}
+
+test "Binary expressions" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#*2 + f
+        \\#*"true" - 4
+        \\#*true and 10
+        \\#*10 or false
+        \\#*nil in list
+        \\#*a = 3
+        \\#*4 < 2
+        \\#*403 * 2.23
+        \\#*"hfi" % 2
+        \\#*4 > 2
+        \\#*nil ~= nil
+        \\#*nil >= nil
+        \\#*nil <= nil
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.number), x.leaf(.plus), x.leaf(.ident) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.string), x.leaf(.minus), x.leaf(.number) }),
             x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.keyword_true), x.leaf(.keyword_and), x.leaf(.number) }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.number), x.leaf(.keyword_or), x.leaf(.keyword_false) }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.keyword_nil), x.leaf(.keyword_in), x.leaf(.ident) }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.ident), x.leaf(.eq), x.leaf(.number) }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.number), x.leaf(.lt), x.leaf(.number) }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.number), x.leaf(.star), x.leaf(.number) }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.string), x.leaf(.percent), x.leaf(.number) }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.number), x.leaf(.gt), x.leaf(.number) }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.keyword_nil), x.leaf(.not_eq), x.leaf(.keyword_nil) }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.keyword_nil), x.leaf(.gt_eq), x.leaf(.keyword_nil) }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{ x.leaf(.keyword_nil), x.leaf(.lt_eq), x.leaf(.keyword_nil) }),
+        }),
+    }));
+}
+
+test "Unary expressions" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#*-3
+        \\#*not true
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.unary, &.{ x.leaf(.minus), x.leaf(.number) }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.unary, &.{ x.leaf(.keyword_not), x.leaf(.keyword_true) }),
+        }),
+    }));
+}
+
+test "Complex expression" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#*10 > 2 and nil or not 4 - 3 * (6 + 2) == 1
+    , x.root(&.{
+        x.tree(.code, &.{
             x.leaf(.code_begin),
             x.tree(.binary, &.{
-                x.leaf(.number),
-                x.leaf(.plus),
                 x.tree(.binary, &.{
-                    x.tree(.unary, &.{ x.leaf(.minus), x.leaf(.number) }),
-                    x.leaf(.star),
-                    x.leaf(.number),
+                    x.tree(.binary, &.{
+                        x.leaf(.number),
+                        x.leaf(.gt),
+                        x.leaf(.number),
+                    }),
+                    x.leaf(.keyword_and),
+                    x.leaf(.keyword_nil),
+                }),
+                x.leaf(.keyword_or),
+                x.tree(.unary, &.{
+                    x.leaf(.keyword_not),
+                    x.tree(.binary, &.{
+                        x.tree(.binary, &.{
+                            x.leaf(.number),
+                            x.leaf(.minus),
+                            x.tree(.binary, &.{
+                                x.leaf(.number),
+                                x.leaf(.star),
+                                x.tree(.grouping, &.{
+                                    x.leaf(.l_paren),
+                                    x.tree(.binary, &.{
+                                        x.leaf(.number),
+                                        x.leaf(.plus),
+                                        x.leaf(.number),
+                                    }),
+                                    x.leaf(.r_paren),
+                                }),
+                            }),
+                        }),
+                        x.leaf(.eq_eq),
+                        x.leaf(.number),
+                    }),
+                }),
+            }),
+        }),
+    }));
+}
+
+test "Function calling" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#*foo(du37, 3 - 2, "str")(f())
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.function_call, &.{
+                x.tree(.function_call, &.{
+                    x.leaf(.ident),
+                    x.tree(.function_args, &.{
+                        x.leaf(.l_paren),
+                        x.leaf(.ident),
+                        x.leaf(.comma),
+                        x.tree(.binary, &.{
+                            x.leaf(.number),
+                            x.leaf(.minus),
+                            x.leaf(.number),
+                        }),
+                        x.leaf(.comma),
+                        x.leaf(.string),
+                        x.leaf(.r_paren),
+                    }),
+                }),
+                x.tree(.function_args, &.{
+                    x.leaf(.l_paren),
+                    x.tree(.function_call, &.{
+                        x.leaf(.ident),
+                        x.tree(.function_args, &.{
+                            x.leaf(.l_paren),
+                            x.leaf(.r_paren),
+                        }),
+                    }),
+                    x.leaf(.r_paren),
                 }),
             }),
         }),
@@ -224,16 +398,29 @@ fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const Synt
         parsed.nodes,
         expected,
     ) catch |err| {
-        std.debug.print("{s}\n", .{source});
-        std.debug.print("Expected \n", .{});
-        var buffer: [2048]u8 = undefined;
-        var stdout = std.fs.File.stderr().writer(&buffer);
-        try expected_root.print(expected, "", 0, &stdout.interface);
-        try stdout.interface.flush();
+        var exp_writer: std.Io.Writer.Allocating = .init(gpa);
+        try expected_root.print(expected, "", 0, &exp_writer.writer);
 
-        std.debug.print("\nGot \n", .{});
-        try parsed.rootNode().?.node.print(parsed.nodes, source, 0, &stdout.interface);
-        try stdout.interface.flush();
+        var act_writer: std.Io.Writer.Allocating = .init(gpa);
+        try parsed.rootNode().?.node.print(parsed.nodes, source, 0, &act_writer.writer);
+
+        var exp = std.mem.splitSequence(u8, try exp_writer.toOwnedSlice(), "\n");
+        var act = std.mem.splitSequence(u8, try act_writer.toOwnedSlice(), "\n");
+
+        while (true) {
+            const exp_line = exp.next() orelse "";
+            const act_line = act.next() orelse "";
+            if (exp_line.len == 0 and act_line.len == 0) break;
+
+            const color = if (!std.mem.eql(u8, exp_line, act_line))
+                "\x1b[31m"
+            else
+                "\x1b[0m";
+
+            std.debug.print("{s}{s: <25}{s}\n", .{ color, exp_line, act_line });
+        }
+        std.debug.print("\x1b[0m", .{});
+
         return err;
     };
 }
