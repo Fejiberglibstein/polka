@@ -4,35 +4,36 @@ pub const ParseResult = struct {
     /// List of all syntax errors.
     errors: []const SyntaxError,
 
-    pub fn rootNode(self: ParseResult) ?ast.Text {
-        if (self.nodes.len == 0) return null;
-        assert(self.nodes[self.nodes.len - 1].kind == .text);
-        return ast.toASTNode(ast.Text, self.nodes[self.nodes.len - 1]) orelse unreachable;
-    }
-
-    pub fn deinit(self: ParseResult, gpa: Allocator) !void {
+    pub fn deinit(self: ParseResult, gpa: Allocator) void {
         gpa.free(self.nodes);
         gpa.free(self.errors);
     }
 };
 
 pub fn parse(src: []const u8, mode: Lexer.Mode, gpa: Allocator) Allocator.Error!ParseResult {
-    var parser: Parser = try .init(src, mode, gpa);
-    try parseText(&parser);
+    var p: Parser = try .init(src, mode, gpa);
 
-    try parser.eatExpect(.eof);
-    _ = parser.stack.pop(); // Discard the eof node
+    if (p.at(.eof)) {
+        const m = p.marker();
+        try p.eat();
+        try p.wrap(m, .text);
+    } else {
+        try parseText(&p);
+    }
 
-    const root_node = parser.stack.pop() orelse unreachable;
+    try p.eatExpect(.eof);
+    _ = p.stack.pop(); // Discard the eof node
+
+    const root_node = p.stack.pop() orelse unreachable;
     assert(root_node.kind == .text);
-    assert(parser.stack.items.len == 0);
-    parser.stack.deinit(gpa);
+    assert(p.stack.items.len == 0);
+    p.stack.deinit(gpa);
 
-    try parser.nodes.append(gpa, root_node);
+    try p.nodes.append(gpa, root_node);
 
     return .{
-        .nodes = try parser.nodes.toOwnedSlice(gpa),
-        .errors = try parser.errors.toOwnedSlice(gpa),
+        .nodes = try p.nodes.toOwnedSlice(gpa),
+        .errors = try p.errors.toOwnedSlice(gpa),
     };
 }
 

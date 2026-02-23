@@ -1,5 +1,6 @@
 test "text" {
     var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
     var x: TreeConstructor = .init(gpa.allocator());
     try testParser(gpa.allocator(),
         \\
@@ -20,6 +21,7 @@ test "text" {
 
 test "Empty code" {
     var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
     var x: TreeConstructor = .init(gpa.allocator());
     try testParser(gpa.allocator(),
         \\
@@ -48,6 +50,7 @@ test "Empty code" {
 
 test "Statements" {
     var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
     var x: TreeConstructor = .init(gpa.allocator());
     try testParser(gpa.allocator(),
         \\
@@ -108,6 +111,7 @@ test "Statements" {
 test "Single expressions" {
     std.testing.log_level = .debug;
     var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
     var x: TreeConstructor = .init(gpa.allocator());
     try testParser(gpa.allocator(),
         \\#* "n"
@@ -153,6 +157,7 @@ test "Single expressions" {
 test "Binary expressions" {
     std.testing.log_level = .debug;
     var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
     var x: TreeConstructor = .init(gpa.allocator());
     try testParser(gpa.allocator(),
         \\#*2 + f
@@ -215,6 +220,7 @@ test "Binary expressions" {
 test "Unary expressions" {
     std.testing.log_level = .debug;
     var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
     var x: TreeConstructor = .init(gpa.allocator());
     try testParser(gpa.allocator(),
         \\#*-3
@@ -233,6 +239,7 @@ test "Unary expressions" {
 test "Complex expression" {
     std.testing.log_level = .debug;
     var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
     var x: TreeConstructor = .init(gpa.allocator());
     try testParser(gpa.allocator(),
         \\#*10 > 2 and nil or not 4 - 3 * (6 + 2) == 1
@@ -282,6 +289,7 @@ test "Complex expression" {
 test "Function calling" {
     std.testing.log_level = .debug;
     var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
     var x: TreeConstructor = .init(gpa.allocator());
     try testParser(gpa.allocator(),
         \\#*foo(du37, 3 - 2, "str")(f())
@@ -383,7 +391,6 @@ const TreeConstructor = struct {
 
 fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const SyntaxNode) !void {
     const parsed = try parser.parse(source, .text, gpa);
-
     for (parsed.errors) |err| {
         std.log.err(" \nERROR: {}", .{err});
     }
@@ -423,6 +430,7 @@ fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const Synt
 
         return err;
     };
+    gpa.free(expected);
 }
 
 const std = @import("std");

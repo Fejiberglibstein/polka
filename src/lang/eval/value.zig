@@ -33,7 +33,7 @@ pub const ValueType = enum(u8) {
     number  = 0b000,
     nil     = 0b001,
     boolean = 0b010,
-    object  = 0b100,
+    object  = 0b011,
     // zig fmt: on
 };
 
@@ -93,9 +93,6 @@ pub const Value = packed union {
         return self.bits == true_value;
     }
 
-    pub fn nil() Value {
-        return Value{ .bits = nil_value };
-    }
     pub fn object(o: *Object) Value {
         return Value{ .tagged = .{
             .bits = @truncate(@intFromPtr(o)),
@@ -108,6 +105,7 @@ pub const Value = packed union {
     pub fn number(n: f64) Value {
         return Value{ .float = n };
     }
+    pub const nil: Value = .{ .bits = nil_value };
 
     pub fn tag(self: Value) ValueType {
         if (self.isNumber()) {
