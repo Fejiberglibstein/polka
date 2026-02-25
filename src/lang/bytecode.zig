@@ -44,21 +44,17 @@ pub const InstructionKind = enum(u8) {
 
 pub const Chunk = struct {
     instruction_data: std.ArrayList(u8),
-    allocator: std.mem.Allocator,
 
-    pub fn init(gpa: std.mem.Allocator) Chunk {
-        return .{
-            .instruction_data = .empty,
-            .allocator = gpa,
-        };
+    pub const init: Chunk = .{
+        .instruction_data = .empty,
+    };
+
+    pub fn appendBytes(self: *Chunk, gpa: std.mem.Allocator, bytes: []const u8) !void {
+        return self.instruction_data.appendSlice(gpa, bytes);
     }
 
-    pub fn appendBytes(self: *Chunk, bytes: []const u8) !void {
-        return self.instruction_data.appendSlice(self.allocator, bytes);
-    }
-
-    pub fn appendInstruction(self: *Chunk, instruction: InstructionKind) !void {
-        return self.instruction_data.append(self.allocator, @intFromEnum(instruction));
+    pub fn appendInstruction(self: *Chunk, gpa: std.mem.Allocator, instruction: InstructionKind) !void {
+        return self.instruction_data.append(gpa, @intFromEnum(instruction));
     }
 };
 
