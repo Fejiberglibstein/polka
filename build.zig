@@ -28,18 +28,18 @@ pub fn build(b: *std.Build) void {
     // to our consumers. We must give it a name because a Zig package can expose
     // multiple modules and consumers will need to be able to specify which
     // module they want to access.
-    const mod = b.addModule("polka", .{
-        // The root source file is the "entry point" of this module. Users of
-        // this module will only be able to access public declarations contained
-        // in this file, which means that if you have declarations that you
-        // intend to expose to consumers that were defined in other files part
-        // of this module, you will have to make sure to re-export them from
-        // the root file.
-        .root_source_file = b.path("src/root.zig"),
-        // Later on we'll use this module as the root module of a test executable
-        // which requires us to specify a target.
-        .target = target,
-    });
+    // const mod = b.addModule("polka", .{
+    //     // The root source file is the "entry point" of this module. Users of
+    //     // this module will only be able to access public declarations contained
+    //     // in this file, which means that if you have declarations that you
+    //     // intend to expose to consumers that were defined in other files part
+    //     // of this module, you will have to make sure to re-export them from
+    //     // the root file.
+    //     .root_source_file = b.path("src/root.zig"),
+    //     // Later on we'll use this module as the root module of a test executable
+    //     // which requires us to specify a target.
+    //     .target = target,
+    // });
 
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
@@ -73,12 +73,12 @@ pub fn build(b: *std.Build) void {
             // List of modules available for import in source files part of the
             // root module.
             .imports = &.{
-                // Here "polka" is the name you will use in your source code to
-                // import this module (e.g. `@import("polka")`). The name is
-                // repeated because you are allowed to rename your imports, which
-                // can be extremely useful in case of collisions (which can happen
-                // importing modules from different packages).
-                .{ .name = "polka", .module = mod },
+                // // Here "polka" is the name you will use in your source code to
+                // // import this module (e.g. `@import("polka")`). The name is
+                // // repeated because you are allowed to rename your imports, which
+                // // can be extremely useful in case of collisions (which can happen
+                // // importing modules from different packages).
+                // .{ .name = "polka", .module = mod },
             },
         }),
     });
@@ -108,14 +108,14 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             // List of modules available for import in source files part of the
             // root module.
-            .imports = &.{
-                // Here "polka" is the name you will use in your source code to
-                // import this module (e.g. `@import("polka")`). The name is
-                // repeated because you are allowed to rename your imports, which
-                // can be extremely useful in case of collisions (which can happen
-                // importing modules from different packages).
-                .{ .name = "polka", .module = mod },
-            },
+            // .imports = &.{
+            //     // Here "polka" is the name you will use in your source code to
+            //     // import this module (e.g. `@import("polka")`). The name is
+            //     // repeated because you are allowed to rename your imports, which
+            //     // can be extremely useful in case of collisions (which can happen
+            //     // importing modules from different packages).
+            //     .{ .name = "polka", .module = mod },
+            // },
         }),
     });
 
@@ -156,17 +156,21 @@ pub fn build(b: *std.Build) void {
     // Creates an executable that will run `test` blocks from the provided module.
     // Here `mod` needs to define a target, which is why earlier we made sure to
     // set the releative field.
-    const mod_tests = b.addTest(.{
-        .root_module = mod,
-    });
+    // const mod_tests = b.addTest(.{
+    //     .use_llvm = true,
+    //     .use_lld = true,
+    //     .root_module = mod,
+    // });
 
-    // A run step that will run the test executable.
-    const run_mod_tests = b.addRunArtifact(mod_tests);
+    // // A run step that will run the test executable.
+    // const run_mod_tests = b.addRunArtifact(mod_tests);
 
     // Creates an executable that will run `test` blocks from the executable's
     // root module. Note that test executables only test one module at a time,
     // hence why we have to create two separate ones.
     const exe_tests = b.addTest(.{
+        .use_llvm = true,
+        .use_lld = true,
         .root_module = exe.root_module,
     });
 
@@ -177,7 +181,7 @@ pub fn build(b: *std.Build) void {
     // times and since the two run steps do not depend on one another, this will
     // make the two of them run in parallel.
     const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_mod_tests.step);
+    // test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
