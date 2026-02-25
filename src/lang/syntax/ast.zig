@@ -147,6 +147,7 @@ pub const Expression = union(enum) {
     binary: Binary,
     number: Number,
     string: String,
+    integer: Integer,
     grouping: Grouping,
     conditional: Conditional,
     function_def: FunctionDef,
@@ -436,6 +437,15 @@ pub const BracketAccess = struct {
     /// What is on the right side of the access, e.g. "bar" in `foo["bar"]`
     pub fn rhs(self: BracketAccess, all_nodes: []const SyntaxNode) Expression {
         return getLastChild(Expression, self.v, all_nodes) orelse unreachable;
+    }
+};
+
+pub const Integer = struct {
+    node: SyntaxNode,
+    const kind: SyntaxKind = .integer;
+
+    pub fn get(self: Integer, src: []const u8) error{Overflow}!u32 {
+        return std.fmt.parseInt(u32, self.node.getLeafSource(src), 10) catch error.Overflow;
     }
 };
 

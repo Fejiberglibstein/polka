@@ -140,11 +140,13 @@ fn isIdentChar(c: u8) bool {
 }
 
 fn number(self: *Lexer) SyntaxKind {
+    var kind: SyntaxKind = .integer;
     self.s.eatWhile(.{ .func = isDigit });
     if (self.s.eatIf(.{ .char = '.' })) {
+        kind = .number;
         self.s.eatWhile(.{ .func = isDigit });
     }
-    return .number;
+    return kind;
 }
 
 fn ident(self: *Lexer) SyntaxKind {
