@@ -1,127 +1,64 @@
-/// Metadata about each InstructionKind
-const InstructionData = struct {
-    /// The name of the enum field
-    name: [:0]const u8,
-    /// The data associated with the instruction kind. this data will appear after the instruction
-    /// in memory
-    args: type = @TypeOf(.{}),
-};
+pub const InstructionKind = enum(u8) {
+    /// Push `Value.true` onto the stack
+    push_true,
+    /// Push `Value.false` onto the stack
+    push_false,
+    /// Push `Value.nil` onto the stack
+    push_nil,
+    /// Push Value.number(N) onto the stack, where N is a u8 immediately following this instruction
+    push_u8,
 
-// zig fmt: off
-/// Used to create InstructionKind enum
-const instruction_kinds = [_]InstructionData{
-    // Push the frame pointer onto the stack, and set the frame pointer to be stack.len - 1
-    .{ .name = "pushfp" },
-    // Pop the top value off the stack and set the frame pointer to it
-    .{ .name = "popfp" },
-    // Push a constant onto the stack. The u32 is a Heap.Ptr to a value in the heap
-    .{ .name = "pushk", .args = struct { u32 } },
-    // Push a variable onto the stack. The u32 is the offset from the frame pointer where the
-    // variable lives
-    .{ .name = "pushv", .args = struct { u32 } },
-    // Pop a variable off the stack and discard it
-    .{ .name = "pop" },
-    // Write a string into the output file
-    .{ .name = "write", .args = struct { []const u8 } },
+    /// Write some text to the output file. This instruction is followed by 2 words for the slice of
+    /// characters that get written
+    write,
 
+    // TOS is the top of the stack
+    binary_add, // TOS = TOS1 + TOS
+    binary_sub, // TOS = TOS1 - TOS
+    binary_div, // TOS = TOS1 / TOS
+    binary_mul, // TOS = TOS1 * TOS
+    binary_mod, // TOS = TOS1 % TOS
+    binary_equ, // TOS = TOS1 == TOS
+    binary_neq, // TOS = TOS1 ~= TOS
+    binary_lte, // TOS = TOS1 <= TOS
+    binary_gte, // TOS = TOS1 >= TOS
+    binary_lt, // TOS = TOS1 < TOS
+    binary_gt, // TOS = TOS1 > TOS
+    binary_in, // TOS = TOS1 in TOS
+    binary_or, // TOS = TOS1 or TOS
+    binary_and, // TOS = TOS1 and TOS
 
-    // rhs is the top of the stack, lhs is the value below it
-    .{ .name = "add" },    // lhs + rhs
-    .{ .name = "sub" },    // lhs - rhs
-    .{ .name = "div" },    // lhs / rhs
-    .{ .name = "mul" },    // lhs * rhs
-    .{ .name = "mod" },    // lhs % rhs
-    .{ .name = "equ" },    // lhs == rhs
-    .{ .name = "neq" },    // lhs ~= rhs
-    .{ .name = "lte" },    // lhs <= rhs
-    .{ .name = "gte" },    // lhs >= rhs
-    .{ .name = "lt" },     // lhs < rhs
-    .{ .name = "gt" },     // lhs > rhs
-    .{ .name = "in" },     // lhs in rhs
-    .{ .name = "orr" },    // lhs orr rhs
-    .{ .name = "and" },    // lhs and rhs
-    .{ .name = "access" }, // lhs[rhs]
+    unary_negate, // TOS = -TOS
+    unary_not, // TOS = not TOS
 
+    /// Jump forward N bytes, where N is a u32 immediately following this instruction.
+    jmp,
+    /// Jump forward N bytes if TOS is truthy, where N is a u32 immediately following this
+    /// instruction.
+    jmp_if_truthy,
 
-    // Before a function is called, the stack is set up in the following way:
-    //
-    // {
-    //   frame_pointer: usize,
-    //   captured_variables: [_]Value,
-    //   arguments: [_]Value,
-    //   function_to_be_called: Value
-    // }
-    //
-    // The call instruction will pop off the top of the stack (function_to_be_called) & call it.
-    .{ .name = "call" },
-    .{ .name = "ret" },
-};
-// zig fmt: on
-
-pub const InstructionKind: type = blk: {
-    var fields: [instruction_kinds.len]std.builtin.Type.EnumField = undefined;
-    for (instruction_kinds, 0..) |instr, i| {
-        fields[i] = .{ .name = instr.name, .value = i };
-    }
-
-    break :blk @Type(std.builtin.Type{ .@"enum" = .{
-        .tag_type = u8,
-        .fields = &fields,
-        .decls = &.{},
-        .is_exhaustive = true,
-    } });
+    /// Jump forward N bytes if TOS is falsey, where N is a u32 immediately following this
+    /// instruction.
+    jmp_if_falsey,
 };
 
 pub const Chunk = struct {
     instruction_data: std.ArrayList(u8),
+    allocator: std.mem.Allocator,
 
-    pub const init: Chunk = .{ .instruction_data = .empty };
-
-    fn addValue(self: *Chunk, gpa: std.mem.Allocator, value: anytype) !void {
-        try self.instruction_data.appendSlice(gpa, std.mem.asBytes(&value));
+    pub fn init(gpa: std.mem.Allocator) Chunk {
+        return .{
+            .instruction_data = .empty,
+            .allocator = gpa,
+        };
     }
 
-    pub fn addInstruction(
-        self: *Chunk,
-        gpa: std.mem.Allocator,
-        comptime instruction: InstructionKind,
-        args: anytype,
-    ) !void {
-        try self.addValue(gpa, instruction);
+    pub fn appendBytes(self: *Chunk, bytes: []const u8) !void {
+        return self.instruction_data.appendSlice(self.allocator, bytes);
+    }
 
-        const expected_type = instruction_kinds[@intFromEnum(instruction)].args;
-        comptime if (@TypeOf(args) != expected_type)
-            @compileError(
-                "Expected " ++ @typeName(expected_type) ++ " but got " ++ @typeName(@TypeOf(args)),
-            );
-
-        switch (instruction) {
-            .pushfp => {},
-            .popfp => {},
-            .pushk => try self.addValue(gpa, args.@"0"),
-            .pushv => try self.addValue(gpa, args.@"0"),
-            .write => try self.addValue(gpa, args.@"0"),
-
-            .pop => {},
-            .add => {},
-            .sub => {},
-            .div => {},
-            .mul => {},
-            .mod => {},
-            .equ => {},
-            .neq => {},
-            .lte => {},
-            .gte => {},
-            .lt => {},
-            .gt => {},
-            .in => {},
-            .orr => {},
-            .@"and" => {},
-            .access => {},
-
-            .call => {},
-            .ret => {},
-        }
+    pub fn appendInstruction(self: *Chunk, instruction: InstructionKind) !void {
+        return self.instruction_data.append(self.allocator, @intFromEnum(instruction));
     }
 };
 
