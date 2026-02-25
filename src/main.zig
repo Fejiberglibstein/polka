@@ -3,19 +3,20 @@ pub fn main() !void {
     _ = lexer.next();
 
     const parsed = try parser.parse("", .text, std.heap.page_allocator);
-
-    const f = ast.toASTNode(ast.Text, parsed.rootNode().?.node) orelse unreachable;
-    var iter = f.parts(&.{});
-    _ = iter.next();
+    defer parsed.deinit(std.heap.page_allocator);
+    var c: Compiler = .init(parsed.nodes, "", std.heap.page_allocator);
+    _ = try c.compile();
 }
 
 test {
-    _ = @import("syntax/test.zig");
+    _ = @import("lang/syntax/test.zig");
+    std.testing.refAllDeclsRecursive(@This());
 }
 
 const std = @import("std");
 
-const Lexer = @import("syntax/Lexer.zig");
-const SyntaxNode = @import("syntax/node.zig").SyntaxNode;
-const parser = @import("syntax/parser.zig");
-const ast = @import("syntax/ast.zig");
+const Lexer = @import("lang/syntax/Lexer.zig");
+const SyntaxNode = @import("lang/syntax/node.zig").SyntaxNode;
+const parser = @import("lang/syntax/parser.zig");
+const ast = @import("lang/syntax/ast.zig");
+const Compiler = @import("lang/Compiler.zig");
