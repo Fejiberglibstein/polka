@@ -287,7 +287,39 @@ pub const Conditional = struct {
     node: SyntaxNode,
     const kind: SyntaxKind = .conditional;
 
-    // TODO
+    const BranchIterator = struct {
+        child_nodes: []const SyntaxNode,
+        node: SyntaxNode,
+        index: usize,
+
+        fn init(node: SyntaxNode, all_nodes: []const SyntaxNode) BranchIterator {
+            return .{
+                .node = node,
+                .child_nodes = node.getTreeChildren(all_nodes),
+                .index = 0,
+            };
+        }
+
+        pub fn next(self: *BranchIterator) struct { ?Expression, Text } {
+            // Will be null for an else branch
+            var branch_condition: ?Expression = null;
+
+            while (self.index < self.child_nodes.len) : (self.index += 1) {
+                if (toASTNode(Expression, self.child_nodes[self.index])) |expr| {
+                    branch_condition = expr;
+                    continue;
+                }
+
+                if (toASTNode(Text, self.child_nodes[self.index])) |text| {
+                    return struct { branch_condition, text };
+                }
+            }
+        }
+    };
+
+    pub fn branches(self: Conditional, all_nodes: []const SyntaxNode) BranchIterator {
+        return .init(self.node, all_nodes);
+    }
 };
 
 pub const UnaryOperator = union(enum) {
