@@ -85,7 +85,7 @@ test "Statements" {
                 x.leaf(.keyword_let),
                 x.leaf(.ident),
                 x.leaf(.eq),
-                x.leaf(.number),
+                x.leaf(.integer),
             }),
             x.leaf(.newline),
             x.leaf(.code_begin),
@@ -101,7 +101,7 @@ test "Statements" {
                     x.leaf(.keyword_let),
                     x.leaf(.ident),
                     x.leaf(.eq),
-                    x.leaf(.number),
+                    x.leaf(.integer),
                 }),
             }),
         }),
@@ -131,7 +131,7 @@ test "Single expressions" {
             x.leaf(.ident),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.leaf(.number),
+            x.leaf(.integer),
             x.leaf(.newline),
             x.leaf(.code_begin),
             x.leaf(.keyword_nil),
@@ -145,7 +145,7 @@ test "Single expressions" {
             x.leaf(.code_begin),
             x.tree(.grouping, &.{
                 x.leaf(.l_paren),
-                x.leaf(.number),
+                x.leaf(.integer),
                 x.leaf(.r_paren),
             }),
             x.leaf(.newline),
@@ -176,34 +176,34 @@ test "Binary expressions" {
     , x.root(&.{
         x.tree(.code, &.{
             x.leaf(.code_begin),
-            x.tree(.binary, &.{ x.leaf(.number), x.leaf(.plus), x.leaf(.ident) }),
+            x.tree(.binary, &.{ x.leaf(.integer), x.leaf(.plus), x.leaf(.ident) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.binary, &.{ x.leaf(.string), x.leaf(.minus), x.leaf(.number) }),
+            x.tree(.binary, &.{ x.leaf(.string), x.leaf(.minus), x.leaf(.integer) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.binary, &.{ x.leaf(.keyword_true), x.leaf(.keyword_and), x.leaf(.number) }),
+            x.tree(.binary, &.{ x.leaf(.keyword_true), x.leaf(.keyword_and), x.leaf(.integer) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.binary, &.{ x.leaf(.number), x.leaf(.keyword_or), x.leaf(.keyword_false) }),
+            x.tree(.binary, &.{ x.leaf(.integer), x.leaf(.keyword_or), x.leaf(.keyword_false) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
             x.tree(.binary, &.{ x.leaf(.keyword_nil), x.leaf(.keyword_in), x.leaf(.ident) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.binary, &.{ x.leaf(.ident), x.leaf(.eq), x.leaf(.number) }),
+            x.tree(.binary, &.{ x.leaf(.ident), x.leaf(.eq), x.leaf(.integer) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.binary, &.{ x.leaf(.number), x.leaf(.lt), x.leaf(.number) }),
+            x.tree(.binary, &.{ x.leaf(.integer), x.leaf(.lt), x.leaf(.integer) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.binary, &.{ x.leaf(.number), x.leaf(.star), x.leaf(.number) }),
+            x.tree(.binary, &.{ x.leaf(.integer), x.leaf(.star), x.leaf(.number) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.binary, &.{ x.leaf(.string), x.leaf(.percent), x.leaf(.number) }),
+            x.tree(.binary, &.{ x.leaf(.string), x.leaf(.percent), x.leaf(.integer) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.binary, &.{ x.leaf(.number), x.leaf(.gt), x.leaf(.number) }),
+            x.tree(.binary, &.{ x.leaf(.integer), x.leaf(.gt), x.leaf(.integer) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
             x.tree(.binary, &.{ x.leaf(.keyword_nil), x.leaf(.not_eq), x.leaf(.keyword_nil) }),
@@ -228,7 +228,7 @@ test "Unary expressions" {
     , x.root(&.{
         x.tree(.code, &.{
             x.leaf(.code_begin),
-            x.tree(.unary, &.{ x.leaf(.minus), x.leaf(.number) }),
+            x.tree(.unary, &.{ x.leaf(.minus), x.leaf(.integer) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
             x.tree(.unary, &.{ x.leaf(.keyword_not), x.leaf(.keyword_true) }),
@@ -249,9 +249,9 @@ test "Complex expression" {
             x.tree(.binary, &.{
                 x.tree(.binary, &.{
                     x.tree(.binary, &.{
-                        x.leaf(.number),
+                        x.leaf(.integer),
                         x.leaf(.gt),
-                        x.leaf(.number),
+                        x.leaf(.integer),
                     }),
                     x.leaf(.keyword_and),
                     x.leaf(.keyword_nil),
@@ -261,24 +261,24 @@ test "Complex expression" {
                     x.leaf(.keyword_not),
                     x.tree(.binary, &.{
                         x.tree(.binary, &.{
-                            x.leaf(.number),
+                            x.leaf(.integer),
                             x.leaf(.minus),
                             x.tree(.binary, &.{
-                                x.leaf(.number),
+                                x.leaf(.integer),
                                 x.leaf(.star),
                                 x.tree(.grouping, &.{
                                     x.leaf(.l_paren),
                                     x.tree(.binary, &.{
-                                        x.leaf(.number),
+                                        x.leaf(.integer),
                                         x.leaf(.plus),
-                                        x.leaf(.number),
+                                        x.leaf(.integer),
                                     }),
                                     x.leaf(.r_paren),
                                 }),
                             }),
                         }),
                         x.leaf(.eq_eq),
-                        x.leaf(.number),
+                        x.leaf(.integer),
                     }),
                 }),
             }),
@@ -304,9 +304,9 @@ test "Function calling" {
                         x.leaf(.ident),
                         x.leaf(.comma),
                         x.tree(.binary, &.{
-                            x.leaf(.number),
+                            x.leaf(.integer),
                             x.leaf(.minus),
-                            x.leaf(.number),
+                            x.leaf(.integer),
                         }),
                         x.leaf(.comma),
                         x.leaf(.string),
@@ -391,26 +391,29 @@ const TreeConstructor = struct {
 
 fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const SyntaxNode) !void {
     const parsed = try parser.parse(source, .text, gpa);
+    defer parsed.deinit(gpa);
+    defer gpa.free(expected);
     for (parsed.errors) |err| {
         std.log.err(" \nERROR: {}", .{err});
     }
     try expectEqual(0, parsed.errors.len);
-    defer parsed.deinit(gpa);
 
     const expected_root = expected[expected.len - 1];
     const actual_root = parsed.nodes[parsed.nodes.len - 1];
 
     assertNodeEql(
-        actual_root,
         expected_root,
-        parsed.nodes,
+        actual_root,
         expected,
+        parsed.nodes,
     ) catch |err| {
         var exp_writer: std.Io.Writer.Allocating = .init(gpa);
         try expected_root.print(expected, "", 0, &exp_writer.writer);
+        defer exp_writer.deinit();
 
         var act_writer: std.Io.Writer.Allocating = .init(gpa);
         try actual_root.print(parsed.nodes, source, 0, &act_writer.writer);
+        defer act_writer.deinit();
 
         var exp = std.mem.splitSequence(u8, try exp_writer.toOwnedSlice(), "\n");
         var act = std.mem.splitSequence(u8, try act_writer.toOwnedSlice(), "\n");
@@ -431,7 +434,6 @@ fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const Synt
 
         return err;
     };
-    gpa.free(expected);
 }
 
 const std = @import("std");

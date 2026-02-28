@@ -122,6 +122,7 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
     switch (p.current.node.kind) {
         .ident,
         .number,
+        .integer,
         .string,
         .keyword_nil,
         .keyword_true,
