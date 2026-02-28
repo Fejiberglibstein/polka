@@ -85,7 +85,7 @@ pub const Value = packed union {
         return self.bits == true_value;
     }
 
-    pub fn object(o: *Object) Value {
+    pub fn object(o: *const Object) Value {
         return Value{ .tagged = .{
             .bits = @truncate(@intFromPtr(o)),
             .tag = Tag.object,
@@ -188,7 +188,7 @@ test "Value booleans" {
 }
 
 test "Value nil" {
-    const value = Value.nil();
+    const value = Value.nil;
 
     try expect(value.isNil());
     try expect(!value.isObject());
@@ -198,7 +198,7 @@ test "Value nil" {
 }
 
 test "Value object" {
-    var object = Object{ .tag = .string };
+    const object: Object = .{ .tag = .string };
     const value = Value.object(&object);
 
     try expectEqual(@intFromPtr(&object), @intFromPtr(value.asObject()));
@@ -208,14 +208,7 @@ test "Value object" {
     try expect(!value.isBoolean());
     try expect(!value.isNil());
     try expect(value.isTruthy());
-
-    value.asObject().tag = .moved;
-    try expectEqual(value.asObject().*.tag, .moved);
 }
-
-pub const ObjectType = enum {
-    string,
-};
 
 /// Represents a dynamically allocated value on the heap.
 ///
@@ -225,16 +218,20 @@ pub const ObjectType = enum {
 /// Each different object will be implemented through struct inheritance.
 pub const Object = extern struct {
     // Any potential header information that may need to exist
-    tag: ObjectType,
+    tag: Object.Kind,
 
-    pub inline fn asString(self: *Object) *String {
-        assert(self.tag == .string);
-        return @ptrCast(@alignCast(self));
-    }
+    pub const Kind = enum(usize) {
+        string,
+    };
 
-    pub inline fn getString(self: *Object) ?*String {
-        return if (self.tag == .string) self.asString() else null;
-    }
+    // pub fn asString(self: *Object) *String {
+    //     assert(self.tag == .string);
+    //     return @ptrCast(@alignCast(self));
+    // }
+
+    // pub fn getString(self: *Object) ?*String {
+    //     return if (self.tag == .string) self.asString() else null;
+    // }
 };
 
 pub const String = extern struct {
