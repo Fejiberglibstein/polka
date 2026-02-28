@@ -33,24 +33,24 @@ pub fn init(
     };
 }
 
-pub fn setError(self: *Vm, node: SyntaxNode, kind: RuntimeErrorPayload.Kind) !noreturn {
-    try self.errors.append(self.gpa, .{ .node = node, .kind = kind });
+pub fn setError(self: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) !noreturn {
+    try self.errors.append(self.gpa, .{ .node_index = node_index, .kind = kind });
     return RuntimeError.Error;
 }
 
-pub fn stackPush(self: *Vm, ctx: SyntaxNode, v: Value) !void {
-    self.stack.appendBounded(v) catch try self.setError(ctx, .stack_overflow);
+pub fn stackPush(self: *Vm, node_index: u32, v: Value) !void {
+    self.stack.appendBounded(v) catch try self.setError(node_index, .stack_overflow);
 }
 pub fn stackPop(self: *Vm) Value {
-    return self.stack.pop() catch unreachable;
+    return self.stack.pop() orelse unreachable;
 }
 pub fn stackPeek(self: *Vm, back: usize) Value {
     return self.stack[self.stack.items.len - back - 1];
 }
 
 const RuntimeErrorPayload = struct {
-    /// The node that caused the error
-    node: SyntaxNode,
+    /// The index of the node that caused the error
+    node_index: u32,
     kind: Kind,
     const Kind = union(enum) {
         /// Integer literal is too large

@@ -395,12 +395,13 @@ fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const Synt
         std.log.err(" \nERROR: {}", .{err});
     }
     try expectEqual(0, parsed.errors.len);
-    defer parsed.deinit(gpa) catch unreachable;
+    defer parsed.deinit(gpa);
 
     const expected_root = expected[expected.len - 1];
+    const actual_root = parsed.nodes[parsed.nodes.len - 1];
 
     assertNodeEql(
-        parsed.rootNode().?.node,
+        actual_root,
         expected_root,
         parsed.nodes,
         expected,
@@ -409,7 +410,7 @@ fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const Synt
         try expected_root.print(expected, "", 0, &exp_writer.writer);
 
         var act_writer: std.Io.Writer.Allocating = .init(gpa);
-        try parsed.rootNode().?.node.print(parsed.nodes, source, 0, &act_writer.writer);
+        try actual_root.print(parsed.nodes, source, 0, &act_writer.writer);
 
         var exp = std.mem.splitSequence(u8, try exp_writer.toOwnedSlice(), "\n");
         var act = std.mem.splitSequence(u8, try act_writer.toOwnedSlice(), "\n");
