@@ -300,7 +300,7 @@ pub const Conditional = struct {
             };
         }
 
-        pub fn next(self: *BranchIterator) struct { ?Expression, Text } {
+        pub fn next(self: *BranchIterator) ?struct { ?Expression, Text } {
             // Will be null for an else branch
             var branch_condition: ?Expression = null;
 
@@ -311,9 +311,10 @@ pub const Conditional = struct {
                 }
 
                 if (toASTNode(Text, self.child_nodes[self.index])) |text| {
-                    return struct { branch_condition, text };
+                    return .{ branch_condition, text };
                 }
             }
+            return null;
         }
     };
 
