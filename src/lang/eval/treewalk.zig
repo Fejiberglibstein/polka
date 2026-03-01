@@ -21,6 +21,7 @@ pub fn evalCode(vm: *Vm, node: ast.Code) !void {
             .return_statement => {},
             .export_statement => {},
             .continue_statement => {},
+            .conditional => |conditional| try evalConditional(vm, conditional),
         }
     }
 }
@@ -47,7 +48,6 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) !void {
             try vm.stackPush(num.node_index, Value.number(@floatFromInt(n)));
         },
         .grouping => {},
-        .conditional => |conditional| try evalConditional(vm, conditional),
         .function_def => {},
         .function_call => {},
     }

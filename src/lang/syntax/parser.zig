@@ -97,6 +97,7 @@ fn parseStatement(p: *Parser) !void {
     if (try p.eatIf(.newline)) return;
     switch (p.current.node.kind) {
         .keyword_for => try parseForLoop(p),
+        .keyword_if => try parseConditional(p),
         .keyword_while => try parseWhileLoop(p),
         .keyword_let => try parseLetStatement(p),
         .keyword_export => try parseExportStatement(p),
@@ -136,8 +137,6 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
             try p.eatExpect(.r_paren);
             try p.wrap(m2, .grouping);
         },
-
-        .keyword_if => try parseConditional(p),
 
         .keyword_func => try parseFunctionDefinition(p),
 

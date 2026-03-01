@@ -152,6 +152,7 @@ pub const Statement = union(enum) {
     for_loop: ForLoop,
     while_loop: WhileLoop,
     expression: Expression,
+    conditional: Conditional,
     let_statement: LetStatement,
     break_statement: BreakStatement,
     return_statement: ReturnStatement,
@@ -172,7 +173,6 @@ pub const Expression = union(enum) {
     string: String,
     integer: Integer,
     grouping: Grouping,
-    conditional: Conditional,
     function_def: FunctionDef,
     function_call: FunctionCall,
 };
