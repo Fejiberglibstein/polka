@@ -33,7 +33,7 @@ pub fn init(
     };
 }
 
-pub fn setError(self: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) !noreturn {
+pub fn setError(self: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) RuntimeError!noreturn {
     try self.errors.append(self.gpa, .{ .node_index = node_index, .kind = kind });
     return RuntimeError.Error;
 }
@@ -55,7 +55,11 @@ const RuntimeErrorPayload = struct {
     const Kind = union(enum) {
         /// Integer literal is too large
         number_too_large,
+        /// Could not write inside .output
+        write_failure,
         stack_overflow,
+        /// Invalid operands to binary operator. <lhs> node.op <rhs> is not allowed.
+        invalid_binary_operands: struct { lhs: Value, rhs: Value },
     };
 };
 

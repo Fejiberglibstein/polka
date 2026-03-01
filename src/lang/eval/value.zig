@@ -114,9 +114,74 @@ pub const Value = packed union {
         return self.bits != nil_value and self.bits != false_value;
     }
 
-    pub fn equal(a: Value, b: Value) bool {
-        return a.bits == b.bits;
-    }
+    pub const Operators = struct {
+        pub fn equal(a: Value, b: Value) Value {
+            return Value.boolean(a.bits == b.bits);
+        }
+        pub fn not_equal(a: Value, b: Value) Value {
+            return Value.boolean(!Operators.equal(a, b).asBoolean());
+        }
+        pub fn add(a: Value, b: Value) !Value {
+            if (a.isNumber() and b.isNumber()) {
+                return Value.number(a.asNumber() + b.asNumber());
+            }
+            return error.InvalidOperands;
+        }
+        pub fn subtract(a: Value, b: Value) !Value {
+            if (a.isNumber() and b.isNumber()) {
+                return Value.number(a.asNumber() - b.asNumber());
+            }
+            return error.InvalidOperands;
+        }
+        pub fn modulo(a: Value, b: Value) !Value {
+            if (a.isNumber() and b.isNumber()) {
+                return Value.number(@mod(a.asNumber(), b.asNumber()));
+            }
+            return error.InvalidOperands;
+        }
+        pub fn multiply(a: Value, b: Value) !Value {
+            if (a.isNumber() and b.isNumber()) {
+                return Value.number(a.asNumber() * b.asNumber());
+            }
+            return error.InvalidOperands;
+        }
+        pub fn divide(a: Value, b: Value) !Value {
+            if (a.isNumber() and b.isNumber()) {
+                return Value.number(a.asNumber() / b.asNumber());
+            }
+            return error.InvalidOperands;
+        }
+        pub fn less_than(a: Value, b: Value) !Value {
+            if (a.isBoolean() and b.isBoolean()) {
+                return Value.boolean(a.asNumber() < b.asNumber());
+            }
+            return error.InvalidOperands;
+        }
+        pub fn less_than_equal(a: Value, b: Value) !Value {
+            if (a.isBoolean() and b.isBoolean()) {
+                return Value.boolean(a.asNumber() <= b.asNumber());
+            }
+            return error.InvalidOperands;
+        }
+        pub fn greater_than(a: Value, b: Value) !Value {
+            if (a.isBoolean() and b.isBoolean()) {
+                return Value.boolean(a.asNumber() > b.asNumber());
+            }
+            return error.InvalidOperands;
+        }
+        pub fn greater_than_equal(a: Value, b: Value) !Value {
+            if (a.isBoolean() and b.isBoolean()) {
+                return Value.boolean(a.asNumber() >= b.asNumber());
+            }
+            return error.InvalidOperands;
+        }
+        pub fn in(a: Value, b: Value) !Value {
+            _ = a;
+            _ = b;
+            @panic("TODO");
+            // return error.InvalidOperands;
+        }
+    };
 
     pub fn format(
         self: @This(),
@@ -135,10 +200,6 @@ pub const Value = packed union {
                 const o = self.asObject();
                 switch (self.asObject().tag) {
                     .string => try writer.print("{s}", .{o.asString().get()}),
-                    .list => try writer.print("<list@{x}>", .{@intFromPtr(o)}),
-                    .dict => try writer.print("<dict@{x}>", .{@intFromPtr(o)}),
-                    .closure => try writer.print("<function@{x}>", .{@intFromPtr(o)}),
-                    .moved => unreachable,
                 }
             },
         }
@@ -224,14 +285,14 @@ pub const Object = extern struct {
         string,
     };
 
-    // pub fn asString(self: *Object) *String {
-    //     assert(self.tag == .string);
-    //     return @ptrCast(@alignCast(self));
-    // }
+    pub fn asString(self: *Object) *String {
+        assert(self.tag == .string);
+        return @ptrCast(@alignCast(self));
+    }
 
-    // pub fn getString(self: *Object) ?*String {
-    //     return if (self.tag == .string) self.asString() else null;
-    // }
+    pub fn getString(self: *Object) ?*String {
+        return if (self.tag == .string) self.asString() else null;
+    }
 };
 
 pub const String = extern struct {
