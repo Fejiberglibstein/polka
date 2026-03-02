@@ -33,8 +33,8 @@ pub fn evalConditional(vm: *Vm, node: ast.Conditional) RuntimeError!void {
 
     while (branches.next(vm.all_nodes)) |branch| {
         if (branch.condition) |condition| {
-            try evalExpression(vm, condition);
-            if (!vm.stackPop().isTruthy()) {
+            const cond = try evalExpression(vm, condition);
+            if (!cond.isTruthy()) {
                 continue;
             }
         }
@@ -43,43 +43,45 @@ pub fn evalConditional(vm: *Vm, node: ast.Conditional) RuntimeError!void {
     }
 }
 
-pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!void {
-    switch (node) {
-        .nil => |n| try vm.stackPush(n.node_index, Value.nil),
-        .list => {},
-        .dict => {},
-        .true => |n| try vm.stackPush(n.node_index, Value.boolean(true)),
-        .unary => {},
-        .ident => {},
-        .false => |n| try vm.stackPush(n.node_index, Value.boolean(false)),
+pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
+    return switch (node) {
+        .nil => Value.nil,
+        .list => @panic("TODO"),
+        .dict => @panic("TODO"),
+        .true => Value.boolean(true),
+        .unary => @panic("TODO"),
+        .ident => @panic("TODO"),
+        .false => Value.boolean(false),
         .binary => |binary| try evalBinary(vm, binary),
-        .number => |num| {
-            const n = num.get(vm.all_nodes, vm.src);
-            try vm.stackPush(num.node_index, Value.number(n));
-        },
-        .string => {},
-        .integer => |num| {
-            const n = num.get(vm.all_nodes, vm.src) catch {
-                try vm.setError(num.node_index, .number_too_large);
-            };
-            try vm.stackPush(num.node_index, Value.number(@floatFromInt(n)));
-        },
+        .string => @panic("TODO"),
+        .number => |num| Value.number(num.get(vm.all_nodes, vm.src)),
         .grouping => |group| try evalExpression(vm, group.inner(vm.all_nodes)),
-        .function_def => {},
-        .function_call => {},
-    }
+        .integer => |num| Value.number(@floatFromInt(num.get(vm.all_nodes, vm.src) catch {
+            try vm.setError(num.node_index, .number_too_large);
+        })),
+        .function_def => @panic("TODO"),
+        .function_call => @panic("TODO"),
+    };
 }
 
-pub fn evalBinary(vm: *Vm, node: ast.Binary) !void {
-    try evalExpression(vm, node.lhs(vm.all_nodes));
-    try evalExpression(vm, node.rhs(vm.all_nodes));
+pub fn evalBinary(vm: *Vm, node: ast.Binary) !Value {
+    const op = node.op(vm.all_nodes);
 
-    const lhs = vm.stackPeek(1);
-    const rhs = vm.stackPeek(0);
+    const lhs = try evalExpression(vm, node.lhs(vm.all_nodes));
 
-    const result = switch (node.op(vm.all_nodes)) {
-        .@"or" => @panic("TODO"),
-        .@"and" => @panic("TODO"),
+    if (op == .@"and" or op == .@"or") {
+        if (lhs.isTruthy() == (op == .@"or")) {
+            return lhs;
+        } else {
+            return try evalExpression(vm, node.rhs(vm.all_nodes));
+        }
+    }
+
+    const rhs = try evalExpression(vm, node.rhs(vm.all_nodes));
+
+    return switch (node.op(vm.all_nodes)) {
+        .@"or" => unreachable,
+        .@"and" => unreachable,
         .assign => @panic("TODO"),
         .in => Value.Operators.in(lhs, rhs),
         .add => Value.Operators.add(lhs, rhs),
@@ -97,12 +99,6 @@ pub fn evalBinary(vm: *Vm, node: ast.Binary) !void {
         node.node_index,
         .{ .invalid_binary_operands = .{ .lhs = lhs, .rhs = rhs } },
     );
-
-    // Discard lhs and rhs
-    _ = vm.stackPop();
-    _ = vm.stackPop();
-
-    try vm.stackPush(node.node_index, result);
 }
 
 const std = @import("std");
