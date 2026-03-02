@@ -17,7 +17,20 @@ pub fn evalCode(vm: *Vm, node: ast.Code) !void {
         switch (statement) {
             .for_loop => {},
             .while_loop => {},
-            .expression => |expr| try evalExpression(vm, expr),
+            .expression => |expr| switch (expr) {
+                inline else => |v| {
+                    const res = try evalExpression(vm, expr);
+
+                    if (res.getObject()) |obj| {
+                        if (obj.getString()) |str| {
+                            vm.output.print("{s}", .{str.slice()}) catch
+                                try vm.setError(v.node_index, .write_failure);
+                        }
+                    }
+
+                    try vm.setError(v.node_index, .{ .cannot_print_value = .{ .value = res } });
+                },
+            },
             .let_statement => {},
             .break_statement => {},
             .return_statement => {},

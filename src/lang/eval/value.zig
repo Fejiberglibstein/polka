@@ -183,23 +183,15 @@ pub const Value = packed union {
         }
     };
 
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
-
+    pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self.tag()) {
             .nil => |_| try writer.writeAll("<nil>"),
             .boolean => try writer.print("{}", .{self.asBoolean()}),
             .number => try writer.print("{d}", .{self.asNumber()}),
             .object => {
                 const o = self.asObject();
-                switch (self.asObject().tag) {
-                    .string => try writer.print("{s}", .{o.asString().get()}),
+                switch (o.tag) {
+                    .string => try writer.print("{s}", .{o.asString().slice()}),
                 }
             },
         }
@@ -296,12 +288,21 @@ pub const Object = extern struct {
 };
 
 pub const String = extern struct {
-    base: Object,
-    size: u32,
-    capacity: u32,
-    /// Start of the character array for the string. Its total length is .capacity, but only .length
-    /// characters have meaningful information
-    chars: void = undefined,
+    base: Object = .{ .tag = .string },
+    len: usize,
+    ptr: [*]const u8,
+
+    pub fn slice(self: *const String) []const u8 {
+        return self.ptr[0..self.len];
+    }
+
+    pub fn init(gpa: Allocator, fmt: []const u8, args: anytype) !*String {
+        var ret = try gpa.create(String);
+        const str = try std.fmt.allocPrint(gpa, fmt, args);
+        ret.len = str.len;
+        ret.ptr = str.ptr;
+        return ret;
+    }
 };
 
 const std = @import("std");
