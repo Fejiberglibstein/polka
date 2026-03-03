@@ -134,6 +134,16 @@ pub fn evalUnary(vm: *Vm, node: ast.Unary) RuntimeError!Value {
 pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
     const op = node.op(vm.all_nodes);
 
+    if (op == .assign) {
+        const lhs = node.lhs(vm.all_nodes);
+        if (lhs == .ident) {
+            const value = try evalExpression(vm, node.rhs(vm.all_nodes));
+            vm.setVariable(lhs.ident.get(vm.all_nodes, vm.src), value) catch
+                try vm.setError(lhs.ident.node_index, .undeclared_variable);
+            return Value.nil;
+        } else try vm.setError(node.node_index, .cannot_assign_to_non_variable);
+    }
+
     const lhs = try evalExpression(vm, node.lhs(vm.all_nodes));
 
     if (op == .@"and" or op == .@"or") {
@@ -149,7 +159,7 @@ pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
     return switch (node.op(vm.all_nodes)) {
         .@"or" => unreachable,
         .@"and" => unreachable,
-        .assign => @panic("TODO"),
+        .assign => unreachable,
         .in => Value.Operators.in(lhs, rhs),
         .add => Value.Operators.add(lhs, rhs),
         .equal => Value.Operators.equal(lhs, rhs),

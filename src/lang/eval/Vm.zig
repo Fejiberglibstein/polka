@@ -67,7 +67,7 @@ pub fn setVariable(self: *Vm, ident: []const u8, value: Value) !void {
 
     while (i > 0) {
         i = i - 1;
-        const variable = self.variables.items[i];
+        const variable = &self.variables.items[i];
 
         if (variable.function_depth != self.function_depth)
             break;
