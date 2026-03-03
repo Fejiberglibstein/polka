@@ -181,6 +181,15 @@ pub const Value = packed union {
             @panic("TODO");
             // return error.InvalidOperands;
         }
+
+        pub fn negate(a: Value) !Value {
+            if (a.asNumber()) |num| return Value.number(-num);
+            return error.InvalidOperand;
+        }
+        pub fn not(a: Value) !Value {
+            if (a.asBoolean()) |b| return Value.boolean(!b);
+            return error.InvalidOperand;
+        }
     };
 
     pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -196,6 +205,51 @@ pub const Value = packed union {
             },
         }
     }
+
+    /// Represents a dynamically allocated value on the heap.
+    ///
+    /// Can be any one of
+    /// - String
+    ///
+    /// Each different object will be implemented through struct inheritance.
+    pub const Object = extern struct {
+        // Any potential header information that may need to exist
+        tag: Object.Kind,
+
+        pub const Kind = enum(usize) {
+            string,
+        };
+
+        pub fn from(obj: anytype) *Object {
+            return @ptrCast(@alignCast(obj));
+        }
+
+        pub fn asString(self: *Object) *String {
+            assert(self.tag == .string);
+            return @ptrCast(@alignCast(self));
+        }
+
+        pub fn getString(self: *Object) ?*String {
+            return if (self.tag == .string) self.asString() else null;
+        }
+    };
+
+    pub const String = extern struct {
+        base: Object = .{ .tag = .string },
+        len: usize,
+        ptr: [*]const u8,
+
+        pub fn slice(self: *const String) []const u8 {
+            return self.ptr[0..self.len];
+        }
+
+        pub fn init(gpa: Allocator, str: []const u8) !*Object {
+            var ret = try gpa.create(String);
+            ret.len = str.len;
+            ret.ptr = str.ptr;
+            return @ptrCast(@alignCast(ret));
+        }
+    };
 };
 
 test "Value numbers" {
@@ -251,7 +305,7 @@ test "Value nil" {
 }
 
 test "Value object" {
-    const object: Object = .{ .tag = .string };
+    const object: Value.Object = .{ .tag = .string };
     const value = Value.object(&object);
 
     try expectEqual(@intFromPtr(&object), @intFromPtr(value.asObject()));
@@ -262,48 +316,6 @@ test "Value object" {
     try expect(!value.isNil());
     try expect(value.isTruthy());
 }
-
-/// Represents a dynamically allocated value on the heap.
-///
-/// Can be any one of
-/// - String
-///
-/// Each different object will be implemented through struct inheritance.
-pub const Object = extern struct {
-    // Any potential header information that may need to exist
-    tag: Object.Kind,
-
-    pub const Kind = enum(usize) {
-        string,
-    };
-
-    pub fn asString(self: *Object) *String {
-        assert(self.tag == .string);
-        return @ptrCast(@alignCast(self));
-    }
-
-    pub fn getString(self: *Object) ?*String {
-        return if (self.tag == .string) self.asString() else null;
-    }
-};
-
-pub const String = extern struct {
-    base: Object = .{ .tag = .string },
-    len: usize,
-    ptr: [*]const u8,
-
-    pub fn slice(self: *const String) []const u8 {
-        return self.ptr[0..self.len];
-    }
-
-    pub fn init(gpa: Allocator, fmt: []const u8, args: anytype) !*String {
-        var ret = try gpa.create(String);
-        const str = try std.fmt.allocPrint(gpa, fmt, args);
-        ret.len = str.len;
-        ret.ptr = str.ptr;
-        return ret;
-    }
-};
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

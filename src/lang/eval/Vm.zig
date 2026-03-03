@@ -13,10 +13,13 @@ const Variable = struct {
 
 src: []const u8,
 all_nodes: []const SyntaxNode,
-gpa: std.mem.Allocator,
 output: *std.Io.Writer,
+gpa: std.mem.Allocator,
+/// Allocator specifically used to allocate values. For now it's just an arena, but it may be more
+/// complex in the future.
+value_allocator: std.heap.ArenaAllocator,
 
-errors: std.ArrayList(RuntimeErrorPayload),
+err: ?RuntimeErrorPayload,
 variables: std.ArrayList(Variable),
 scope_level: u32,
 function_depth: u32,
@@ -32,21 +35,70 @@ pub fn init(
     return .{
         .gpa = gpa,
         .src = src,
-        .errors = .empty,
+        .err = null,
         .output = output,
         .scope_level = 0,
         .function_depth = 0,
         .all_nodes = all_nodes,
         .variables = try .initCapacity(gpa, 512),
+        .value_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator),
     };
 }
 
+pub fn deinit(self: *const Vm) void {
+    self.output.flush();
+    self.value_allocator.deinit();
+    self.variables.deinit(self.gpa);
+}
+
+pub fn valueAllocator(self: *Vm) std.mem.Allocator {
+    return self.value_allocator.allocator();
+}
+
 pub fn setError(self: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) RuntimeError!noreturn {
-    try self.errors.append(self.gpa, .{ .node_index = node_index, .kind = kind });
+    self.err = .{ .node_index = node_index, .kind = kind };
     return RuntimeError.Error;
 }
 
+pub fn setVariable(self: *Vm, ident: []const u8, value: Value) !void {
+    var i: usize = self.variables.items.len;
+
+    while (i > 0) {
+        i = i - 1;
+        const variable = self.variables.items[i];
+
+        if (variable.function_depth != self.function_depth)
+            break;
+
+        if (std.mem.eql(u8, variable.name, ident)) {
+            variable.value = value;
+            return;
+        }
+    }
+
+    return error.UndeclaredVariable;
+}
+
+pub fn getVariable(self: *Vm, ident: []const u8) !Value {
+    var i: usize = self.variables.items.len;
+
+    while (i > 0) {
+        i = i - 1;
+        const variable = self.variables.items[i];
+
+        if (variable.function_depth != self.function_depth)
+            break;
+
+        if (std.mem.eql(u8, variable.name, ident)) {
+            return variable.value;
+        }
+    }
+
+    return error.UndeclaredVariable;
+}
+
 pub fn bindVariable(self: *Vm, ident: []const u8, value: Value) !void {
+    assert(self.scope_level > 0);
     try self.variables.appendBounded(.{
         .name = ident,
         .value = value,
@@ -64,7 +116,7 @@ pub fn popScope(self: *Vm) void {
 
     while (self.variables.items.len > 0) {
         if (self.variables.getLast().scope_level > self.scope_level) {
-            self.variables.pop();
+            _ = self.variables.pop();
         } else {
             break;
         }
@@ -76,22 +128,29 @@ const RuntimeErrorPayload = struct {
     node_index: u32,
     kind: Kind,
     const Kind = union(enum) {
+        /// Out of memory for allocating values
+        value_oom,
+        /// Out of memory for allocating internal interpeter things
+        internal_oom,
         /// Integer literal is too large
         number_too_large,
         /// Could not write to .output because of a std.Io.Writer.Error
         write_failure,
-        stack_overflow,
+        /// Too many variables bound to a scope
+        too_many_variables,
+        undeclared_variable,
         /// Invalid operands to binary operator. <lhs> node.op <rhs> is not allowed.
         invalid_binary_operands: struct { lhs: Value, rhs: Value },
+        /// Invalid operands to unary operator. node.op <rhs> is not allowed.
+        invalid_unary_operands: struct { rhs: Value },
         cannot_print_value: struct { value: Value },
     };
 };
 
-pub const RuntimeError = error{
-    Error,
-} || std.mem.Allocator.Error;
+pub const RuntimeError = error{Error};
 
 const std = @import("std");
 const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
 const ast = @import("../syntax/ast.zig");
 const Value = @import("value.zig").Value;
+const assert = std.debug.assert;
