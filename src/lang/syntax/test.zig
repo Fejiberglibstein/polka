@@ -286,6 +286,141 @@ test "Complex expression" {
     }));
 }
 
+test "Simple conditional" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#* if true then
+        \\jkfljlk
+        \\#* end
+        \\jhekjl
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.conditional, &.{
+                x.leaf(.keyword_if),
+                x.leaf(.keyword_true),
+                x.leaf(.keyword_then),
+                x.leaf(.newline),
+                x.tree(.text, &.{
+                    x.leaf(.text_line),
+                    x.leaf(.newline),
+                    x.tree(.code, &.{
+                        x.leaf(.code_begin),
+                    }),
+                }),
+                x.leaf(.keyword_end),
+            }),
+            x.leaf(.newline),
+        }),
+        x.leaf(.text_line),
+    }));
+}
+
+test "Conditional with else" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#* if true then
+        \\#*   break
+        \\jckl
+        \\#* else
+        \\#*   continue
+        \\#* end
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.conditional, &.{
+                x.leaf(.keyword_if),
+                x.leaf(.keyword_true),
+                x.leaf(.keyword_then),
+                x.leaf(.newline),
+                x.tree(.text, &.{
+                    x.tree(.code, &.{
+                        x.leaf(.code_begin),
+                        x.leaf(.keyword_break),
+                        x.leaf(.newline),
+                    }),
+                    x.leaf(.text_line),
+                    x.leaf(.newline),
+                    x.tree(.code, &.{
+                        x.leaf(.code_begin),
+                    }),
+                }),
+                x.leaf(.keyword_else),
+                x.leaf(.newline),
+                x.tree(.text, &.{
+                    x.tree(.code, &.{
+                        x.leaf(.code_begin),
+                        x.leaf(.keyword_continue),
+                        x.leaf(.newline),
+                        x.leaf(.code_begin),
+                    }),
+                }),
+                x.leaf(.keyword_end),
+            }),
+        }),
+    }));
+}
+
+test "Conditional with else if" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#* if true then
+        \\#*   break
+        \\#* elseif true then
+        \\continue
+        \\#* else
+        \\#*   nil
+        \\#* end
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.conditional, &.{
+                x.leaf(.keyword_if),
+                x.leaf(.keyword_true),
+                x.leaf(.keyword_then),
+                x.leaf(.newline),
+                x.tree(.text, &.{
+                    x.tree(.code, &.{
+                        x.leaf(.code_begin),
+                        x.leaf(.keyword_break),
+                        x.leaf(.newline),
+                        x.leaf(.code_begin),
+                    }),
+                }),
+                x.leaf(.keyword_elseif),
+                x.leaf(.keyword_true),
+                x.leaf(.keyword_then),
+                x.leaf(.newline),
+                x.tree(.text, &.{
+                    x.leaf(.text_line),
+                    x.leaf(.newline),
+                    x.tree(.code, &.{x.leaf(.code_begin)}),
+                }),
+                x.leaf(.keyword_else),
+                x.leaf(.newline),
+                x.tree(.text, &.{
+                    x.tree(.code, &.{
+                        x.leaf(.code_begin),
+                        x.leaf(.keyword_nil),
+                        x.leaf(.newline),
+                        x.leaf(.code_begin),
+                    }),
+                }),
+                x.leaf(.keyword_end),
+            }),
+        }),
+    }));
+}
+
 test "Function calling" {
     std.testing.log_level = .debug;
     var gpa = std.heap.DebugAllocator(.{}).init;

@@ -60,8 +60,12 @@ fn parseText(p: *Parser) Allocator.Error!void {
     }
 
     while (true) {
+        if (p.isEndingKind(p.current.node.kind)) break;
+        if (p.mode() != .text) {
+            p.setMode(.text);
+            p.reparse();
+        }
         switch (p.current.node.kind) {
-            .eof => break,
             .newline => try p.eat(),
             .text_line => try p.eat(),
 
@@ -71,7 +75,6 @@ fn parseText(p: *Parser) Allocator.Error!void {
                 try p.eatAssert(.code_begin);
                 try parseCode(p);
                 try p.wrap(m2, .code);
-                p.setMode(.text);
             },
 
             .codeblock_delim => {
@@ -81,7 +84,6 @@ fn parseText(p: *Parser) Allocator.Error!void {
                 try parseCode(p);
                 try p.eatExpect(.codeblock_delim);
                 try p.wrap(m2, .code);
-                p.setMode(.text);
             },
 
             // Lexer doesn't produce any other tokens
@@ -302,9 +304,8 @@ fn parseConditional(p: *Parser) !void {
 
     // Switch mode before eating the end so that the next token is in the correct mode.
     p.setMode(old_mode);
+    p.reparse();
     p.ending_kind = old_end;
-
-    try p.eatExpect(.keyword_end);
 
     try p.wrap(m, .conditional);
 }
