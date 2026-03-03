@@ -10,6 +10,18 @@ pub const ParseResult = struct {
     }
 };
 
+pub const SyntaxErrorKind = union(enum) {
+    invalid_token,
+    unexpected_token: SyntaxKind,
+    expected_token: struct { expected: SyntaxKind, actual: SyntaxKind },
+};
+
+pub const SyntaxError = struct {
+    range: []const u8,
+    position: Lexer.Position,
+    kind: SyntaxErrorKind,
+};
+
 pub fn parse(src: []const u8, mode: Lexer.Mode, gpa: Allocator) Allocator.Error!ParseResult {
     var p: Parser = try .init(src, mode, gpa);
 
@@ -526,7 +538,6 @@ const Allocator = std.mem.Allocator;
 
 const ast = @import("ast.zig");
 const Lexer = @import("Lexer.zig");
-const SyntaxError = @import("errors.zig").SyntaxError;
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;
 const SyntaxSet = @import("SyntaxSet.zig");

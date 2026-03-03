@@ -248,8 +248,6 @@ fn eatCodeBeginOrDelim(self: *Lexer) ?SyntaxKind {
 const std = @import("std");
 const assert = std.debug.assert;
 
-const errors = @import("errors.zig");
-const SyntaxError = errors.SyntaxError;
 const Scanner = @import("Scanner.zig");
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;
