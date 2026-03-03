@@ -23,6 +23,7 @@ err: ?RuntimeErrorPayload,
 variables: std.ArrayList(Variable),
 scope_level: u32,
 function_depth: u32,
+function_return_value: ?Value,
 
 const Vm = @This();
 
@@ -40,6 +41,7 @@ pub fn init(
         .scope_level = 0,
         .function_depth = 0,
         .all_nodes = all_nodes,
+        .function_return_value = null,
         .variables = try .initCapacity(gpa, 512),
         .value_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator),
     };
@@ -130,7 +132,7 @@ const RuntimeErrorPayload = struct {
     const Kind = union(enum) {
         /// Out of memory for allocating values
         value_oom,
-        /// Out of memory for allocating internal interpeter things
+        /// Out of memory for allocating internal interpreter things
         internal_oom,
         /// Integer literal is too large
         number_too_large,
@@ -138,7 +140,9 @@ const RuntimeErrorPayload = struct {
         write_failure,
         /// Too many variables bound to a scope
         too_many_variables,
+        /// Variable not declared in the current scope
         undeclared_variable,
+        cannot_assign_to_non_variable,
         /// Invalid operands to binary operator. <lhs> node.op <rhs> is not allowed.
         invalid_binary_operands: struct { lhs: Value, rhs: Value },
         /// Invalid operands to unary operator. node.op <rhs> is not allowed.
@@ -148,6 +152,14 @@ const RuntimeErrorPayload = struct {
 };
 
 pub const RuntimeError = error{Error};
+pub const ControlFlow = error{
+    /// A break statement has occurred
+    Break,
+    /// A continue statement has occurred
+    Continue,
+    /// A return statement has occurred.
+    Return,
+} || RuntimeError;
 
 const std = @import("std");
 const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;

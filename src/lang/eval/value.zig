@@ -183,11 +183,11 @@ pub const Value = packed union {
         }
 
         pub fn negate(a: Value) !Value {
-            if (a.asNumber()) |num| return Value.number(-num);
+            if (a.getNumber()) |num| return Value.number(-num);
             return error.InvalidOperand;
         }
         pub fn not(a: Value) !Value {
-            if (a.asBoolean()) |b| return Value.boolean(!b);
+            if (a.getBoolean()) |b| return Value.boolean(!b);
             return error.InvalidOperand;
         }
     };

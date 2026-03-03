@@ -1,4 +1,4 @@
-pub fn evalText(vm: *Vm, node: ast.Text) RuntimeError!void {
+pub fn evalText(vm: *Vm, node: ast.Text) ControlFlow!void {
     var parts = node.parts(vm.all_nodes);
     vm.pushScope();
     while (parts.next(vm.all_nodes)) |part| {
@@ -13,47 +13,66 @@ pub fn evalText(vm: *Vm, node: ast.Text) RuntimeError!void {
     vm.popScope();
 }
 
-pub fn evalCode(vm: *Vm, node: ast.Code) !void {
+pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
     var statements = node.statements(vm.all_nodes);
     while (statements.next(vm.all_nodes)) |statement| {
         switch (statement) {
             .for_loop => {},
-            .while_loop => {},
+            .export_statement => {},
+            .break_statement => return ControlFlow.Break,
+            .continue_statement => return ControlFlow.Continue,
+            .let_statement => |stmt| try evalLetStatement(vm, stmt),
+            .return_statement => |ret| try evalReturnStatement(vm, ret),
+            .while_loop => |while_loop| try evalWhileLoop(vm, while_loop),
+            .conditional => |conditional| try evalConditional(vm, conditional),
             .expression => |expr| switch (expr) {
+                // Inline else so that the node's node_index may be used
                 inline else => |v| {
                     const res = try evalExpression(vm, expr);
-
                     if (res.getObject()) |obj| {
                         if (obj.getString()) |str| {
                             vm.output.print("{s}", .{str.slice()}) catch
                                 try vm.setError(v.node_index, .write_failure);
                         }
                     }
-
                     try vm.setError(v.node_index, .{ .cannot_print_value = .{ .value = res } });
                 },
             },
-            .let_statement => |stmt| {
-                const initial_value = if (stmt.initialValue(vm.all_nodes)) |expr|
-                    try evalExpression(vm, expr)
-                else
-                    Value.nil;
-
-                vm.bindVariable(
-                    stmt.variableName(vm.all_nodes).get(vm.all_nodes, vm.src),
-                    initial_value,
-                ) catch try vm.setError(stmt.node_index, .too_many_variables);
-            },
-            .break_statement => {},
-            .return_statement => {},
-            .export_statement => {},
-            .continue_statement => {},
-            .conditional => |conditional| try evalConditional(vm, conditional),
         }
     }
 }
 
-pub fn evalConditional(vm: *Vm, node: ast.Conditional) RuntimeError!void {
+pub fn evalReturnStatement(vm: *Vm, node: ast.ReturnStatement) ControlFlow!void {
+    if (node.returnValue(vm.all_nodes)) |ret|
+        vm.function_return_value = try evalExpression(vm, ret);
+    return ControlFlow.Return;
+}
+
+pub fn evalLetStatement(vm: *Vm, node: ast.LetStatement) RuntimeError!void {
+    const initial_value = if (node.initialValue(vm.all_nodes)) |expr|
+        try evalExpression(vm, expr)
+    else
+        Value.nil;
+
+    const var_name = node.variableName(vm.all_nodes).get(vm.all_nodes, vm.src);
+    vm.bindVariable(var_name, initial_value) catch
+        try vm.setError(node.node_index, .too_many_variables);
+}
+
+pub fn evalWhileLoop(vm: *Vm, node: ast.WhileLoop) ControlFlow!void {
+    const body = node.body(vm.all_nodes);
+    const condition = node.condition(vm.all_nodes);
+
+    while ((try evalExpression(vm, condition)).isTruthy()) {
+        evalText(vm, body) catch |err| switch (err) {
+            ControlFlow.Break => break,
+            ControlFlow.Continue => continue,
+            else => return err,
+        };
+    }
+}
+
+pub fn evalConditional(vm: *Vm, node: ast.Conditional) ControlFlow!void {
     var branches = node.branches(vm.all_nodes);
 
     while (branches.next(vm.all_nodes)) |branch| {
@@ -155,3 +174,4 @@ const ast = @import("../syntax/ast.zig");
 const Value = @import("value.zig").Value;
 const Vm = @import("Vm.zig");
 const RuntimeError = Vm.RuntimeError;
+const ControlFlow = Vm.ControlFlow;
