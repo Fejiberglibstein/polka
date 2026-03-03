@@ -205,32 +205,54 @@ pub const Value = packed union {
             },
         }
     }
+};
 
-    /// Represents a dynamically allocated value on the heap.
-    ///
-    /// Can be any one of
-    /// - String
-    ///
-    /// Each different object will be implemented through struct inheritance.
-    pub const Object = extern struct {
-        // Any potential header information that may need to exist
-        tag: Object.Kind,
+/// Represents a dynamically allocated value on the heap.
+///
+/// Can be any one of
+/// - String
+///
+/// Each different object will be implemented through struct inheritance.
+pub const Object = extern struct {
+    // Any potential header information that may need to exist
+    tag: Object.Kind,
 
-        pub const Kind = enum(usize) {
-            string,
-        };
+    pub const Kind = enum(usize) {
+        string,
+        upvalue,
+    };
 
-        pub fn from(obj: anytype) *Object {
-            return @ptrCast(@alignCast(obj));
-        }
+    pub fn from(obj: anytype) *Object {
+        return @ptrCast(@alignCast(obj));
+    }
 
-        pub fn asString(self: *Object) *String {
-            assert(self.tag == .string);
-            return @ptrCast(@alignCast(self));
-        }
+    pub fn asString(self: *Object) *String {
+        assert(self.tag == .string);
+        return @ptrCast(@alignCast(self));
+    }
+    pub fn getString(self: *Object) ?*String {
+        return if (self.tag == .string) self.asString() else null;
+    }
 
-        pub fn getString(self: *Object) ?*String {
-            return if (self.tag == .string) self.asString() else null;
+    pub fn asUpvalue(self: *Object) *Upvalue {
+        assert(self.tag == .upvalue);
+        return @ptrCast(@alignCast(self));
+    }
+    pub fn getUpvalue(self: *Object) ?*Upvalue {
+        return if (self.tag == .upvalue) self.asUpvalue() else null;
+    }
+
+    /// Heap allocated value. When a function captures a variable from outside its scope, the value
+    /// is promoted to an upvalue and will continue to last even after that variable goes out of
+    /// scope.
+    pub const Upvalue = extern struct {
+        base: Object = .{ .tag = .upvalue },
+        value: Value,
+
+        pub fn init(gpa: Allocator, value: Value) !*Object {
+            var ret = try gpa.create(@This());
+            ret.value = value;
+            return @ptrCast(@alignCast(ret));
         }
     };
 
@@ -244,11 +266,19 @@ pub const Value = packed union {
         }
 
         pub fn init(gpa: Allocator, str: []const u8) !*Object {
-            var ret = try gpa.create(String);
+            var ret = try gpa.create(@This());
             ret.len = str.len;
             ret.ptr = str.ptr;
             return @ptrCast(@alignCast(ret));
         }
+    };
+
+    pub const Closure = extern struct {
+        base: Object,
+    };
+
+    pub const Function = extern struct {
+        base: Object,
     };
 };
 
@@ -305,7 +335,7 @@ test "Value nil" {
 }
 
 test "Value object" {
-    const object: Value.Object = .{ .tag = .string };
+    const object: Object = .{ .tag = .string };
     const value = Value.object(&object);
 
     try expectEqual(@intFromPtr(&object), @intFromPtr(value.asObject()));

@@ -17,7 +17,7 @@ output: *std.Io.Writer,
 gpa: std.mem.Allocator,
 /// Allocator specifically used to allocate values. For now it's just an arena, but it may be more
 /// complex in the future.
-value_allocator: std.heap.ArenaAllocator,
+value_allocator: *std.heap.ArenaAllocator,
 
 err: ?RuntimeErrorPayload,
 variables: std.ArrayList(Variable),
@@ -31,6 +31,7 @@ pub fn init(
     all_nodes: []const SyntaxNode,
     src: []const u8,
     gpa: std.mem.Allocator,
+    value_arena: *std.heap.ArenaAllocator,
     output: *std.Io.Writer,
 ) !Vm {
     return .{
@@ -42,8 +43,8 @@ pub fn init(
         .function_depth = 0,
         .all_nodes = all_nodes,
         .function_return_value = null,
+        .value_allocator = value_arena,
         .variables = try .initCapacity(gpa, 512),
-        .value_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator),
     };
 }
 

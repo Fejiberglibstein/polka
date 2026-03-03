@@ -33,9 +33,12 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
                         if (obj.getString()) |str| {
                             vm.output.print("{s}", .{str.slice()}) catch
                                 try vm.setError(v.node_index, .write_failure);
+                            return;
                         }
                     }
-                    try vm.setError(v.node_index, .{ .cannot_print_value = .{ .value = res } });
+                    if (!res.isNil()) {
+                        try vm.setError(v.node_index, .{ .cannot_print_value = .{ .value = res } });
+                    }
                 },
             },
         }
@@ -102,7 +105,7 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
         .integer => |num| Value.number(@floatFromInt(num.get(vm.all_nodes, vm.src) catch {
             try vm.setError(num.node_index, .number_too_large);
         })),
-        .string => |str| Value.object(Value.String.init(
+        .string => |str| Value.object(Object.String.init(
             vm.valueAllocator(),
             str.get(vm.all_nodes, vm.src),
         ) catch try vm.setError(str.node_index, .value_oom)),
@@ -182,6 +185,7 @@ const std = @import("std");
 
 const ast = @import("../syntax/ast.zig");
 const Value = @import("value.zig").Value;
+const Object = @import("value.zig").Object;
 const Vm = @import("Vm.zig");
 const RuntimeError = Vm.RuntimeError;
 const ControlFlow = Vm.ControlFlow;
