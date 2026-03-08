@@ -64,6 +64,14 @@ fn ASTIterator(T: type) type {
             };
         }
 
+        pub fn len(self: *@This(), all_nodes: []const SyntaxNode) u32 {
+            var count: u32 = 0;
+            while (self.next(all_nodes)) |_| {
+                count += 1;
+            }
+            return count;
+        }
+
         pub fn skip(self: *@This(), n: usize, all_nodes: []const SyntaxNode) void {
             for (0..n) |_| {
                 _ = self.next(all_nodes);
@@ -290,7 +298,7 @@ pub const ExportStatement = struct {
         function_def: FunctionDef,
     };
 
-    pub fn getInner(self: ExportStatement, all_nodes: []const SyntaxNode) ExportInner {
+    pub fn inner(self: ExportStatement, all_nodes: []const SyntaxNode) ExportInner {
         return getFirstChild(ExportInner, self.node_index, all_nodes) orelse unreachable;
     }
 };

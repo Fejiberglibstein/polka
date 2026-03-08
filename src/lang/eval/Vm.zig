@@ -149,6 +149,7 @@ const RuntimeErrorPayload = struct {
         /// Invalid operands to unary operator. node.op <rhs> is not allowed.
         invalid_unary_operands: struct { rhs: Value },
         cannot_print_value: struct { value: Value },
+        cannot_call_value: struct { value: Value },
     };
 };
 

@@ -31,7 +31,7 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
                     const res = try evalExpression(vm, expr);
                     if (res.getObject()) |obj| {
                         if (obj.getString()) |str| {
-                            vm.output.print("{s}", .{str.slice()}) catch
+                            vm.output.print("{s}", .{str.str}) catch
                                 try vm.setError(v.node_index, .write_failure);
                             return;
                         }
@@ -109,8 +109,8 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
             vm.valueAllocator(),
             str.get(vm.all_nodes, vm.src),
         ) catch try vm.setError(str.node_index, .value_oom)),
-        .function_def => @panic("TODO"),
-        .function_call => @panic("TODO"),
+        .function_def => |def| evalFunctionDef(vm, def),
+        .function_call => |call| evalFunctionCall(vm, call),
     };
 }
 
@@ -120,6 +120,28 @@ pub fn evalVariable(vm: *Vm, node: ast.Ident) RuntimeError!Value {
         // TODO add builtin function & variables here like sys, range(), etc.
         try vm.setError(node.node_index, .undeclared_variable);
     };
+}
+
+pub fn evalFunctionDef(vm: *Vm, node: ast.FunctionDef) RuntimeError!Value {
+    var parameters = node.parameters(vm.all_nodes).get(vm.all_nodes);
+    const len = parameters.len(vm.all_nodes);
+    return Value.object(Object.Function.initRuntime(
+        vm.valueAllocator(),
+        node.node_index,
+        len,
+    ) catch try vm.setError(node.node_index, .value_oom));
+}
+
+pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
+    const caller = blk: {
+        const caller = try evalExpression(vm, node.caller(vm.all_nodes));
+        if (caller.getObject()) |obj| {
+            if (obj.getFunction()) |func| break :blk func;
+        }
+        try vm.setError(node.node_index, .{ .cannot_call_value = .{ .value = caller } });
+    };
+
+    return Value.nil;
 }
 
 pub fn evalUnary(vm: *Vm, node: ast.Unary) RuntimeError!Value {
