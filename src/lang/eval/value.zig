@@ -260,8 +260,8 @@ pub const Object = struct {
                 f4: *const fn (*Vm, Value, Value, Value, Value) RuntimeError!Value,
             },
             runtime: struct {
-                /// Index into the list of all nodes of this function's body
-                body: u32,
+                /// Index into the list of all nodes of this function's definition
+                definition_index: u32,
                 /// Number of parameters this function expects
                 arity: u32,
             },
@@ -293,7 +293,7 @@ pub const Object = struct {
             ret.* = .{
                 .func = .{
                     .runtime = .{
-                        .body = body_index,
+                        .definition_index = body_index,
                         .arity = arity,
                     },
                 },

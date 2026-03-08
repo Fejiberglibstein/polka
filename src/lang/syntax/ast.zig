@@ -177,12 +177,14 @@ pub const Expression = union(enum) {
     ident: Ident,
     false: False,
     binary: Binary,
-    number: Number,
     string: String,
+    number: Number,
     integer: Integer,
     grouping: Grouping,
+    dot_access: DotAccess,
     function_def: FunctionDef,
     function_call: FunctionCall,
+    bracket_access: BracketAccess,
 };
 
 pub const List = struct {

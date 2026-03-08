@@ -92,13 +92,17 @@ pub fn evalConditional(vm: *Vm, node: ast.Conditional) ControlFlow!void {
 
 pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
     return switch (node) {
-        .nil => Value.nil,
         .list => @panic("TODO"),
         .dict => @panic("TODO"),
+        .dot_access => @panic("TODO"),
+        .bracket_access => @panic("TODO"),
+        .nil => Value.nil,
         .true => Value.boolean(true),
         .false => Value.boolean(false),
         .unary => |unary| try evalUnary(vm, unary),
         .binary => |binary| try evalBinary(vm, binary),
+        .function_def => |def| evalFunctionDef(vm, def),
+        .function_call => |call| evalFunctionCall(vm, call),
         .ident => |variable| try evalVariable(vm, variable),
         .number => |num| Value.number(num.get(vm.all_nodes, vm.src)),
         .grouping => |group| try evalExpression(vm, group.inner(vm.all_nodes)),
@@ -109,8 +113,6 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
             vm.valueAllocator(),
             str.get(vm.all_nodes, vm.src),
         ) catch try vm.setError(str.node_index, .value_oom)),
-        .function_def => |def| evalFunctionDef(vm, def),
-        .function_call => |call| evalFunctionCall(vm, call),
     };
 }
 
@@ -133,7 +135,7 @@ pub fn evalFunctionDef(vm: *Vm, node: ast.FunctionDef) RuntimeError!Value {
 }
 
 pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
-    const caller = blk: {
+    const function = blk: {
         const caller = try evalExpression(vm, node.caller(vm.all_nodes));
         if (caller.getObject()) |obj| {
             if (obj.getFunction()) |func| break :blk func;
@@ -141,7 +143,72 @@ pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
         try vm.setError(node.node_index, .{ .cannot_call_value = .{ .value = caller } });
     };
 
-    return Value.nil;
+    return switch (function.func) {
+        .runtime => try callRuntimeFunction(vm, function, node),
+        .builtin => |_| @panic("TODO"),
+    };
+}
+
+pub fn callRuntimeFunction(
+    vm: *Vm,
+    function: *Object.Function,
+    callsite: ast.FunctionCall,
+) RuntimeError!Value {
+    const func_node = function.func.runtime;
+
+    const old_state = vm.setupFunctionCall();
+    defer vm.endFunctioncall(old_state);
+
+    const func = ast.toASTNode(ast.FunctionDef, func_node.definition_index, vm.all_nodes).?;
+
+    const arguments = callsite.arguments(vm.all_nodes);
+
+    var arg_iter = arguments.get(vm.all_nodes);
+    var param_iter = func.parameters(vm.all_nodes).get(vm.all_nodes);
+    var i: u32 = 0;
+    while (true) {
+        defer i += 1;
+
+        const arg = arg_iter.next(vm.all_nodes);
+        const param = param_iter.next(vm.all_nodes);
+
+        if (arg == null and param == null) break;
+        if (arg == null) try vm.setError(arguments.node_index, .{
+            .invalid_function_args = .{
+                // .len() will get the number of remaining parameters.
+                .expected_num = i + param_iter.len(vm.all_nodes),
+                .actual_num = i,
+            },
+        });
+        if (param == null) try vm.setError(arguments.node_index, .{
+            .invalid_function_args = .{
+                .expected_num = i,
+                // .len() will get the number of remaining arguments.
+                .actual_num = i + arg_iter.len(vm.all_nodes),
+            },
+        });
+
+        vm.bindVariable(param.?.get(vm.all_nodes, vm.src), try evalExpression(vm, arg.?)) catch
+            try vm.setError(arguments.node_index, .too_many_variables);
+    }
+
+    if (func.name(vm.all_nodes)) |name| {
+        vm.bindVariable(name.get(vm.all_nodes, vm.src), Value.object(&function.base)) catch
+            try vm.setError(name.node_index, .too_many_variables);
+    }
+
+    const body = ast.toASTNode(ast.Text, func_node.definition_index, vm.all_nodes).?;
+    evalText(vm, body) catch |err| switch (err) {
+        ControlFlow.Error => return ControlFlow.Error,
+        ControlFlow.Continue => @panic("TODO"),
+        ControlFlow.Break => @panic("TODO"),
+        ControlFlow.Return => {},
+    };
+
+    const return_value = vm.function_return_value orelse Value.nil;
+    vm.function_return_value = null;
+
+    return return_value;
 }
 
 pub fn evalUnary(vm: *Vm, node: ast.Unary) RuntimeError!Value {

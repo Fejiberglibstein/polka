@@ -118,12 +118,39 @@ pub fn popScope(self: *Vm) void {
     self.scope_level -= 1;
 
     while (self.variables.items.len > 0) {
-        if (self.variables.getLast().scope_level > self.scope_level) {
+        const variable = self.variables.getLast();
+        if (variable.scope_level > self.scope_level and
+            variable.function_depth == self.function_depth)
+        {
             _ = self.variables.pop();
         } else {
             break;
         }
     }
+}
+
+pub const StackState = struct {
+    scope_level: u32,
+    function_depth: u32,
+    variables_len: usize,
+};
+
+pub fn setupFunctionCall(self: *Vm) StackState {
+    const scope_level = self.scope_level;
+    const function_depth = self.function_depth;
+    self.scope_level = 0;
+    self.function_depth += 1;
+    return .{
+        .scope_level = scope_level,
+        .function_depth = function_depth,
+        .variables_len = self.variables.items.len,
+    };
+}
+
+pub fn endFunctioncall(self: *Vm, old_state: StackState) void {
+    self.scope_level = old_state.scope_level;
+    self.function_depth = old_state.function_depth;
+    self.variables.items.len = old_state.variables_len;
 }
 
 const RuntimeErrorPayload = struct {
@@ -150,6 +177,7 @@ const RuntimeErrorPayload = struct {
         invalid_unary_operands: struct { rhs: Value },
         cannot_print_value: struct { value: Value },
         cannot_call_value: struct { value: Value },
+        invalid_function_args: struct { expected_num: u32, actual_num: u32 },
     };
 };
 
