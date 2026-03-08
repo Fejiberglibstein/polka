@@ -213,72 +213,93 @@ pub const Value = packed union {
 /// - String
 ///
 /// Each different object will be implemented through struct inheritance.
-pub const Object = extern struct {
-    // Any potential header information that may need to exist
-    tag: Object.Kind,
+pub const Object = struct {
+    tag: Kind,
 
-    pub const Kind = enum(usize) {
+    const Kind = enum {
         string,
         upvalue,
+        function,
     };
-
-    pub fn from(obj: anytype) *Object {
-        return @ptrCast(@alignCast(obj));
-    }
 
     pub fn asString(self: *Object) *String {
         assert(self.tag == .string);
-        return @ptrCast(@alignCast(self));
+        return @alignCast(@fieldParentPtr("base", self));
     }
     pub fn getString(self: *Object) ?*String {
         return if (self.tag == .string) self.asString() else null;
     }
 
-    pub fn asUpvalue(self: *Object) *Upvalue {
-        assert(self.tag == .upvalue);
-        return @ptrCast(@alignCast(self));
+    pub fn asFunction(self: *Object) *Function {
+        assert(self.tag == .function);
+        return @alignCast(@fieldParentPtr("base", self));
     }
-    pub fn getUpvalue(self: *Object) ?*Upvalue {
-        return if (self.tag == .upvalue) self.asUpvalue() else null;
+    pub fn getFunction(self: *Object) ?*Function {
+        return if (self.tag == .function) self.asFunction() else null;
     }
 
-    /// Heap allocated value. When a function captures a variable from outside its scope, the value
-    /// is promoted to an upvalue and will continue to last even after that variable goes out of
-    /// scope.
-    pub const Upvalue = extern struct {
-        base: Object = .{ .tag = .upvalue },
-        value: Value,
-
-        pub fn init(gpa: Allocator, value: Value) !*Object {
-            var ret = try gpa.create(@This());
-            ret.value = value;
-            return @ptrCast(@alignCast(ret));
-        }
-    };
-
-    pub const String = extern struct {
+    pub const String = struct {
         base: Object = .{ .tag = .string },
-        len: usize,
-        ptr: [*]const u8,
-
-        pub fn slice(self: *const String) []const u8 {
-            return self.ptr[0..self.len];
-        }
+        str: []const u8,
 
         pub fn init(gpa: Allocator, str: []const u8) !*Object {
             var ret = try gpa.create(@This());
-            ret.len = str.len;
-            ret.ptr = str.ptr;
-            return @ptrCast(@alignCast(ret));
+            ret.str = str;
+            return &ret.base;
         }
     };
 
-    pub const Closure = extern struct {
-        base: Object,
-    };
+    pub const Function = struct {
+        base: Object = .{ .tag = .function },
 
-    pub const Function = extern struct {
-        base: Object,
+        func: union(enum) {
+            builtin: union(enum) {
+                f1: *const fn (*Vm, Value) RuntimeError!Value,
+                f2: *const fn (*Vm, Value, Value) RuntimeError!Value,
+                f3: *const fn (*Vm, Value, Value, Value) RuntimeError!Value,
+                f4: *const fn (*Vm, Value, Value, Value, Value) RuntimeError!Value,
+            },
+            runtime: struct {
+                /// Index into the list of all nodes of this function's body
+                body: u32,
+                /// Number of parameters this function expects
+                arity: u32,
+            },
+        },
+
+        pub fn initBuiltin(gpa: Allocator, func: anytype) !*Object {
+            const FuncType = @TypeOf(func);
+
+            const ret = try gpa.create(@This());
+            ret.* = .{
+                .func = .{
+                    .builtin = if (FuncType == fn (*Vm, Value) RuntimeError!Value)
+                        .{ .f1 = &func }
+                    else if (FuncType == fn (*Vm, Value, Value) RuntimeError!Value)
+                        .{ .f2 = &func }
+                    else if (FuncType == fn (*Vm, Value, Value, Value) RuntimeError!Value)
+                        .{ .f3 = &func }
+                    else if (FuncType == fn (*Vm, Value, Value, Value, Value) RuntimeError!Value)
+                        .{ .f4 = &func }
+                    else
+                        @compileError("Invalid builtin function type " ++ @typeName(FuncType)),
+                },
+            };
+            return &ret.base;
+        }
+
+        pub fn initRuntime(gpa: Allocator, body_index: u32, arity: u32) !*Object {
+            const ret = try gpa.create(@This());
+            ret.* = .{
+                .func = .{
+                    .runtime = .{
+                        .body = body_index,
+                        .arity = arity,
+                    },
+                },
+            };
+            return &ret.base;
+        }
     };
 };
 
@@ -352,3 +373,5 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const Vm = @import("Vm.zig");
+const RuntimeError = Vm.RuntimeError;
