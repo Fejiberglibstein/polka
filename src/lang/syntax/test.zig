@@ -376,7 +376,9 @@ test "Conditional with else if" {
         \\#* if true then
         \\#*   break
         \\#* elseif true then
-        \\continue
+        \\jkf
+        \\#*
+        \\jkffjk
         \\#* else
         \\#*   nil
         \\#* end
@@ -401,6 +403,12 @@ test "Conditional with else if" {
                 x.leaf(.keyword_then),
                 x.leaf(.newline),
                 x.tree(.text, &.{
+                    x.leaf(.text_line),
+                    x.leaf(.newline),
+                    x.tree(.code, &.{
+                        x.leaf(.code_begin),
+                        x.leaf(.newline),
+                    }),
                     x.leaf(.text_line),
                     x.leaf(.newline),
                     x.tree(.code, &.{x.leaf(.code_begin)}),
@@ -459,6 +467,66 @@ test "Function calling" {
                     }),
                     x.leaf(.r_paren),
                 }),
+            }),
+        }),
+    }));
+}
+
+test "Function def" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#*func foo(a, b)
+        \\#*    if true then 
+        \\#*        return a + b
+        \\#*    end
+        \\#*    "hello'"
+        \\#*end
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.function_def, &.{
+                x.leaf(.keyword_func),
+                x.leaf(.ident),
+                x.tree(.function_parameters, &.{
+                    x.leaf(.l_paren),
+                    x.leaf(.ident),
+                    x.leaf(.comma),
+                    x.leaf(.ident),
+                    x.leaf(.r_paren),
+                }),
+                x.leaf(.newline),
+                x.tree(.text, &.{x.tree(.code, &.{
+                    x.leaf(.code_begin),
+                    x.tree(.conditional, &.{
+                        x.leaf(.keyword_if),
+                        x.leaf(.keyword_true),
+                        x.leaf(.keyword_then),
+                        x.leaf(.newline),
+                        x.tree(.text, &.{x.tree(.code, &.{
+                            x.leaf(.code_begin),
+                            x.tree(.return_statement, &.{
+                                x.leaf(.keyword_return),
+                                x.tree(.binary, &.{
+                                    x.leaf(.ident),
+                                    x.leaf(.plus),
+                                    x.leaf(.ident),
+                                }),
+                            }),
+                            x.leaf(.newline),
+                            x.leaf(.code_begin),
+                        })}),
+                        x.leaf(.keyword_end),
+                    }),
+                    x.leaf(.newline),
+                    x.leaf(.code_begin),
+                    x.leaf(.string),
+                    x.leaf(.newline),
+                    x.leaf(.code_begin),
+                })}),
+                x.leaf(.keyword_end),
             }),
         }),
     }));
