@@ -177,13 +177,13 @@ pub const Expression = union(enum) {
     ident: Ident,
     false: False,
     binary: Binary,
-    string: String,
     number: Number,
     integer: Integer,
     grouping: Grouping,
     dot_access: DotAccess,
     function_def: FunctionDef,
     function_call: FunctionCall,
+    static_string: StaticString,
     bracket_access: BracketAccess,
 };
 
@@ -557,12 +557,12 @@ pub const Number = struct {
     }
 };
 
-pub const String = struct {
+pub const StaticString = struct {
     node_index: u32,
-    const kind: SyntaxKind = .string;
+    const kind: SyntaxKind = .static_string;
     pub const node = nodeFn;
 
-    pub fn get(self: String, all_nodes: []const SyntaxNode, src: []const u8) []const u8 {
+    pub fn get(self: StaticString, all_nodes: []const SyntaxNode, src: []const u8) []const u8 {
         // TODO make this handle backslashes
         const str = self.node(all_nodes).getLeafSource(src);
         return str[1 .. str.len - 1]; // Trim the quotes

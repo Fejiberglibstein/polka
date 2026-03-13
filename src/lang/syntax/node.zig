@@ -64,7 +64,7 @@ pub const SyntaxKind = enum(u7) {
     /// Positive floating point literal: `12.3`, `0.284`, etc.
     number,
     /// String constant `"hello world"`
-    string,
+    static_string,
     /// Identifier, used for variables, functions, etc. `foo`
     ident,
     keyword_nil,
@@ -216,7 +216,7 @@ pub const SyntaxKind = enum(u7) {
             .gt_eq,
             .number,
             .integer,
-            .string,
+            .static_string,
             .ident,
             .keyword_nil,
             .keyword_true,

@@ -109,7 +109,7 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
         .integer => |num| Value.number(@floatFromInt(num.get(vm.all_nodes, vm.src) catch {
             try vm.setError(num.node_index, .number_too_large);
         })),
-        .string => |str| Value.object(Object.String.init(
+        .static_string => |str| Value.object(Object.String.init(
             vm.valueAllocator(),
             str.get(vm.all_nodes, vm.src),
         ) catch try vm.setError(str.node_index, .value_oom)),

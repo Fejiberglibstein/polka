@@ -203,7 +203,7 @@ fn string(self: *Lexer) SyntaxKind {
             else => {},
         }
     }
-    return .string;
+    return .static_string;
 }
 
 fn eatCodeBegin(self: *Lexer) ?SyntaxKind {

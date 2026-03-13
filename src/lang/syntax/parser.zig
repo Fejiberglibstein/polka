@@ -138,10 +138,10 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
         .ident,
         .number,
         .integer,
-        .string,
         .keyword_nil,
         .keyword_true,
         .keyword_false,
+        .static_string,
         => try p.eat(),
 
         .l_paren => {
