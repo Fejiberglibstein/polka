@@ -48,10 +48,26 @@ pub fn init(
     };
 }
 
-pub fn deinit(self: *const Vm) void {
-    self.output.flush();
+pub fn deinit(self: *Vm) void {
     self.value_allocator.deinit();
     self.variables.deinit(self.gpa);
+}
+
+pub fn eval(self: *Vm) ?RuntimeErrorPayload {
+    if (self.all_nodes.len == 0) return null;
+
+    const root = ast.toASTNode(ast.Text, @intCast(self.all_nodes.len - 1), self.all_nodes) orelse unreachable;
+    treewalk.evalText(self, root) catch |err| {
+        (switch (err) {
+            ControlFlow.Error => RuntimeError.Error,
+            ControlFlow.Break => self.setError(root.node_index, .misplaced_break),
+            ControlFlow.Return => self.setError(root.node_index, .misplaced_return),
+            ControlFlow.Continue => self.setError(root.node_index, .misplaced_continue),
+        }) catch return self.err;
+    };
+
+    assert(self.variables.items.len == 0);
+    return null;
 }
 
 pub fn valueAllocator(self: *Vm) std.mem.Allocator {
@@ -178,6 +194,9 @@ const RuntimeErrorPayload = struct {
         cannot_print_value: struct { value: Value },
         cannot_call_value: struct { value: Value },
         invalid_function_args: struct { expected_num: u32, actual_num: u32 },
+        misplaced_break,
+        misplaced_continue,
+        misplaced_return,
     };
 };
 
@@ -192,7 +211,9 @@ pub const ControlFlow = error{
 } || RuntimeError;
 
 const std = @import("std");
-const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
-const ast = @import("../syntax/ast.zig");
-const Value = @import("value.zig").Value;
 const assert = std.debug.assert;
+
+const ast = @import("../syntax/ast.zig");
+const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
+const treewalk = @import("treewalk.zig");
+const Value = @import("value.zig").Value;
