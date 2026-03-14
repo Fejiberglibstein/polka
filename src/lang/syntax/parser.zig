@@ -154,6 +154,8 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
 
         .keyword_func => try parseFunctionDefinition(p),
 
+        .backtick => try parseMultilineString(p),
+
         else => {},
     }
 
@@ -250,6 +252,57 @@ fn parseFunctionDefinition(p: *Parser) !void {
     else
         try parseExpression(p, 0);
     try p.wrap(m, .function_def);
+}
+
+fn parseMultilineString(p: *Parser) !void {
+    const old_mode = p.mode();
+    p.setMode(.multiline_string);
+    defer p.setMode(old_mode);
+
+    const m = p.marker();
+
+    // Must eat backtick _after_ switching modes so that the next token is parsed in the correct
+    // mode.
+    try p.eatAssert(.backtick);
+
+    while (true) {
+        switch (p.current.node.kind) {
+            .mls_text => try p.eat(),
+            .eof => break,
+            .newline => {
+                p.setMode(old_mode);
+                try p.eatAssert(.newline);
+
+                if (old_mode == .code_line and !try p.eatIf(.code_begin)) break;
+                if (!p.at(.backtick)) break;
+
+                p.setMode(.multiline_string);
+                try p.eatAssert(.backtick);
+            },
+            .at => {
+                p.setMode(old_mode);
+                const m2 = p.marker();
+
+                // If the lexer yielded a `.at`, it _must be_ followed by an `.l_paren`. The lexer
+                // specifically looks for the sequence "@(" to determine whether or not to return a
+                // `.at`
+                try p.eatAssert(.at);
+                try p.eatAssert(.l_paren);
+
+                try parseExpression(p, 0);
+
+                // switch back to multiline string before eating the rparen so that the next token
+                // is parsed in the correct mode.
+                p.setMode(.multiline_string);
+                try p.eatExpect(.r_paren);
+
+                try p.wrap(m2, .mls_expression);
+            },
+            else => @panic("Lexer doesn't yield any other tokens while in multiline mode"),
+        }
+    }
+
+    try p.wrap(m, .multiline_string);
 }
 
 fn parseConditional(p: *Parser) !void {
@@ -372,8 +425,9 @@ fn expectNewline(p: *Parser) !void {
             try p.eatExpect(.newline);
             try p.eatExpect(.code_begin);
         },
-        .code_file, .code_block => _ = try p.eatIf(.newline),
-        .text => _ = try p.eatIf(.newline),
+        .code_file, .code_block => _ = try p.eatExpect(.newline),
+        .text => _ = try p.eatExpect(.newline),
+        .multiline_string => _ = try p.eatExpect(.newline),
     }
 }
 
@@ -442,6 +496,7 @@ const Parser = struct {
             .text,
             => {},
             .code_line => self.setMode(.text),
+            .multiline_string => self.setMode(.text),
         }
         return ret;
     }
@@ -468,7 +523,7 @@ const Parser = struct {
     }
 
     fn eatAssert(self: *Parser, kind: SyntaxKind) !void {
-        std.debug.assert(self.current.node.kind == kind);
+        assert(self.current.node.kind == kind);
         try self.eat();
     }
 

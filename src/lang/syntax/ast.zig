@@ -569,6 +569,32 @@ pub const StaticString = struct {
     }
 };
 
+pub const MultiLineString = struct {
+    node_index: u32,
+    const kind: SyntaxKind = .multiline_string;
+    pub const node = nodeFn;
+
+    pub fn parts(self: MultiLineString, all_nodes: []const SyntaxNode) ASTIterator(MLSPart) {
+        return ASTIterator(MLSPart).init(self.node_index, all_nodes);
+    }
+};
+
+pub const MLSPart = union(enum) {
+    newline: Newline,
+    mls_text: MLSText,
+    mls_expression: MLSExpression,
+};
+
+pub const MLSExpression = struct {
+    node_index: u32,
+    const kind: SyntaxKind = .mls_expression;
+    pub const node = nodeFn;
+
+    pub fn get(self: MLSExpression, all_nodes: []const SyntaxNode) Expression {
+        return getFirstChild(Expression, self.node_index, all_nodes) orelse unreachable;
+    }
+};
+
 pub const Ident = struct {
     node_index: u32,
     const kind: SyntaxKind = .ident;
@@ -609,6 +635,7 @@ pub const True = ASTNode(.keyword_true);
 pub const False = ASTNode(.keyword_false);
 pub const BreakStatement = ASTNode(.keyword_break);
 pub const ContinueStatement = ASTNode(.keyword_continue);
+pub const MLSText = ASTNode(.mls_text);
 
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;

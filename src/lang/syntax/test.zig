@@ -125,7 +125,7 @@ test "Single expressions" {
     , x.root(&.{
         x.tree(.code, &.{
             x.leaf(.code_begin),
-            x.leaf(.string),
+            x.leaf(.static_string),
             x.leaf(.newline),
             x.leaf(.code_begin),
             x.leaf(.ident),
@@ -179,7 +179,7 @@ test "Binary expressions" {
             x.tree(.binary, &.{ x.leaf(.integer), x.leaf(.plus), x.leaf(.ident) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.binary, &.{ x.leaf(.string), x.leaf(.minus), x.leaf(.integer) }),
+            x.tree(.binary, &.{ x.leaf(.static_string), x.leaf(.minus), x.leaf(.integer) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
             x.tree(.binary, &.{ x.leaf(.keyword_true), x.leaf(.keyword_and), x.leaf(.integer) }),
@@ -200,7 +200,7 @@ test "Binary expressions" {
             x.tree(.binary, &.{ x.leaf(.integer), x.leaf(.star), x.leaf(.number) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
-            x.tree(.binary, &.{ x.leaf(.string), x.leaf(.percent), x.leaf(.integer) }),
+            x.tree(.binary, &.{ x.leaf(.static_string), x.leaf(.percent), x.leaf(.integer) }),
             x.leaf(.newline),
             x.leaf(.code_begin),
             x.tree(.binary, &.{ x.leaf(.integer), x.leaf(.gt), x.leaf(.integer) }),
@@ -452,7 +452,7 @@ test "Function calling" {
                             x.leaf(.integer),
                         }),
                         x.leaf(.comma),
-                        x.leaf(.string),
+                        x.leaf(.static_string),
                         x.leaf(.r_paren),
                     }),
                 }),
@@ -467,6 +467,82 @@ test "Function calling" {
                     }),
                     x.leaf(.r_paren),
                 }),
+            }),
+        }),
+    }));
+}
+
+test "simple multiline string" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#* `Hello world
+        \\#*
+        \\#* h = `Hello world @\(
+        \\#*     `this is a multiline string
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.multiline_string, &.{
+                x.leaf(.backtick),
+                x.leaf(.mls_text),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+            }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.binary, &.{
+                x.leaf(.ident),
+                x.leaf(.eq),
+                x.tree(.multiline_string, &.{
+                    x.leaf(.backtick),
+                    x.leaf(.mls_text),
+                    x.leaf(.newline),
+                    x.leaf(.code_begin),
+                    x.leaf(.backtick),
+                    x.leaf(.mls_text),
+                }),
+            }),
+        }),
+    }));
+}
+
+test "Multiline string with expressions" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#* `@(10 - 2)
+        \\#* `foo jlk @("hi") jkf
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.multiline_string, &.{
+                x.leaf(.backtick),
+                x.tree(.mls_expression, &.{
+                    x.leaf(.at),
+                    x.leaf(.l_paren),
+                    x.tree(.binary, &.{
+                        x.leaf(.integer),
+                        x.leaf(.minus),
+                        x.leaf(.integer),
+                    }),
+                    x.leaf(.r_paren),
+                }),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.backtick),
+                x.leaf(.mls_text),
+                x.tree(.mls_expression, &.{
+                    x.leaf(.at),
+                    x.leaf(.l_paren),
+                    x.leaf(.static_string),
+                    x.leaf(.r_paren),
+                }),
+                x.leaf(.mls_text),
             }),
         }),
     }));
@@ -522,7 +598,7 @@ test "Function def" {
                     }),
                     x.leaf(.newline),
                     x.leaf(.code_begin),
-                    x.leaf(.string),
+                    x.leaf(.static_string),
                     x.leaf(.newline),
                     x.leaf(.code_begin),
                 })}),
@@ -596,13 +672,22 @@ fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const Synt
     const parsed = try parser.parse(source, .text, gpa);
     defer parsed.deinit(gpa);
     defer gpa.free(expected);
+
     for (parsed.errors) |err| {
         std.log.err(" \nERROR: {}", .{err});
     }
-    try expectEqual(0, parsed.errors.len);
 
     const expected_root = expected[expected.len - 1];
     const actual_root = parsed.nodes[parsed.nodes.len - 1];
+
+    if (parsed.errors.len != 0) {
+        var buffer: [2048]u8 = undefined;
+        var act_writer = std.fs.File.stderr().writer(&buffer);
+        try actual_root.print(parsed.nodes, source, 0, &act_writer.interface);
+        try act_writer.interface.flush();
+
+        try expectEqual(0, parsed.errors.len);
+    }
 
     assertNodeEql(
         expected_root,

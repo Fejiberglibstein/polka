@@ -7,6 +7,8 @@ pub const Mode = enum {
     code_file,
     /// Parsing text
     text,
+    /// Parsing a multiline string
+    multiline_string,
 };
 
 src: []const u8,
@@ -71,20 +73,22 @@ pub fn next(self: *Lexer) Token {
         self.position.line += 1;
         self.position.col = 1;
         break :blk .newline;
-    } else switch (self.mode) {
-        .text => blk: {
-            if (self.eatCodeBeginOrDelim()) |kind| break :blk kind;
-            self.s.eatUntil(.{ .any = &.{ '\r', '\n' } });
-            self.position.col += @intCast(self.s.cursor - start);
-            break :blk .text_line;
-        },
-        .code_file, .code_block, .code_line => blk: {
-            const kind = self.code();
-            self.position.col += @intCast(self.s.cursor - start);
-            break :blk kind;
-        },
+    } else blk: {
+        self.position.col += @intCast(self.s.cursor - start);
+
+        break :blk switch (self.mode) {
+            .multiline_string => self.multilineString(),
+            .code_file, .code_block, .code_line => self.code(),
+
+            .text => {
+                if (self.eatCodeBeginOrDelim()) |kind| break :blk kind;
+                self.s.eatUntil(.{ .any = &.{ '\r', '\n' } });
+                break :blk .text_line;
+            },
+        };
     };
 
+    self.position.col += @intCast(self.s.cursor - start);
     const end = self.s.cursor;
 
     const node: SyntaxNode = .{
@@ -102,10 +106,30 @@ pub fn next(self: *Lexer) Token {
     };
 }
 
+fn multilineString(self: *Lexer) SyntaxKind {
+    if (self.s.at(.{ .str = "@(" })) {
+        assert(self.s.eat() == '@');
+        return .at;
+    }
+
+    while (true) {
+        self.s.eatUntil(.{ .any = &.{ '\r', '\n', '@' } });
+
+        if (!self.s.at(.{ .char = '@' })) break; // Break if we are at a newline
+        if (self.s.at(.{ .str = "@(" })) break; //  Break _only_ if we have @(
+
+        // If we don't have @(, we should consume the @
+        const char = self.s.eat() orelse break;
+        assert(char == '@');
+    }
+    return .mls_text;
+}
+
 fn code(self: *Lexer) SyntaxKind {
     if (eatCodeBeginOrDelim(self)) |tok| return tok;
 
     return sw: switch (self.s.eat() orelse 0) {
+        '@' => .at,
         '.' => .dot,
         '+' => .plus,
         '*' => .star,
@@ -117,14 +141,16 @@ fn code(self: *Lexer) SyntaxKind {
         ')' => .r_paren,
         '{' => .l_brace,
         '}' => .r_brace,
+        '`' => .backtick,
         '[' => .l_bracket,
         ']' => .r_bracket,
         '=' => if (self.s.eatIf(.{ .char = '=' })) .eq_eq else .eq,
         '<' => if (self.s.eatIf(.{ .char = '=' })) .lt_eq else .lt,
         '>' => if (self.s.eatIf(.{ .char = '=' })) .gt_eq else .gt,
         '~' => if (self.s.eatIf(.{ .char = '=' })) .not_eq else continue :sw 0,
-        '0'...'9' => self.number(),
+
         '"' => string(self),
+        '0'...'9' => self.number(),
         'a'...'z', 'A'...'Z', '_' => ident(self),
 
         else => .unexpected_character,

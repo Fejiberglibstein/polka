@@ -19,6 +19,12 @@ pub const SyntaxKind = enum(u7) {
     newline,
     /// Line of text
     text_line,
+    /// A textual part of a multiline string.
+    mls_text,
+    /// @
+    at,
+    /// `
+    backtick,
     /// .
     dot,
     /// +
@@ -97,6 +103,14 @@ pub const SyntaxKind = enum(u7) {
     // STATEMENT:  ( let_statement | export_statement | for_loop | while_loop | return_statement
     //               | function_def )
 
+    /// A multiline string literal. It is made up of `multiline_string_part`s, `newline`s, and
+    /// `multiline_string_expression`
+    ///
+    /// '`' (multiline_string_expression | multiline_string_part | (newline '`'))
+    multiline_string,
+    /// An expression inside a multiline string.
+    /// '@(' EXPRESSION ')'
+    mls_expression,
     /// List literal
     /// '[' (EXPRESSION (',' EXPRESSION)* ','?)? ']'
     list,
@@ -239,8 +253,13 @@ pub const SyntaxKind = enum(u7) {
             .keyword_func,
             .keyword_continue,
             .keyword_break,
+            .backtick,
+            .mls_text,
+            .at,
             => .leaf,
 
+            .multiline_string,
+            .mls_expression,
             .list,
             .dict,
             .dict_field,
