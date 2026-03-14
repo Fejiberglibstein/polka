@@ -191,20 +191,6 @@ pub const Value = packed union {
             return error.InvalidOperand;
         }
     };
-
-    pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        switch (self.tag()) {
-            .nil => |_| try writer.writeAll("<nil>"),
-            .boolean => try writer.print("{}", .{self.asBoolean()}),
-            .number => try writer.print("{d}", .{self.asNumber()}),
-            .object => {
-                const o = self.asObject();
-                switch (o.tag) {
-                    .string => try writer.print("{s}", .{o.asString().slice()}),
-                }
-            },
-        }
-    }
 };
 
 /// Represents a dynamically allocated value on the heap.
@@ -240,11 +226,18 @@ pub const Object = struct {
 
     pub const String = struct {
         base: Object = .{ .tag = .string },
-        str: []const u8,
+        slice: Slice,
 
-        pub fn init(gpa: Allocator, str: []const u8) !*Object {
+        /// A string slice. The u32s are indices in the vm's string intern pool
+        pub const Slice = struct {
+            /// Starting index of the string in the intern pool
+            index: u32,
+            len: u32,
+        };
+
+        pub fn init(gpa: Allocator, slice: Slice) !*Object {
             var ret = try gpa.create(@This());
-            ret.str = str;
+            ret.slice = slice;
             return &ret.base;
         }
     };

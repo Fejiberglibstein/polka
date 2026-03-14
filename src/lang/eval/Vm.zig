@@ -14,10 +14,11 @@ const Variable = struct {
 src: []const u8,
 all_nodes: []const SyntaxNode,
 output: *std.Io.Writer,
-gpa: std.mem.Allocator,
+gpa: Allocator,
 /// Allocator specifically used to allocate values. For now it's just an arena, but it may be more
 /// complex in the future.
 value_allocator: *std.heap.ArenaAllocator,
+intern_pool: InternPool,
 
 err: ?RuntimeErrorPayload,
 variables: std.ArrayList(Variable),
@@ -27,10 +28,76 @@ function_return_value: ?Value,
 
 const Vm = @This();
 
+const InternPool = struct {
+    string_bytes: std.Io.Writer.Allocating,
+    string_map: std.HashMapUnmanaged(Object.String.Slice, void, InternContext, 50),
+
+    pub fn init(gpa: Allocator) InternPool {
+        return .{
+            .string_map = .empty,
+            .string_bytes = .init(gpa),
+        };
+    }
+
+    pub fn deinit(self: InternPool, gpa: Allocator) void {
+        self.string_bytes.deinit(gpa);
+    }
+
+    const Slice = Object.String.Slice;
+
+    const InternContext = struct {
+        const K = Slice;
+        bytes: []const u8,
+
+        pub fn hash(self: InternContext, k: K) u64 {
+            return std.hash_map.hashString(self.bytes[k.index..][0..k.len]);
+        }
+        pub fn eql(_: InternContext, k1: K, k2: K) bool {
+            return k1.len == k2.len and k1.index == k2.index;
+        }
+    };
+
+    pub const Marker = enum(u32) { _ };
+
+    pub fn createString(self: *InternPool) struct { Marker, *std.Io.Writer } {
+        const m: Marker = @enumFromInt(self.string_bytes.written().len);
+        return .{ m, &self.string_bytes.writer };
+    }
+
+    pub fn internString(self: *InternPool, m: Marker, gpa: Allocator) !Slice {
+        // Add null terminator to the string
+        try self.string_bytes.writer.writeByte(0);
+
+        const slice: Slice = .{
+            .index = @intFromEnum(m),
+            .len = @intCast(self.string_bytes.written().len - @intFromEnum(m)),
+        };
+
+        const gop = try self.string_map.getOrPutContext(
+            gpa,
+            slice,
+            InternContext{ .bytes = self.string_bytes.written() },
+        );
+
+        // If the string already existed in the pool, we can clear the string that was made.
+        if (gop.found_existing) {
+            self.string_bytes.shrinkRetainingCapacity(@intFromEnum(m));
+        } else {
+            gop.key_ptr.* = slice;
+        }
+
+        return gop.key_ptr.*;
+    }
+
+    pub fn getString(self: *InternPool, slice: Slice) []const u8 {
+        return self.string_bytes.written()[slice.index..][0..slice.len];
+    }
+};
+
 pub fn init(
     all_nodes: []const SyntaxNode,
     src: []const u8,
-    gpa: std.mem.Allocator,
+    gpa: Allocator,
     value_arena: *std.heap.ArenaAllocator,
     output: *std.Io.Writer,
 ) !Vm {
@@ -42,6 +109,7 @@ pub fn init(
         .scope_level = 0,
         .function_depth = 0,
         .all_nodes = all_nodes,
+        .intern_pool = .init(gpa),
         .function_return_value = null,
         .value_allocator = value_arena,
         .variables = try .initCapacity(gpa, 512),
@@ -70,7 +138,7 @@ pub fn eval(self: *Vm) ?RuntimeErrorPayload {
     return null;
 }
 
-pub fn valueAllocator(self: *Vm) std.mem.Allocator {
+pub fn valueAllocator(self: *Vm) Allocator {
     return self.value_allocator.allocator();
 }
 
@@ -212,8 +280,10 @@ pub const ControlFlow = error{
 
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 const ast = @import("../syntax/ast.zig");
 const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
+const Object = @import("value.zig").Object;
 const treewalk = @import("treewalk.zig");
 const Value = @import("value.zig").Value;

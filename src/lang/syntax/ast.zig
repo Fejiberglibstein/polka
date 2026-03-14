@@ -562,10 +562,15 @@ pub const StaticString = struct {
     const kind: SyntaxKind = .static_string;
     pub const node = nodeFn;
 
-    pub fn get(self: StaticString, all_nodes: []const SyntaxNode, src: []const u8) []const u8 {
+    pub fn create(
+        self: StaticString,
+        all_nodes: []const SyntaxNode,
+        src: []const u8,
+        w: *std.Io.Writer,
+    ) !void {
         // TODO make this handle backslashes
         const str = self.node(all_nodes).getLeafSource(src);
-        return str[1 .. str.len - 1]; // Trim the quotes
+        try w.print("{s}", .{str[1 .. str.len - 1]});
     }
 };
 

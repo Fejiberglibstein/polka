@@ -29,13 +29,12 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
                 // Inline else so that the node's node_index may be used
                 inline else => |v| {
                     const res = try evalExpression(vm, expr);
-                    if (res.getObject()) |obj| {
-                        if (obj.getString()) |str| {
-                            vm.output.print("{s}", .{str.str}) catch
-                                try vm.setError(v.node_index, .write_failure);
-                            return;
-                        }
-                    }
+                    if (res.getObject()) |obj| if (obj.getString()) |str| {
+                        vm.output.print("{s}", .{vm.intern_pool.getString(str.slice)}) catch
+                            try vm.setError(v.node_index, .write_failure);
+                        return;
+                    };
+
                     if (!res.isNil()) {
                         try vm.setError(v.node_index, .{ .cannot_print_value = .{ .value = res } });
                     }
@@ -109,11 +108,19 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
         .integer => |num| Value.number(@floatFromInt(num.get(vm.all_nodes, vm.src) catch {
             try vm.setError(num.node_index, .number_too_large);
         })),
-        .static_string => |str| Value.object(Object.String.init(
-            vm.valueAllocator(),
-            str.get(vm.all_nodes, vm.src),
-        ) catch try vm.setError(str.node_index, .value_oom)),
+        .static_string => |str| try evalStaticString(vm, str),
     };
+}
+
+pub fn evalStaticString(vm: *Vm, node: ast.StaticString) RuntimeError!Value {
+    const m, const writer = vm.intern_pool.createString();
+    node.create(vm.all_nodes, vm.src, writer) catch
+        try vm.setError(node.node_index, .write_failure);
+    const slice = vm.intern_pool.internString(m, vm.gpa) catch
+        try vm.setError(node.node_index, .internal_oom);
+
+    return Value.object(Object.String.init(vm.valueAllocator(), slice) catch
+        try vm.setError(node.node_index, .value_oom));
 }
 
 pub fn evalVariable(vm: *Vm, node: ast.Ident) RuntimeError!Value {
