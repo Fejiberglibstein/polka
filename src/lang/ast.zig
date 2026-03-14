@@ -355,19 +355,26 @@ pub const Conditional = struct {
             branch: Text,
         };
 
+        pub fn len(self: *BranchIterator, all_nodes: []const SyntaxNode) u32 {
+            var count: u32 = 0;
+            while (self.next(all_nodes)) |_| {
+                count += 1;
+            }
+            return count;
+        }
+
         pub fn next(self: *BranchIterator, all_nodes: []const SyntaxNode) ?Branch {
             // Will be null for an else branch
             var condition: ?Expression = null;
 
-            while (self.index < self.stop_index) : (self.index += 1) {
-                if (toASTNode(Expression, self.index, all_nodes)) |child| {
-                    condition = child;
-                    continue;
-                }
+            while (self.index < self.stop_index) {
+                defer self.index += 1;
 
-                if (toASTNode(Text, self.index, all_nodes)) |branch| {
+                if (toASTNode(Expression, self.index, all_nodes)) |child|
+                    condition = child;
+
+                if (toASTNode(Text, self.index, all_nodes)) |branch|
                     return .{ .condition = condition, .branch = branch };
-                }
             }
             return null;
         }
@@ -569,9 +576,40 @@ pub const StaticString = struct {
         src: []const u8,
         w: *std.Io.Writer,
     ) !void {
-        // TODO make this handle backslashes
-        const str = self.node(all_nodes).getLeafSource(src);
-        try w.print("{s}", .{str[1 .. str.len - 1]});
+        const string = self.node(all_nodes).getLeafSource(src);
+        const inner = string[1 .. string.len - 1]; // Trim off the quotes
+
+        const quote = string[0];
+        assert(quote == '"' or quote == '\'');
+
+        var is_backslashed = false;
+        var i: usize = 0;
+        while (i < inner.len) : (i += 1) {
+            const char = inner[i];
+
+            if (std.mem.startsWith(u8, inner[i..], "@\\(")) {
+                i += "@\\(".len;
+                _ = try w.writeAll("@(");
+                continue;
+            }
+
+            if (is_backslashed) {
+                if (char == quote) try w.writeByte(quote);
+                switch (char) {
+                    'n' => try w.writeByte('\n'),
+                    '\\' => try w.writeByte('\\'),
+                    else => try w.print("\\{}", .{char}),
+                }
+                is_backslashed = false;
+                continue;
+            }
+
+            if (char == '\\') {
+                is_backslashed = true;
+                continue;
+            }
+            try w.writeByte(char);
+        }
     }
 };
 

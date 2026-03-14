@@ -7,7 +7,9 @@ pub fn evalText(vm: *Vm, node: ast.Text) ControlFlow!void {
                 try vm.setError(nl.node_index, .write_failure),
             .text_line => |line| _ = vm.output.write(line.get(vm.src, vm.all_nodes)) catch
                 try vm.setError(line.node_index, .write_failure),
-            .code => |code| try evalCode(vm, code),
+            .code => |code| {
+                try evalCode(vm, code);
+            },
         }
     }
     vm.popScope();
@@ -80,9 +82,7 @@ pub fn evalConditional(vm: *Vm, node: ast.Conditional) ControlFlow!void {
     while (branches.next(vm.all_nodes)) |branch| {
         if (branch.condition) |condition| {
             const cond = try evalExpression(vm, condition);
-            if (!cond.isTruthy()) {
-                continue;
-            }
+            if (!cond.isTruthy()) continue;
         }
         try evalText(vm, branch.branch);
         break;

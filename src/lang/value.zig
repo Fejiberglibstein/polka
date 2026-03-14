@@ -152,25 +152,25 @@ pub const Value = packed union {
             return error.InvalidOperands;
         }
         pub fn less_than(a: Value, b: Value) !Value {
-            if (a.isBoolean() and b.isBoolean()) {
+            if (a.isNumber() and b.isNumber()) {
                 return Value.boolean(a.asNumber() < b.asNumber());
             }
             return error.InvalidOperands;
         }
         pub fn less_than_equal(a: Value, b: Value) !Value {
-            if (a.isBoolean() and b.isBoolean()) {
+            if (a.isNumber() and b.isNumber()) {
                 return Value.boolean(a.asNumber() <= b.asNumber());
             }
             return error.InvalidOperands;
         }
         pub fn greater_than(a: Value, b: Value) !Value {
-            if (a.isBoolean() and b.isBoolean()) {
+            if (a.isNumber() and b.isNumber()) {
                 return Value.boolean(a.asNumber() > b.asNumber());
             }
             return error.InvalidOperands;
         }
         pub fn greater_than_equal(a: Value, b: Value) !Value {
-            if (a.isBoolean() and b.isBoolean()) {
+            if (a.isNumber() and b.isNumber()) {
                 return Value.boolean(a.asNumber() >= b.asNumber());
             }
             return error.InvalidOperands;
