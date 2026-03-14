@@ -39,8 +39,8 @@ const InternPool = struct {
         };
     }
 
-    pub fn deinit(self: InternPool, gpa: Allocator) void {
-        self.string_bytes.deinit(gpa);
+    pub fn deinit(self: *InternPool, gpa: Allocator) void {
+        self.string_map.deinit(gpa);
     }
 
     const Slice = Object.String.Slice;
@@ -117,8 +117,9 @@ pub fn init(
 }
 
 pub fn deinit(self: *Vm) void {
-    self.value_allocator.deinit();
+    _ = self.value_allocator.reset(.retain_capacity);
     self.variables.deinit(self.gpa);
+    self.intern_pool.deinit(self.gpa);
 }
 
 pub fn eval(self: *Vm) ?RuntimeErrorPayload {
@@ -282,8 +283,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-const ast = @import("../syntax/ast.zig");
-const SyntaxNode = @import("../syntax/node.zig").SyntaxNode;
+const ast = @import("ast.zig");
+const SyntaxNode = @import("node.zig").SyntaxNode;
 const Object = @import("value.zig").Object;
 const treewalk = @import("treewalk.zig");
 const Value = @import("value.zig").Value;

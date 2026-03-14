@@ -2,21 +2,28 @@ pub fn main() !void {
     var lexer = Lexer.init("", .text, "#");
     _ = lexer.next();
 
-    const parsed = try parser.parse("", .text, std.heap.page_allocator);
+    const gpa = std.heap.smp_allocator;
+
+    const parsed = try parser.parse("", .text, gpa);
     defer parsed.deinit(std.heap.page_allocator);
-    var c: Compiler = .init(parsed.nodes, "", std.heap.page_allocator);
-    _ = try c.compile();
+    var writer = std.Io.Writer.Allocating.init(gpa).writer;
+
+    var value_allocator = std.heap.ArenaAllocator.init((std.heap.page_allocator));
+    var vm = try Vm.init(parsed.nodes, "", gpa, &value_allocator, &writer);
+    try treewalk.evalText(&vm, undefined);
 }
 
 test {
-    _ = @import("lang/syntax/test.zig");
+    _ = @import("lang/test_eval.zig");
+    _ = @import("lang/test_syntax.zig");
     std.testing.refAllDeclsRecursive(@This());
 }
 
 const std = @import("std");
 
-const Lexer = @import("lang/syntax/Lexer.zig");
-const SyntaxNode = @import("lang/syntax/node.zig").SyntaxNode;
-const parser = @import("lang/syntax/parser.zig");
-const ast = @import("lang/syntax/ast.zig");
-const Compiler = @import("lang/Compiler.zig");
+const Lexer = @import("lang/Lexer.zig");
+const SyntaxNode = @import("lang/node.zig").SyntaxNode;
+const parser = @import("lang/parser.zig");
+const ast = @import("lang/ast.zig");
+const Vm = @import("lang/Vm.zig");
+const treewalk = @import("lang/treewalk.zig");

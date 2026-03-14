@@ -308,7 +308,7 @@ pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
 
 const std = @import("std");
 
-const ast = @import("../syntax/ast.zig");
+const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;
 const Object = @import("value.zig").Object;
 const Vm = @import("Vm.zig");

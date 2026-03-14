@@ -383,5 +383,6 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+
 const Vm = @import("Vm.zig");
 const RuntimeError = Vm.RuntimeError;
