@@ -488,9 +488,9 @@ test "simple multiline string" {
             x.tree(.multiline_string, &.{
                 x.leaf(.backtick),
                 x.leaf(.mls_text),
-                x.leaf(.newline),
-                x.leaf(.code_begin),
             }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
             x.leaf(.newline),
             x.leaf(.code_begin),
             x.tree(.binary, &.{
@@ -545,6 +545,52 @@ test "Multiline string with expressions" {
                 x.leaf(.mls_text),
             }),
         }),
+    }));
+}
+
+test "Multiline string recovery" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#* `@(10 - 2)
+        \\#* let h = 10
+        \\#* `hifooo
+        \\jkljfkl
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.multiline_string, &.{
+                x.leaf(.backtick),
+                x.tree(.mls_expression, &.{
+                    x.leaf(.at),
+                    x.leaf(.l_paren),
+                    x.tree(.binary, &.{
+                        x.leaf(.integer),
+                        x.leaf(.minus),
+                        x.leaf(.integer),
+                    }),
+                    x.leaf(.r_paren),
+                }),
+            }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.let_statement, &.{
+                x.leaf(.keyword_let),
+                x.leaf(.ident),
+                x.leaf(.eq),
+                x.leaf(.integer),
+            }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.multiline_string, &.{
+                x.leaf(.backtick),
+                x.leaf(.mls_text),
+            }),
+            x.leaf(.newline),
+        }),
+        x.leaf(.text_line),
     }));
 }
 

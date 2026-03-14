@@ -257,7 +257,6 @@ fn parseFunctionDefinition(p: *Parser) !void {
 fn parseMultilineString(p: *Parser) !void {
     const old_mode = p.mode();
     p.setMode(.multiline_string);
-    defer p.setMode(old_mode);
 
     const m = p.marker();
 
@@ -265,7 +264,9 @@ fn parseMultilineString(p: *Parser) !void {
     // mode.
     try p.eatAssert(.backtick);
 
+    var state: Parser.State = undefined;
     while (true) {
+        state = p.getState();
         switch (p.current.node.kind) {
             .mls_text => try p.eat(),
             .eof => break,
@@ -274,6 +275,7 @@ fn parseMultilineString(p: *Parser) !void {
                 try p.eatAssert(.newline);
 
                 if (old_mode == .code_line and !try p.eatIf(.code_begin)) break;
+
                 if (!p.at(.backtick)) break;
 
                 p.setMode(.multiline_string);
@@ -301,6 +303,10 @@ fn parseMultilineString(p: *Parser) !void {
             else => @panic("Lexer doesn't yield any other tokens while in multiline mode"),
         }
     }
+
+    p.reparseFromState(state);
+    p.setMode(old_mode);
+    p.reparse();
 
     try p.wrap(m, .multiline_string);
 }
@@ -563,6 +569,28 @@ const Parser = struct {
 
     fn addError(self: *Parser, err: SyntaxError) !void {
         try self.errors.append(self.gpa, err);
+    }
+
+    const State = struct {
+        lexer: Lexer,
+        stack_len: usize,
+        token: Lexer.Token,
+    };
+
+    fn getState(self: *Parser) Parser.State {
+        return .{
+            .stack_len = self.stack.items.len,
+            .token = self.current,
+            .lexer = self.l,
+        };
+    }
+
+    fn reparseFromState(self: *Parser, state: Parser.State) void {
+        assert(state.stack_len <= self.stack.items.len);
+        // Sizing down so there can't be an allocation error
+        self.stack.resize(self.gpa, state.stack_len) catch unreachable;
+        self.l = state.lexer;
+        self.current = state.token;
     }
 
     const Marker = usize;
