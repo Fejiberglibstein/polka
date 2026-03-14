@@ -32,7 +32,7 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
                     if (res.getObject()) |obj| if (obj.getString()) |str| {
                         vm.output.print("{s}", .{vm.intern_pool.getString(str.slice)}) catch
                             try vm.setError(v.node_index, .write_failure);
-                        return;
+                        continue;
                     };
 
                     if (!res.isNil()) {
@@ -146,6 +146,7 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
         }) catch try vm.setError(node_index, .internal_oom);
     }
 
+    writer.print("\n", .{}) catch try vm.setError(node.node_index, .internal_oom);
     const slice = vm.intern_pool.internString(m, vm.gpa) catch
         try vm.setError(node.node_index, .internal_oom);
     return Value.object(Object.String.init(vm.valueAllocator(), slice) catch
@@ -251,8 +252,8 @@ pub fn evalUnary(vm: *Vm, node: ast.Unary) RuntimeError!Value {
     const op = node.op(vm.all_nodes);
     const rhs = try evalExpression(vm, node.rhs(vm.all_nodes));
     return switch (op) {
-        .not => Value.Operators.not(rhs),
-        .negate => Value.Operators.negate(rhs),
+        .not => Value.operators.not(rhs),
+        .negate => Value.operators.negate(rhs),
     } catch try vm.setError(
         node.node_index,
         .{ .invalid_unary_operands = .{ .rhs = rhs } },
@@ -288,18 +289,18 @@ pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
         .@"or" => unreachable,
         .@"and" => unreachable,
         .assign => unreachable,
-        .in => Value.Operators.in(lhs, rhs),
-        .add => Value.Operators.add(lhs, rhs),
-        .equal => Value.Operators.equal(lhs, rhs),
-        .divide => Value.Operators.divide(lhs, rhs),
-        .modulo => Value.Operators.modulo(lhs, rhs),
-        .multiply => Value.Operators.multiply(lhs, rhs),
-        .subtract => Value.Operators.subtract(lhs, rhs),
-        .less_than => Value.Operators.less_than(lhs, rhs),
-        .not_equal => Value.Operators.not_equal(lhs, rhs),
-        .greater_than => Value.Operators.greater_than(lhs, rhs),
-        .less_than_equal => Value.Operators.less_than_equal(lhs, rhs),
-        .greater_than_equal => Value.Operators.greater_than_equal(lhs, rhs),
+        .in => Value.operators.in(lhs, rhs),
+        .add => Value.operators.add(lhs, rhs),
+        .equal => Value.operators.equal(lhs, rhs),
+        .divide => Value.operators.divide(lhs, rhs),
+        .modulo => Value.operators.modulo(lhs, rhs),
+        .multiply => Value.operators.multiply(lhs, rhs),
+        .subtract => Value.operators.subtract(lhs, rhs),
+        .less_than => Value.operators.less_than(lhs, rhs),
+        .not_equal => Value.operators.not_equal(lhs, rhs),
+        .greater_than => Value.operators.greater_than(lhs, rhs),
+        .less_than_equal => Value.operators.less_than_equal(lhs, rhs),
+        .greater_than_equal => Value.operators.greater_than_equal(lhs, rhs),
     } catch try vm.setError(
         node.node_index,
         .{ .invalid_binary_operands = .{ .lhs = lhs, .rhs = rhs } },

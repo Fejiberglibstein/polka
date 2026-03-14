@@ -59,7 +59,7 @@ pub fn reparse(self: *Lexer, token: Token) void {
 
 pub fn next(self: *Lexer) Token {
     const before_whitespace = self.s.cursor;
-    if (self.mode != .text) {
+    if (!(self.mode == .text or self.mode == .multiline_string)) {
         self.s.eatWhitespace();
     }
     const start = self.s.cursor;

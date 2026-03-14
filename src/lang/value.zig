@@ -25,7 +25,7 @@ pub const ValueType = enum(u8) {
     number  = 0b000,
     nil     = 0b001,
     boolean = 0b010,
-    object  = 0b011,
+    object  = 0b100,
     // zig fmt: on
 };
 
@@ -114,12 +114,12 @@ pub const Value = packed union {
         return self.bits != nil_value and self.bits != false_value;
     }
 
-    pub const Operators = struct {
+    pub const operators = struct {
         pub fn equal(a: Value, b: Value) Value {
             return Value.boolean(a.bits == b.bits);
         }
         pub fn not_equal(a: Value, b: Value) Value {
-            return Value.boolean(!Operators.equal(a, b).asBoolean());
+            return Value.boolean(!operators.equal(a, b).asBoolean());
         }
         pub fn add(a: Value, b: Value) !Value {
             if (a.isNumber() and b.isNumber()) {
@@ -199,12 +199,14 @@ pub const Value = packed union {
         vm: *Vm,
         w: *std.Io.Writer,
     ) error{ WriteFailed, ValueError }!void {
-        try switch (self.tag()) {
+        return switch (self.tag()) {
             .nil => error.ValueError,
             .number => w.print("{}", .{self.asNumber()}),
             .boolean => w.print("{}", .{self.asBoolean()}),
             .object => switch (self.asObject().tag) {
-                .string => w.print("{s}", .{vm.intern_pool.getString(self.asObject().asString().slice)}),
+                .string => w.print("{s}", .{
+                    vm.intern_pool.getString(self.asObject().asString().slice),
+                }),
                 else => error.ValueError,
             },
         };
@@ -255,7 +257,10 @@ pub const Object = struct {
 
         pub fn init(gpa: Allocator, slice: Slice) !*Object {
             var ret = try gpa.create(@This());
-            ret.slice = slice;
+            ret.* = .{
+                .base = .{ .tag = .string },
+                .slice = slice,
+            };
             return &ret.base;
         }
     };
@@ -301,6 +306,7 @@ pub const Object = struct {
         pub fn initRuntime(gpa: Allocator, body_index: u32, arity: u32) !*Object {
             const ret = try gpa.create(@This());
             ret.* = .{
+                .base = .{ .tag = .function },
                 .func = .{
                     .runtime = .{
                         .definition_index = body_index,
@@ -325,6 +331,7 @@ test "Value numbers" {
     for (numbers) |num| {
         const value = Value.number(num);
 
+        try expect(value.tag() == .number);
         try expect(value.isNumber());
         try expect(!value.isObject());
         try expect(!value.isBoolean());
@@ -345,6 +352,7 @@ test "Value booleans" {
     for (booleans) |boolean| {
         const value = Value.boolean(boolean);
 
+        try expect(value.tag() == .boolean);
         try expect(value.isBoolean());
         try expect(!value.isObject());
         try expect(!value.isNumber());
@@ -371,6 +379,7 @@ test "Value object" {
 
     try expectEqual(@intFromPtr(&object), @intFromPtr(value.asObject()));
 
+    try expect(value.tag() == .object);
     try expect(value.isObject());
     try expect(!value.isNumber());
     try expect(!value.isBoolean());

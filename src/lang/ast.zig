@@ -603,7 +603,7 @@ pub const MLSExpression = struct {
 
 pub const MLSText = struct {
     node_index: u32,
-    const kind: SyntaxKind = .ident;
+    const kind: SyntaxKind = .mls_text;
     pub const node = nodeFn;
 
     pub fn get(self: MLSText, all_nodes: []const SyntaxNode, src: []const u8) []const u8 {

@@ -65,14 +65,14 @@ const InternPool = struct {
     }
 
     pub fn internString(self: *InternPool, m: Marker, gpa: Allocator) !Slice {
-        // Add null terminator to the string
-        try self.string_bytes.writer.writeByte(0);
 
         const slice: Slice = .{
             .index = @intFromEnum(m),
             .len = @intCast(self.string_bytes.written().len - @intFromEnum(m)),
         };
 
+        // Add null terminator to the string, this is *not* part of the slice.
+        try self.string_bytes.writer.writeByte(0);
         const gop = try self.string_map.getOrPutContext(
             gpa,
             slice,
