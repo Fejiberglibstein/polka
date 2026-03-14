@@ -278,11 +278,10 @@ pub const Object = struct {
             },
         },
 
-        pub fn initBuiltin(gpa: Allocator, func: anytype) !*Object {
+        pub fn initBuiltin(func: anytype) *Object {
             const FuncType = @TypeOf(func);
 
-            const ret = try gpa.create(@This());
-            ret.* = .{
+            var ret: Function = .{
                 .func = .{
                     .builtin = if (FuncType == fn (*Vm, Value) RuntimeError!Value)
                         .{ .f1 = &func }
