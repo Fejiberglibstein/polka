@@ -59,7 +59,7 @@ const InternPool = struct {
 
     pub const Marker = enum(u32) { _ };
 
-    pub fn createString(self: *InternPool) struct { Marker, *std.Io.Writer } {
+    pub fn beginString(self: *InternPool) struct { Marker, *std.Io.Writer } {
         const m: Marker = @enumFromInt(self.string_bytes.written().len);
         return .{ m, &self.string_bytes.writer };
     }
@@ -259,8 +259,8 @@ const RuntimeErrorPayload = struct {
         invalid_binary_operands: struct { lhs: Value, rhs: Value },
         /// Invalid operands to unary operator. node.op <rhs> is not allowed.
         invalid_unary_operands: struct { rhs: Value },
-        cannot_print_value: struct { value: Value },
-        cannot_call_value: struct { value: Value },
+        cannot_print_value: Value,
+        cannot_call_value: Value,
         invalid_function_args: struct { expected_num: u32, actual_num: u32 },
         misplaced_break,
         misplaced_continue,

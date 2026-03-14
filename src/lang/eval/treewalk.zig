@@ -36,7 +36,7 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
                     };
 
                     if (!res.isNil()) {
-                        try vm.setError(v.node_index, .{ .cannot_print_value = .{ .value = res } });
+                        try vm.setError(v.node_index, .{ .cannot_print_value = res });
                     }
                 },
             },
@@ -103,22 +103,51 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
         .function_def => |def| evalFunctionDef(vm, def),
         .function_call => |call| evalFunctionCall(vm, call),
         .ident => |variable| try evalVariable(vm, variable),
+        .static_string => |str| try evalStaticString(vm, str),
+        .multi_line_string => |str| try evalMultiLineString(vm, str),
         .number => |num| Value.number(num.get(vm.all_nodes, vm.src)),
         .grouping => |group| try evalExpression(vm, group.inner(vm.all_nodes)),
         .integer => |num| Value.number(@floatFromInt(num.get(vm.all_nodes, vm.src) catch {
             try vm.setError(num.node_index, .number_too_large);
         })),
-        .static_string => |str| try evalStaticString(vm, str),
     };
 }
 
 pub fn evalStaticString(vm: *Vm, node: ast.StaticString) RuntimeError!Value {
-    const m, const writer = vm.intern_pool.createString();
+    const m, const writer = vm.intern_pool.beginString();
     node.create(vm.all_nodes, vm.src, writer) catch
-        try vm.setError(node.node_index, .write_failure);
-    const slice = vm.intern_pool.internString(m, vm.gpa) catch
         try vm.setError(node.node_index, .internal_oom);
 
+    const slice = vm.intern_pool.internString(m, vm.gpa) catch
+        try vm.setError(node.node_index, .internal_oom);
+    return Value.object(Object.String.init(vm.valueAllocator(), slice) catch
+        try vm.setError(node.node_index, .value_oom));
+}
+
+pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Value {
+    const m, const writer = vm.intern_pool.beginString();
+
+    var parts = node.parts(vm.all_nodes);
+    while (parts.next(vm.all_nodes)) |part| {
+        const node_index = switch (part) {
+            inline else => |v| v.node_index,
+        };
+
+        (switch (part) {
+            .newline => |_| writer.print("\n", .{}),
+            .mls_text => |text| writer.print("{s}", .{text.get(vm.all_nodes, vm.src)}),
+            .mls_expression => |expr| blk: {
+                const v = try evalExpression(vm, expr.get(vm.all_nodes));
+                v.print(vm, writer) catch |err| switch (err) {
+                    error.ValueError => try vm.setError(node_index, .{ .cannot_print_value = v }),
+                    error.WriteFailed => break :blk error.WriteFailed,
+                };
+            },
+        }) catch try vm.setError(node_index, .internal_oom);
+    }
+
+    const slice = vm.intern_pool.internString(m, vm.gpa) catch
+        try vm.setError(node.node_index, .internal_oom);
     return Value.object(Object.String.init(vm.valueAllocator(), slice) catch
         try vm.setError(node.node_index, .value_oom));
 }
@@ -147,7 +176,7 @@ pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
         if (caller.getObject()) |obj| {
             if (obj.getFunction()) |func| break :blk func;
         }
-        try vm.setError(node.node_index, .{ .cannot_call_value = .{ .value = caller } });
+        try vm.setError(node.node_index, .{ .cannot_call_value = caller });
     };
 
     return switch (function.func) {

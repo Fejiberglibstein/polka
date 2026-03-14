@@ -185,6 +185,7 @@ pub const Expression = union(enum) {
     function_call: FunctionCall,
     static_string: StaticString,
     bracket_access: BracketAccess,
+    multi_line_string: MultiLineString,
 };
 
 pub const List = struct {
@@ -600,6 +601,16 @@ pub const MLSExpression = struct {
     }
 };
 
+pub const MLSText = struct {
+    node_index: u32,
+    const kind: SyntaxKind = .ident;
+    pub const node = nodeFn;
+
+    pub fn get(self: MLSText, all_nodes: []const SyntaxNode, src: []const u8) []const u8 {
+        return self.node(all_nodes).getLeafSource(src);
+    }
+};
+
 pub const Ident = struct {
     node_index: u32,
     const kind: SyntaxKind = .ident;
@@ -640,7 +651,6 @@ pub const True = ASTNode(.keyword_true);
 pub const False = ASTNode(.keyword_false);
 pub const BreakStatement = ASTNode(.keyword_break);
 pub const ContinueStatement = ASTNode(.keyword_continue);
-pub const MLSText = ASTNode(.mls_text);
 
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;

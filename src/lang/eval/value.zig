@@ -191,6 +191,24 @@ pub const Value = packed union {
             return error.InvalidOperand;
         }
     };
+
+    /// Note that this should *not* be done with a format() function. This is because this function
+    /// needs the *Vm so that it can print out strings correctly.
+    pub fn print(
+        self: Value,
+        vm: *Vm,
+        w: *std.Io.Writer,
+    ) error{ WriteFailed, ValueError }!void {
+        try switch (self.tag()) {
+            .nil => error.ValueError,
+            .number => w.print("{}", .{self.asNumber()}),
+            .boolean => w.print("{}", .{self.asBoolean()}),
+            .object => switch (self.asObject().tag) {
+                .string => w.print("{s}", .{vm.intern_pool.getString(self.asObject().asString().slice)}),
+                else => error.ValueError,
+            },
+        };
+    }
 };
 
 /// Represents a dynamically allocated value on the heap.
