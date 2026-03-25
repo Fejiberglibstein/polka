@@ -599,19 +599,22 @@ const Parser = struct {
         self.current = state.token;
     }
 
-    const Marker = usize;
+    const Marker = enum(u32) {
+        _,
+    };
+
     fn marker(self: Parser) Marker {
-        return self.stack.items.len;
+        return @enumFromInt(self.stack.items.len);
     }
 
     fn wrap(self: *Parser, m: Marker, kind: SyntaxKind) Allocator.Error!void {
         const offset = self.nodes.items.len;
 
-        try self.nodes.appendSlice(self.gpa, self.stack.items[m..]);
+        try self.nodes.appendSlice(self.gpa, self.stack.items[@intFromEnum(m)..]);
 
         // Sizing down, so can't get an allocation error
-        std.debug.assert(m <= self.stack.items.len);
-        self.stack.resize(self.gpa, m) catch unreachable;
+        std.debug.assert(@intFromEnum(m) <= self.stack.items.len);
+        self.stack.resize(self.gpa, @intFromEnum(m)) catch unreachable;
 
         const len = self.nodes.items.len - offset;
 
