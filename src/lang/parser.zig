@@ -304,7 +304,7 @@ fn parseMultilineString(p: *Parser) !void {
         }
     }
 
-    p.reparseFromState(state);
+    p.resetToState(state);
     p.setMode(old_mode);
     p.reparse();
 
@@ -431,9 +431,11 @@ fn expectNewline(p: *Parser) !void {
             try p.eatExpect(.newline);
             try p.eatExpect(.code_begin);
         },
-        .code_file, .code_block => _ = try p.eatExpect(.newline),
-        .text => _ = try p.eatExpect(.newline),
-        .multiline_string => _ = try p.eatExpect(.newline),
+        .code_file,
+        .code_block,
+        .text,
+        .multiline_string,
+        => _ = try p.eatExpect(.newline),
     }
 }
 
@@ -446,8 +448,12 @@ fn eatNewline(p: *Parser) !bool {
             }
             break :blk false;
         },
-        .code_file, .code_block => try p.eatIf(.newline),
-        .text => try p.eatIf(.newline),
+        .code_file,
+        .code_block,
+        .text,
+        .multiline_string,
+        .text,
+        => try p.eatIf(.newline),
     };
 }
 
@@ -585,7 +591,7 @@ const Parser = struct {
         };
     }
 
-    fn reparseFromState(self: *Parser, state: Parser.State) void {
+    fn resetToState(self: *Parser, state: Parser.State) void {
         assert(state.stack_len <= self.stack.items.len);
         // Sizing down so there can't be an allocation error
         self.stack.resize(self.gpa, state.stack_len) catch unreachable;
