@@ -27,7 +27,7 @@ pub fn parse(src: []const u8, mode: Lexer.Mode, gpa: Allocator) Allocator.Error!
     var p: Parser = try .init(src, mode, gpa);
 
     if (p.at(.eof)) {
-        const m = p.marker();
+        const m = try p.marker();
         try p.eat();
         p.wrap(m, .text);
     } else {
@@ -51,15 +51,16 @@ pub fn parse(src: []const u8, mode: Lexer.Mode, gpa: Allocator) Allocator.Error!
 }
 
 fn parseText(p: *Parser) Allocator.Error!void {
-    const m = p.marker();
-    defer p.wrap(m, .text);
-
     // Even when in a `.polka` file, all nodes are still wrapped in text
     if (p.mode() == .code_file) {
-        defer p.wrap(m, .text);
+        const m = try p.marker();
         try parseCode(p);
+        p.wrap(m, .text);
         return;
     }
+
+    const m = try p.marker();
+    defer p.wrap(m, .text);
 
     while (true) {
         if (p.isEndingKind(p.current.node.kind)) break;
@@ -72,7 +73,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
             .text_line => try p.eat(),
 
             .code_begin => {
-                const m2 = p.marker();
+                const m2 = try p.marker();
                 defer p.wrap(m2, .code);
 
                 p.setMode(.code_line);
@@ -81,7 +82,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
             },
 
             .codeblock_delim => {
-                const m2 = p.marker();
+                const m2 = try p.marker();
                 defer p.wrap(m2, .code);
 
                 p.setMode(.code_block);
@@ -135,7 +136,7 @@ fn parseStatement(p: *Parser) Allocator.Error!void {
 }
 
 fn parseExpression(p: *Parser, precedence: usize) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
 
     if (ast.toASTNode(ast.UnaryOperator, 0, &.{p.current.node})) |op| {
         defer p.wrap(m, .unary);
@@ -157,7 +158,7 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
         .l_brace => try parseList(p),
 
         .l_paren => {
-            const m2 = p.marker();
+            const m2 = try p.marker();
             defer p.wrap(m2, .grouping);
             try p.eatAssert(.l_paren);
             try parseExpression(p, 0);
@@ -206,7 +207,7 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
             }
         }
 
-        if (m == p.marker()) {
+        if (m == try p.marker()) {
             try p.addError(.{
                 .position = p.current.position,
                 .range = p.current.node.getLeafSource(p.text),
@@ -218,7 +219,7 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
 }
 
 fn parseFunctionCallArguments(p: *Parser) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .function_args);
     try p.eatAssert(.l_paren);
 
@@ -247,7 +248,7 @@ fn parseBlock(p: *Parser) Error!void {
 }
 
 fn parseFunctionParameters(p: *Parser) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .function_parameters);
     try p.eatExpect(.l_paren, .{ .dont_eat = .any });
     while (!try p.eatIf(.r_paren)) {
@@ -260,7 +261,7 @@ fn parseFunctionParameters(p: *Parser) Error!void {
 }
 
 fn parseFunctionDefinition(p: *Parser) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .function_def);
     try p.eatAssert(.keyword_func);
     _ = try p.eatIf(.ident);
@@ -275,7 +276,7 @@ fn parseMultilineString(p: *Parser) Error!void {
     const old_mode = p.mode();
     p.setMode(.multiline_string);
 
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .multiline_string);
 
     // Must eat backtick _after_ switching modes so that the next token is parsed in the correct
@@ -308,7 +309,7 @@ fn parseMultilineString(p: *Parser) Error!void {
             },
             .at => {
                 p.setMode(old_mode);
-                const m2 = p.marker();
+                const m2 = try p.marker();
                 defer p.wrap(m2, .mls_expression);
 
                 // If the lexer yielded a `.at`, it _must be_ followed by an `.l_paren`. The lexer
@@ -330,7 +331,7 @@ fn parseMultilineString(p: *Parser) Error!void {
 }
 
 fn parseList(p: *Parser) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .list);
 
     try p.eatExpect(.l_brace);
@@ -346,13 +347,13 @@ fn parseList(p: *Parser) Error!void {
 }
 
 fn parseDict(p: *Parser) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .dict);
     try p.eatExpect(.l_bracket);
     while (!try p.eatIf(.r_bracket)) {
         try skipNewlines(p);
         {
-            const m2 = p.marker();
+            const m2 = try p.marker();
             defer p.wrap(m2, .dict_field);
             try p.eatExpect(.ident);
             try skipNewlines(p);
@@ -369,7 +370,7 @@ fn parseDict(p: *Parser) Error!void {
 }
 
 fn parseConditional(p: *Parser) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .conditional);
     try p.eatAssert(.keyword_if);
     try parseExpression(p, 0);
@@ -428,7 +429,7 @@ fn parseConditional(p: *Parser) Error!void {
 }
 
 fn parseWhileLoop(p: *Parser) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .while_loop);
     try p.eatAssert(.keyword_while);
     try parseExpression(p, 0);
@@ -438,7 +439,7 @@ fn parseWhileLoop(p: *Parser) Error!void {
 }
 
 fn parseForLoop(p: *Parser) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .for_loop);
     try p.eatAssert(.keyword_for);
     try p.eatExpect(.ident, .{ .dont_eat = .newline });
@@ -450,7 +451,7 @@ fn parseForLoop(p: *Parser) Error!void {
 }
 
 fn parseReturnStatement(p: *Parser) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .return_statement);
     try p.eatAssert(.keyword_return);
     if (!p.at(.newline)) {
@@ -459,7 +460,7 @@ fn parseReturnStatement(p: *Parser) Error!void {
 }
 
 fn parseExportStatement(p: *Parser) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .export_statement);
     try p.eatAssert(.keyword_export);
     switch (p.current.node.kind) {
@@ -470,7 +471,7 @@ fn parseExportStatement(p: *Parser) Error!void {
 }
 
 fn parseLetStatement(p: *Parser) Error!void {
-    const m = p.marker();
+    const m = try p.marker();
     defer p.wrap(m, .let_statement);
     try p.eatAssert(.keyword_let);
     try p.eatExpect(.ident, .{ .dont_eat = .newline });
@@ -659,7 +660,7 @@ const Parser = struct {
                 else
                     error.ParseError;
 
-            if (opts.dont_eat.contains(kind)) return;
+            if (opts.dont_eat.contains(self.current.node.kind)) return;
         }
 
         try self.eat();
@@ -703,8 +704,11 @@ const Parser = struct {
         _,
     };
 
-    fn marker(self: *Parser) Marker {
+    fn marker(self: *Parser) !Marker {
         self.active_markers += 1;
+
+        // Ensure the stack can contain all the markers we add to it.
+        try self.stack.ensureTotalCapacity(self.gpa, self.stack.items.len + self.active_markers);
         return @enumFromInt(self.stack.items.len);
     }
 
@@ -714,26 +718,19 @@ const Parser = struct {
         assert(kind.getType() == .tree);
         const node_start_index = self.nodes.items.len;
 
-        assert(@intFromEnum(m) < self.stack.items.len);
+        assert(@intFromEnum(m) <= self.stack.items.len);
         const tree_nodes = self.stack.items[@intFromEnum(m)..];
 
         // In Parser.eat() we ensure that self.nodes has enough capacity to add all of
         // self.stack.items.len. We must do it there rather than here so that this function does not
         // error.
-        assert(self.nodes.unusedCapacitySlice().len >= tree_nodes.len);
         self.nodes.appendSliceAssumeCapacity(tree_nodes);
 
-        // TODO i dont think this assertion may be upheld for invalid programs. Look into this after
-        // parser rework
-        assert(tree_nodes.len >= 1);
-
-        // Size the stack back down to how it was.
-        //
-        // Note that this retains the capacity, and because the length of the items we added is
-        // greater than 1, we know that self.stack has room to append 1 item to it.
+        // Size the stack back down to how it was. This _might do nothing_ if there was a syntax
+        // error.
         self.stack.items.len = @intFromEnum(m);
 
-        // appending here *cannot* error, see above comment.
+        // In Parser.marker(), the stack is expanded to be able to hold markers.
         self.stack.appendAssumeCapacity(SyntaxNode{
             .kind = kind,
             .data = .{ .tree = .{
