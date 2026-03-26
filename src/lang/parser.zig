@@ -28,7 +28,7 @@ pub fn parse(src: []const u8, mode: Lexer.Mode, gpa: Allocator) Allocator.Error!
     if (p.at(.eof)) {
         const m = p.marker();
         try p.eat();
-        try p.wrap(m, .text);
+        p.wrap(m, .text);
     } else {
         try parseText(&p);
     }
@@ -55,7 +55,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
     // Even when in a `.polka` file, all nodes are still wrapped in text
     if (p.mode() == .code_file) {
         try parseCode(p);
-        try p.wrap(m, .text);
+        p.wrap(m, .text);
         return;
     }
 
@@ -74,7 +74,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
                 const m2 = p.marker();
                 try p.eatAssert(.code_begin);
                 try parseCode(p);
-                try p.wrap(m2, .code);
+                p.wrap(m2, .code);
             },
 
             .codeblock_delim => {
@@ -83,7 +83,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
                 try p.eatAssert(.codeblock_delim);
                 try parseCode(p);
                 try p.eatExpect(.codeblock_delim);
-                try p.wrap(m2, .code);
+                p.wrap(m2, .code);
             },
 
             // Lexer doesn't produce any other tokens
@@ -94,7 +94,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
         }
     }
 
-    try p.wrap(m, .text);
+    p.wrap(m, .text);
 }
 
 fn parseCode(p: *Parser) Allocator.Error!void {
@@ -131,7 +131,7 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
     if (ast.toASTNode(ast.UnaryOperator, 0, &.{p.current.node})) |op| {
         try p.eat();
         try parseExpression(p, op.precedence()); // Plus 1 since unary ops are right associative
-        try p.wrap(m, .unary);
+        p.wrap(m, .unary);
     }
 
     switch (p.current.node.kind) {
@@ -149,7 +149,7 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
             try p.eatAssert(.l_paren);
             try parseExpression(p, 0);
             try p.eatExpect(.r_paren);
-            try p.wrap(m2, .grouping);
+            p.wrap(m2, .grouping);
         },
 
         .keyword_func => try parseFunctionDefinition(p),
@@ -163,21 +163,21 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
         // Parse a function call
         if (p.at(.l_paren)) {
             try parseFunctionCallArguments(p);
-            try p.wrap(m, .function_call);
+            p.wrap(m, .function_call);
             continue;
         }
 
         if (try p.eatIf(.l_bracket)) {
             try parseExpression(p, 0);
             try p.eatExpect(.r_bracket);
-            try p.wrap(m, .bracket_access);
+            p.wrap(m, .bracket_access);
             continue;
         }
 
         // Parse dot access
         if (try p.eatIf(.dot)) {
             try p.eatExpect(.ident);
-            try p.wrap(m, .dot_access);
+            p.wrap(m, .dot_access);
             continue;
         }
 
@@ -189,7 +189,7 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
                 };
                 try p.eat();
                 try parseExpression(p, new_precedence);
-                try p.wrap(m, .binary);
+                p.wrap(m, .binary);
                 continue;
             }
         }
@@ -211,7 +211,7 @@ fn parseFunctionCallArguments(p: *Parser) !void {
             break;
         }
     }
-    try p.wrap(m, .function_args);
+    p.wrap(m, .function_args);
 }
 
 fn parseBlock(p: *Parser) !void {
@@ -239,7 +239,7 @@ fn parseFunctionParameters(p: *Parser) !void {
             break;
         }
     }
-    try p.wrap(m, .function_parameters);
+    p.wrap(m, .function_parameters);
 }
 
 fn parseFunctionDefinition(p: *Parser) !void {
@@ -251,7 +251,7 @@ fn parseFunctionDefinition(p: *Parser) !void {
         try parseBlock(p)
     else
         try parseExpression(p, 0);
-    try p.wrap(m, .function_def);
+    p.wrap(m, .function_def);
 }
 
 fn parseMultilineString(p: *Parser) !void {
@@ -298,7 +298,7 @@ fn parseMultilineString(p: *Parser) !void {
                 p.setMode(.multiline_string);
                 try p.eatExpect(.r_paren);
 
-                try p.wrap(m2, .mls_expression);
+                p.wrap(m2, .mls_expression);
             },
             else => @panic("Lexer doesn't yield any other tokens while in multiline mode"),
         }
@@ -308,7 +308,7 @@ fn parseMultilineString(p: *Parser) !void {
     p.setMode(old_mode);
     p.reparse();
 
-    try p.wrap(m, .multiline_string);
+    p.wrap(m, .multiline_string);
 }
 
 fn parseList(p: *Parser) !void {
@@ -323,7 +323,7 @@ fn parseList(p: *Parser) !void {
             break;
         }
     }
-    try p.wrap(m, .list);
+    p.wrap(m, .list);
 }
 
 fn parseDict(p: *Parser) !void {
@@ -337,14 +337,14 @@ fn parseDict(p: *Parser) !void {
         try p.eatExpect(.eq);
         try skipNewlines(p);
         try parseExpression(p, 0);
-        try p.wrap(m2, .dict_field);
+        p.wrap(m2, .dict_field);
         try skipNewlines(p);
         if (!try p.eatIf(.comma)) {
             try p.eatExpect(.r_bracket);
             break;
         }
     }
-    try p.wrap(m, .dict);
+    p.wrap(m, .dict);
 }
 
 fn parseConditional(p: *Parser) !void {
@@ -402,7 +402,7 @@ fn parseConditional(p: *Parser) !void {
     p.reparse();
     p.ending_kind = old_end;
 
-    try p.wrap(m, .conditional);
+    p.wrap(m, .conditional);
 }
 
 fn parseWhileLoop(p: *Parser) !void {
@@ -412,7 +412,7 @@ fn parseWhileLoop(p: *Parser) !void {
     try p.eatExpect(.keyword_do);
     try p.eatExpect(.newline);
     try parseBlock(p);
-    try p.wrap(m, .while_loop);
+    p.wrap(m, .while_loop);
 }
 
 fn parseForLoop(p: *Parser) !void {
@@ -424,7 +424,7 @@ fn parseForLoop(p: *Parser) !void {
     try p.eatExpect(.keyword_do);
     try p.eatExpect(.newline);
     try parseBlock(p);
-    try p.wrap(m, .for_loop);
+    p.wrap(m, .for_loop);
 }
 
 fn parseReturnStatement(p: *Parser) !void {
@@ -433,7 +433,7 @@ fn parseReturnStatement(p: *Parser) !void {
     if (!p.at(.newline)) {
         try parseExpression(p, 0);
     }
-    try p.wrap(m, .return_statement);
+    p.wrap(m, .return_statement);
 }
 
 fn parseExportStatement(p: *Parser) !void {
@@ -444,7 +444,7 @@ fn parseExportStatement(p: *Parser) !void {
         .keyword_export => try parseExportStatement(p),
         else => try p.unexpected(),
     }
-    try p.wrap(m, .export_statement);
+    p.wrap(m, .export_statement);
 }
 
 fn parseLetStatement(p: *Parser) !void {
@@ -452,7 +452,7 @@ fn parseLetStatement(p: *Parser) !void {
     try p.eatAssert(.keyword_let);
     try p.eatExpect(.ident);
     if (try p.eatIf(.eq)) try parseExpression(p, 0);
-    try p.wrap(m, .let_statement);
+    p.wrap(m, .let_statement);
 }
 
 fn skipNewlines(p: *Parser) !void {
@@ -509,6 +509,9 @@ const Parser = struct {
     /// include EOF, and may include `end`, `codeblock_delim`, and others.
     ending_kind: SyntaxSet,
 
+    /// The number of markers that haven't been wrapped yet.
+    active_markers: usize,
+
     fn init(src: []const u8, m: Lexer.Mode, gpa: Allocator) !Parser {
         const lexer = Lexer.init(src, m, "#");
 
@@ -521,6 +524,7 @@ const Parser = struct {
             .current = undefined,
             .gpa = gpa,
             .ending_kind = .init(&.{.eof}),
+            .active_markers = 0,
         };
 
         self.current = self.l.next();
@@ -567,6 +571,17 @@ const Parser = struct {
         }
 
         try self.stack.append(self.gpa, self.current.node);
+
+        // Ensure that there is enough space in .nodes to add the entire stack. This is done so that
+        // Parser.wrap() will not return an error, see the comments in that function for more
+        // information.
+        try self.nodes.ensureTotalCapacity(
+            self.gpa,
+            // Ensure we have enough space for every item in the stack and every marker, since
+            // markers get turned into syntax nodes
+            self.nodes.items.len + self.stack.items.len + self.active_markers,
+        );
+
         self.current = self.l.next();
     }
 
@@ -639,25 +654,43 @@ const Parser = struct {
         _,
     };
 
-    fn marker(self: Parser) Marker {
+    fn marker(self: *Parser) Marker {
+        self.active_markers += 1;
         return @enumFromInt(self.stack.items.len);
     }
 
-    fn wrap(self: *Parser, m: Marker, kind: SyntaxKind) Allocator.Error!void {
-        const offset = self.nodes.items.len;
-
-        try self.nodes.appendSlice(self.gpa, self.stack.items[@intFromEnum(m)..]);
-
-        // Sizing down, so can't get an allocation error
-        std.debug.assert(@intFromEnum(m) <= self.stack.items.len);
-        self.stack.resize(self.gpa, @intFromEnum(m)) catch unreachable;
-
-        const len = self.nodes.items.len - offset;
+    fn wrap(self: *Parser, m: Marker, kind: SyntaxKind) void {
+        self.active_markers -= 1;
 
         assert(kind.getType() == .tree);
-        try self.stack.append(self.gpa, SyntaxNode{
+        const node_start_index = self.nodes.items.len;
+
+        assert(@intFromEnum(m) < self.stack.items.len);
+        const tree_nodes = self.stack.items[@intFromEnum(m)..];
+
+        // In Parser.eat() we ensure that self.nodes has enough capacity to add all of
+        // self.stack.items.len. We must do it there rather than here so that this function does not
+        // error.
+        assert(self.nodes.unusedCapacitySlice().len >= tree_nodes.len);
+        self.nodes.appendSliceAssumeCapacity(tree_nodes);
+
+        // TODO i dont think this assertion may be upheld for invalid programs. Look into this after
+        // parser rework
+        assert(tree_nodes.len >= 1);
+
+        // Size the stack back down to how it was.
+        //
+        // Note that this retains the capacity, and because the length of the items we added is
+        // greater than 1, we know that self.stack has room to append 1 item to it.
+        self.stack.items.len = @intFromEnum(m);
+
+        // appending here *cannot* error, see above comment.
+        self.stack.appendAssumeCapacity(SyntaxNode{
             .kind = kind,
-            .data = .{ .tree = .{ .len = @intCast(len), .offset = @intCast(offset) } },
+            .data = .{ .tree = .{
+                .len = @intCast(tree_nodes.len),
+                .offset = @intCast(node_start_index),
+            } },
         });
     }
 };
