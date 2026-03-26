@@ -207,13 +207,7 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
             }
         }
 
-        if (m == try p.marker()) {
-            try p.addError(.{
-                .position = p.current.position,
-                .range = p.current.node.getLeafSource(p.text),
-                .kind = .expected_expression,
-            });
-        }
+        if (m == try p.marker()) try p.addError(.expected_expression);
         break;
     }
 }
@@ -587,11 +581,7 @@ const Parser = struct {
 
     fn eat(self: *Parser) !void {
         if (self.current.node.kind == .unexpected_character) {
-            try self.addError(.{
-                .position = self.current.position,
-                .range = self.current.node.getLeafSource(self.text),
-                .kind = .invalid_token,
-            });
+            try self.addError(.invalid_token);
         }
 
         try self.stack.append(self.gpa, self.current.node);
@@ -647,11 +637,7 @@ const Parser = struct {
     ) ExpectError(opts)!void {
         if (self.current.node.kind != kind) {
             try self.addError(.{
-                .position = self.current.position,
-                .range = self.current.node.getLeafSource(self.text),
-                .kind = .{
-                    .expected_token = .{ .expected = kind, .actual = self.current.node.kind },
-                },
+                .expected_token = .{ .expected = kind, .actual = self.current.node.kind },
             });
 
             if (opts.error_on.contains(kind))
@@ -667,15 +653,15 @@ const Parser = struct {
     }
 
     fn unexpected(self: *Parser) !void {
-        try self.addError(.{
-            .position = self.current.position,
-            .range = self.current.node.getLeafSource(self.text),
-            .kind = .{ .unexpected_token = self.current.node.kind },
-        });
+        try self.addError(.{ .unexpected_token = self.current.node.kind });
     }
 
-    fn addError(self: *Parser, err: SyntaxError) !void {
-        try self.errors.append(self.gpa, err);
+    fn addError(self: *Parser, kind: SyntaxErrorKind) !void {
+        try self.errors.append(self.gpa, .{
+            .kind = kind,
+            .position = self.current.position,
+            .range = self.current.node.getLeafSource(self.text),
+        });
     }
 
     const State = struct {
