@@ -311,6 +311,42 @@ fn parseMultilineString(p: *Parser) !void {
     try p.wrap(m, .multiline_string);
 }
 
+fn parseList(p: *Parser) !void {
+    const m = p.marker();
+    try p.eatExpect(.l_brace);
+    while (!try p.eatIf(.r_brace)) {
+        try skipNewlines(p);
+        try parseExpression(p, 0);
+        try skipNewlines(p);
+        if (!try p.eatIf(.comma)) {
+            try p.eatExpect(.r_brace);
+            break;
+        }
+    }
+    try p.wrap(m, .list);
+}
+
+fn parseDict(p: *Parser) !void {
+    const m = p.marker();
+    try p.eatExpect(.l_bracket);
+    while (!try p.eatIf(.r_bracket)) {
+        try skipNewlines(p);
+        const m2 = p.marker();
+        try p.eatExpect(.ident);
+        try skipNewlines(p);
+        try p.eatExpect(.eq);
+        try skipNewlines(p);
+        try parseExpression(p, 0);
+        try p.wrap(m2, .dict_field);
+        try skipNewlines(p);
+        if (!try p.eatIf(.comma)) {
+            try p.eatExpect(.r_bracket);
+            break;
+        }
+    }
+    try p.wrap(m, .dict);
+}
+
 fn parseConditional(p: *Parser) !void {
     const m = p.marker();
     try p.eatAssert(.keyword_if);
