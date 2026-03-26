@@ -84,7 +84,7 @@ pub fn evalConditional(vm: *Vm, node: ast.Conditional) ControlFlow!void {
             const cond = try evalExpression(vm, condition);
             if (!cond.isTruthy()) continue;
         }
-        try evalText(vm, branch.branch);
+        try evalText(vm, branch.body);
         break;
     }
 }
@@ -107,7 +107,7 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
         .multi_line_string => |str| try evalMultiLineString(vm, str),
         .number => |num| Value.number(num.get(vm.all_nodes, vm.src)),
         .grouping => |group| try evalExpression(vm, group.inner(vm.all_nodes)),
-        .integer => |num| Value.number(@floatFromInt(num.get(vm.all_nodes, vm.src) catch {
+        .integer => |num| Value.number(@floatFromInt(num.getAsInt(vm.all_nodes, vm.src) catch {
             try vm.setError(num.node_index, .number_too_large);
         })),
     };
@@ -135,8 +135,8 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
 
         (switch (part) {
             .newline => |_| writer.print("\n", .{}),
-            .mls_text => |text| writer.print("{s}", .{text.get(vm.all_nodes, vm.src)}),
-            .mls_expression => |expr| blk: {
+            .text => |text| writer.print("{s}", .{text.get(vm.all_nodes, vm.src)}),
+            .expression => |expr| blk: {
                 const v = try evalExpression(vm, expr.get(vm.all_nodes));
                 v.print(vm, writer) catch |err| switch (err) {
                     error.ValueError => try vm.setError(node_index, .{ .cannot_print_value = v }),

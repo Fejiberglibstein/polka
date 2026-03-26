@@ -352,7 +352,7 @@ pub const Conditional = struct {
         const Branch = struct {
             /// Branch condition is null if the branch is an else.
             condition: ?Expression,
-            branch: Text,
+            body: Text,
         };
 
         pub fn len(self: *BranchIterator, all_nodes: []const SyntaxNode) u32 {
@@ -373,8 +373,8 @@ pub const Conditional = struct {
                 if (toASTNode(Expression, self.index, all_nodes)) |child|
                     condition = child;
 
-                if (toASTNode(Text, self.index, all_nodes)) |branch|
-                    return .{ .condition = condition, .branch = branch };
+                if (toASTNode(Text, self.index, all_nodes)) |body|
+                    return .{ .condition = condition, .body = body };
             }
             return null;
         }
@@ -546,12 +546,17 @@ pub const Integer = struct {
     const kind: SyntaxKind = .integer;
     pub const node = nodeFn;
 
-    pub fn get(self: Integer, all_nodes: []const SyntaxNode, src: []const u8) error{Overflow}!u32 {
+    const Error = error{Overflow};
+    pub fn getAsInt(self: Integer, all_nodes: []const SyntaxNode, src: []const u8) Error!u32 {
         return std.fmt.parseInt(
             u32,
             self.node(all_nodes).getLeafSource(src),
             10,
         ) catch error.Overflow;
+    }
+
+    pub fn getAsFloat(self: Integer, all_nodes: []const SyntaxNode, src: []const u8) f64 {
+        return std.fmt.parseFloat(f64, self.node(all_nodes).getLeafSource(src)) catch unreachable;
     }
 };
 
@@ -625,8 +630,8 @@ pub const MultiLineString = struct {
 
 pub const MLSPart = union(enum) {
     newline: Newline,
-    mls_text: MLSText,
-    mls_expression: MLSExpression,
+    text: MLSText,
+    expression: MLSExpression,
 };
 
 pub const MLSExpression = struct {
