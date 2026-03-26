@@ -51,11 +51,12 @@ pub fn parse(src: []const u8, mode: Lexer.Mode, gpa: Allocator) Allocator.Error!
 
 fn parseText(p: *Parser) Allocator.Error!void {
     const m = p.marker();
+    defer p.wrap(m, .text);
 
     // Even when in a `.polka` file, all nodes are still wrapped in text
     if (p.mode() == .code_file) {
+        defer p.wrap(m, .text);
         try parseCode(p);
-        p.wrap(m, .text);
         return;
     }
 
@@ -70,20 +71,22 @@ fn parseText(p: *Parser) Allocator.Error!void {
             .text_line => try p.eat(),
 
             .code_begin => {
-                p.setMode(.code_line);
                 const m2 = p.marker();
+                defer p.wrap(m2, .code);
+
+                p.setMode(.code_line);
                 try p.eatAssert(.code_begin);
                 try parseCode(p);
-                p.wrap(m2, .code);
             },
 
             .codeblock_delim => {
-                p.setMode(.code_block);
                 const m2 = p.marker();
+                defer p.wrap(m2, .code);
+
+                p.setMode(.code_block);
                 try p.eatAssert(.codeblock_delim);
                 try parseCode(p);
                 try p.eatExpect(.codeblock_delim);
-                p.wrap(m2, .code);
             },
 
             // Lexer doesn't produce any other tokens
@@ -93,8 +96,6 @@ fn parseText(p: *Parser) Allocator.Error!void {
             },
         }
     }
-
-    p.wrap(m, .text);
 }
 
 fn parseCode(p: *Parser) Allocator.Error!void {
@@ -129,9 +130,9 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
     const m = p.marker();
 
     if (ast.toASTNode(ast.UnaryOperator, 0, &.{p.current.node})) |op| {
+        defer p.wrap(m, .unary);
         try p.eat();
         try parseExpression(p, op.precedence()); // Plus 1 since unary ops are right associative
-        p.wrap(m, .unary);
     }
 
     switch (p.current.node.kind) {
@@ -146,10 +147,10 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
 
         .l_paren => {
             const m2 = p.marker();
+            defer p.wrap(m2, .grouping);
             try p.eatAssert(.l_paren);
             try parseExpression(p, 0);
             try p.eatExpect(.r_paren);
-            p.wrap(m2, .grouping);
         },
 
         .keyword_func => try parseFunctionDefinition(p),
@@ -162,34 +163,34 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
     while (true) {
         // Parse a function call
         if (p.at(.l_paren)) {
+            defer p.wrap(m, .function_call);
             try parseFunctionCallArguments(p);
-            p.wrap(m, .function_call);
             continue;
         }
 
         if (try p.eatIf(.l_bracket)) {
+            defer p.wrap(m, .bracket_access);
             try parseExpression(p, 0);
             try p.eatExpect(.r_bracket);
-            p.wrap(m, .bracket_access);
             continue;
         }
 
         // Parse dot access
         if (try p.eatIf(.dot)) {
+            defer p.wrap(m, .dot_access);
             try p.eatExpect(.ident);
-            p.wrap(m, .dot_access);
             continue;
         }
 
         if (ast.toASTNode(ast.BinaryOperator, 0, &.{p.current.node})) |op| {
             if (op.precedence() >= precedence) {
+                defer p.wrap(m, .binary);
                 const new_precedence = switch (op.associativity()) {
                     .left => op.precedence() + 1,
                     .right => op.precedence(),
                 };
                 try p.eat();
                 try parseExpression(p, new_precedence);
-                p.wrap(m, .binary);
                 continue;
             }
         }
@@ -202,6 +203,7 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
 
 fn parseFunctionCallArguments(p: *Parser) !void {
     const m = p.marker();
+    defer p.wrap(m, .function_args);
     try p.eatAssert(.l_paren);
 
     while (!try p.eatIf(.r_paren)) {
@@ -211,7 +213,6 @@ fn parseFunctionCallArguments(p: *Parser) !void {
             break;
         }
     }
-    p.wrap(m, .function_args);
 }
 
 fn parseBlock(p: *Parser) !void {
@@ -231,6 +232,7 @@ fn parseBlock(p: *Parser) !void {
 
 fn parseFunctionParameters(p: *Parser) !void {
     const m = p.marker();
+    defer p.wrap(m, .function_parameters);
     try p.eatExpect(.l_paren);
     while (!try p.eatIf(.r_paren)) {
         try p.eatExpect(.ident);
@@ -239,11 +241,11 @@ fn parseFunctionParameters(p: *Parser) !void {
             break;
         }
     }
-    p.wrap(m, .function_parameters);
 }
 
 fn parseFunctionDefinition(p: *Parser) !void {
     const m = p.marker();
+    defer p.wrap(m, .function_def);
     try p.eatAssert(.keyword_func);
     _ = try p.eatIf(.ident);
     try parseFunctionParameters(p);
@@ -251,7 +253,6 @@ fn parseFunctionDefinition(p: *Parser) !void {
         try parseBlock(p)
     else
         try parseExpression(p, 0);
-    p.wrap(m, .function_def);
 }
 
 fn parseMultilineString(p: *Parser) !void {
@@ -259,12 +260,20 @@ fn parseMultilineString(p: *Parser) !void {
     p.setMode(.multiline_string);
 
     const m = p.marker();
+    defer p.wrap(m, .multiline_string);
 
     // Must eat backtick _after_ switching modes so that the next token is parsed in the correct
     // mode.
     try p.eatAssert(.backtick);
 
     var state: Parser.State = undefined;
+
+    defer {
+        p.resetToState(state);
+        p.setMode(old_mode);
+        p.reparse();
+    }
+
     while (true) {
         state = p.getState();
         switch (p.current.node.kind) {
@@ -284,6 +293,7 @@ fn parseMultilineString(p: *Parser) !void {
             .at => {
                 p.setMode(old_mode);
                 const m2 = p.marker();
+                defer p.wrap(m2, .mls_expression);
 
                 // If the lexer yielded a `.at`, it _must be_ followed by an `.l_paren`. The lexer
                 // specifically looks for the sequence "@(" to determine whether or not to return a
@@ -297,22 +307,16 @@ fn parseMultilineString(p: *Parser) !void {
                 // is parsed in the correct mode.
                 p.setMode(.multiline_string);
                 try p.eatExpect(.r_paren);
-
-                p.wrap(m2, .mls_expression);
             },
             else => @panic("Lexer doesn't yield any other tokens while in multiline mode"),
         }
     }
-
-    p.resetToState(state);
-    p.setMode(old_mode);
-    p.reparse();
-
-    p.wrap(m, .multiline_string);
 }
 
 fn parseList(p: *Parser) !void {
     const m = p.marker();
+    defer p.wrap(m, .list);
+
     try p.eatExpect(.l_brace);
     while (!try p.eatIf(.r_brace)) {
         try skipNewlines(p);
@@ -323,32 +327,34 @@ fn parseList(p: *Parser) !void {
             break;
         }
     }
-    p.wrap(m, .list);
 }
 
 fn parseDict(p: *Parser) !void {
     const m = p.marker();
+    defer p.wrap(m, .dict);
     try p.eatExpect(.l_bracket);
     while (!try p.eatIf(.r_bracket)) {
         try skipNewlines(p);
-        const m2 = p.marker();
-        try p.eatExpect(.ident);
-        try skipNewlines(p);
-        try p.eatExpect(.eq);
-        try skipNewlines(p);
-        try parseExpression(p, 0);
-        p.wrap(m2, .dict_field);
+        {
+            const m2 = p.marker();
+            defer p.wrap(m2, .dict_field);
+            try p.eatExpect(.ident);
+            try skipNewlines(p);
+            try p.eatExpect(.eq);
+            try skipNewlines(p);
+            try parseExpression(p, 0);
+        }
         try skipNewlines(p);
         if (!try p.eatIf(.comma)) {
             try p.eatExpect(.r_bracket);
             break;
         }
     }
-    p.wrap(m, .dict);
 }
 
 fn parseConditional(p: *Parser) !void {
     const m = p.marker();
+    defer p.wrap(m, .conditional);
     try p.eatAssert(.keyword_if);
     try parseExpression(p, 0);
     try p.eatExpect(.keyword_then);
@@ -401,22 +407,21 @@ fn parseConditional(p: *Parser) !void {
     p.setMode(old_mode);
     p.reparse();
     p.ending_kind = old_end;
-
-    p.wrap(m, .conditional);
 }
 
 fn parseWhileLoop(p: *Parser) !void {
     const m = p.marker();
+    defer p.wrap(m, .while_loop);
     try p.eatAssert(.keyword_while);
     try parseExpression(p, 0);
     try p.eatExpect(.keyword_do);
     try p.eatExpect(.newline);
     try parseBlock(p);
-    p.wrap(m, .while_loop);
 }
 
 fn parseForLoop(p: *Parser) !void {
     const m = p.marker();
+    defer p.wrap(m, .for_loop);
     try p.eatAssert(.keyword_for);
     try p.eatExpect(.ident);
     try p.eatExpect(.keyword_in);
@@ -424,35 +429,34 @@ fn parseForLoop(p: *Parser) !void {
     try p.eatExpect(.keyword_do);
     try p.eatExpect(.newline);
     try parseBlock(p);
-    p.wrap(m, .for_loop);
 }
 
 fn parseReturnStatement(p: *Parser) !void {
     const m = p.marker();
+    defer p.wrap(m, .return_statement);
     try p.eatAssert(.keyword_return);
     if (!p.at(.newline)) {
         try parseExpression(p, 0);
     }
-    p.wrap(m, .return_statement);
 }
 
 fn parseExportStatement(p: *Parser) !void {
     const m = p.marker();
+    defer p.wrap(m, .export_statement);
     try p.eatAssert(.keyword_export);
     switch (p.current.node.kind) {
         .keyword_let => try parseLetStatement(p),
         .keyword_export => try parseExportStatement(p),
         else => try p.unexpected(),
     }
-    p.wrap(m, .export_statement);
 }
 
 fn parseLetStatement(p: *Parser) !void {
     const m = p.marker();
+    defer p.wrap(m, .let_statement);
     try p.eatAssert(.keyword_let);
     try p.eatExpect(.ident);
     if (try p.eatIf(.eq)) try parseExpression(p, 0);
-    p.wrap(m, .let_statement);
 }
 
 fn skipNewlines(p: *Parser) !void {
