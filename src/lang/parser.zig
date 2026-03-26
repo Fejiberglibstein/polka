@@ -12,6 +12,7 @@ pub const ParseResult = struct {
 
 pub const SyntaxErrorKind = union(enum) {
     invalid_token,
+    expected_expression,
     unexpected_token: SyntaxKind,
     expected_token: struct { expected: SyntaxKind, actual: SyntaxKind },
 };
@@ -33,7 +34,7 @@ pub fn parse(src: []const u8, mode: Lexer.Mode, gpa: Allocator) Allocator.Error!
         try parseText(&p);
     }
 
-    try p.eatExpect(.eof);
+    try p.eatExpect(.eof, .none);
     _ = p.stack.pop(); // Discard the eof node
 
     const root_node = p.stack.pop() orelse unreachable;
@@ -86,7 +87,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
                 p.setMode(.code_block);
                 try p.eatAssert(.codeblock_delim);
                 try parseCode(p);
-                try p.eatExpect(.codeblock_delim);
+                try p.eatExpect(.codeblock_delim, .{ .dont_eat = .newline, .error_on = .none });
             },
 
             // Lexer doesn't produce any other tokens
@@ -108,25 +109,32 @@ fn parseCode(p: *Parser) Allocator.Error!void {
     }
 }
 
-fn parseStatement(p: *Parser) !void {
+fn parseStatement(p: *Parser) Allocator.Error!void {
     if (try p.eatIf(.newline)) return;
-    switch (p.current.node.kind) {
-        .keyword_for => try parseForLoop(p),
-        .keyword_if => try parseConditional(p),
-        .keyword_while => try parseWhileLoop(p),
-        .keyword_let => try parseLetStatement(p),
-        .keyword_export => try parseExportStatement(p),
-        .keyword_return => try parseReturnStatement(p),
-        .keyword_break, .keyword_continue => try p.eat(),
-        else => try parseExpression(p, 0),
-    }
+    (switch (p.current.node.kind) {
+        .keyword_for => parseForLoop(p),
+        .keyword_if => parseConditional(p),
+        .keyword_while => parseWhileLoop(p),
+        .keyword_let => parseLetStatement(p),
+        .keyword_export => parseExportStatement(p),
+        .keyword_return => parseReturnStatement(p),
+        .keyword_break, .keyword_continue => p.eat(),
+        else => parseExpression(p, 0),
+    }) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ParseError => {
+            // Look for the end of the statement
+            const set = SyntaxSet.init(&.{ .eof, .newline });
+            while (!set.contains(p.current.node.kind)) try p.eat();
+        },
+    };
 
     if (!p.at(.eof)) {
-        try p.eatExpect(.newline);
+        try p.eatExpect(.newline, .none);
     }
 }
 
-fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
+fn parseExpression(p: *Parser, precedence: usize) Error!void {
     const m = p.marker();
 
     if (ast.toASTNode(ast.UnaryOperator, 0, &.{p.current.node})) |op| {
@@ -153,7 +161,7 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
             defer p.wrap(m2, .grouping);
             try p.eatAssert(.l_paren);
             try parseExpression(p, 0);
-            try p.eatExpect(.r_paren);
+            try p.eatExpect(.r_paren, .newline);
         },
 
         .keyword_func => try parseFunctionDefinition(p),
@@ -174,14 +182,14 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
         if (try p.eatIf(.l_bracket)) {
             defer p.wrap(m, .bracket_access);
             try parseExpression(p, 0);
-            try p.eatExpect(.r_bracket);
+            try p.eatExpect(.r_bracket, .newline);
             continue;
         }
 
         // Parse dot access
         if (try p.eatIf(.dot)) {
             defer p.wrap(m, .dot_access);
-            try p.eatExpect(.ident);
+            try p.eatExpect(.ident, .newline);
             continue;
         }
 
@@ -198,13 +206,18 @@ fn parseExpression(p: *Parser, precedence: usize) Allocator.Error!void {
             }
         }
 
-        if (m == p.marker()) try p.unexpected();
-
+        if (m == p.marker()) {
+            try p.addError(.{
+                .position = p.current.position,
+                .range = p.current.node.getLeafSource(p.text),
+                .kind = .expected_expression,
+            });
+        }
         break;
     }
 }
 
-fn parseFunctionCallArguments(p: *Parser) !void {
+fn parseFunctionCallArguments(p: *Parser) Error!void {
     const m = p.marker();
     defer p.wrap(m, .function_args);
     try p.eatAssert(.l_paren);
@@ -212,16 +225,16 @@ fn parseFunctionCallArguments(p: *Parser) !void {
     while (!try p.eatIf(.r_paren)) {
         try parseExpression(p, 0);
         if (!try p.eatIf(.comma)) {
-            try p.eatExpect(.r_paren);
+            try p.eatExpect(.r_paren, .newline);
             break;
         }
     }
 }
 
-fn parseBlock(p: *Parser) !void {
+fn parseBlock(p: *Parser) Error!void {
     const old_end = p.ending_kind;
     const old_mode = p.switchToTextMode();
-    p.ending_kind.addKind(.keyword_end);
+    p.ending_kind.add(.keyword_end);
 
     p.reparse();
     try parseText(p);
@@ -230,23 +243,23 @@ fn parseBlock(p: *Parser) !void {
     p.setMode(old_mode);
     p.ending_kind = old_end;
 
-    try p.eatExpect(.keyword_end);
+    try p.eatExpect(.keyword_end, .newline);
 }
 
-fn parseFunctionParameters(p: *Parser) !void {
+fn parseFunctionParameters(p: *Parser) Error!void {
     const m = p.marker();
     defer p.wrap(m, .function_parameters);
-    try p.eatExpect(.l_paren);
+    try p.eatExpect(.l_paren, .{ .dont_eat = .any });
     while (!try p.eatIf(.r_paren)) {
-        try p.eatExpect(.ident);
+        try p.eatExpect(.ident, .eof);
         if (!try p.eatIf(.comma)) {
-            try p.eatExpect(.r_paren);
+            try p.eatExpect(.r_paren, .newline);
             break;
         }
     }
 }
 
-fn parseFunctionDefinition(p: *Parser) !void {
+fn parseFunctionDefinition(p: *Parser) Error!void {
     const m = p.marker();
     defer p.wrap(m, .function_def);
     try p.eatAssert(.keyword_func);
@@ -258,7 +271,7 @@ fn parseFunctionDefinition(p: *Parser) !void {
         try parseExpression(p, 0);
 }
 
-fn parseMultilineString(p: *Parser) !void {
+fn parseMultilineString(p: *Parser) Error!void {
     const old_mode = p.mode();
     p.setMode(.multiline_string);
 
@@ -309,14 +322,14 @@ fn parseMultilineString(p: *Parser) !void {
                 // switch back to multiline string before eating the rparen so that the next token
                 // is parsed in the correct mode.
                 p.setMode(.multiline_string);
-                try p.eatExpect(.r_paren);
+                try p.eatExpect(.r_paren, .none);
             },
             else => @panic("Lexer doesn't yield any other tokens while in multiline mode"),
         }
     }
 }
 
-fn parseList(p: *Parser) !void {
+fn parseList(p: *Parser) Error!void {
     const m = p.marker();
     defer p.wrap(m, .list);
 
@@ -332,7 +345,7 @@ fn parseList(p: *Parser) !void {
     }
 }
 
-fn parseDict(p: *Parser) !void {
+fn parseDict(p: *Parser) Error!void {
     const m = p.marker();
     defer p.wrap(m, .dict);
     try p.eatExpect(.l_bracket);
@@ -355,67 +368,38 @@ fn parseDict(p: *Parser) !void {
     }
 }
 
-fn parseList(p: *Parser) !void {
-    const m = p.marker();
-    try p.eatExpect(.l_brace);
-    while (!try p.eatIf(.r_brace)) {
-        try skipNewlines(p);
-        try parseExpression(p, 0);
-        try skipNewlines(p);
-        if (!try p.eatIf(.comma)) {
-            try p.eatExpect(.r_brace);
-            break;
-        }
-    }
-    try p.wrap(m, .list);
-}
-
-fn parseDict(p: *Parser) !void {
-    const m = p.marker();
-    try p.eatExpect(.l_bracket);
-    while (!try p.eatIf(.r_bracket)) {
-        try skipNewlines(p);
-        const m2 = p.marker();
-        try p.eatExpect(.ident);
-        try skipNewlines(p);
-        try p.eatExpect(.eq);
-        try skipNewlines(p);
-        try parseExpression(p, 0);
-        try p.wrap(m2, .dict_field);
-        try skipNewlines(p);
-        if (!try p.eatIf(.comma)) {
-            try p.eatExpect(.r_bracket);
-            break;
-        }
-    }
-    try p.wrap(m, .dict);
-}
-
-fn parseConditional(p: *Parser) !void {
+fn parseConditional(p: *Parser) Error!void {
     const m = p.marker();
     defer p.wrap(m, .conditional);
     try p.eatAssert(.keyword_if);
     try parseExpression(p, 0);
-    try p.eatExpect(.keyword_then);
+    try p.eatExpect(.keyword_then, .{ .dont_eat = .newline });
     // Switch nodes before consuming the newline so that the next token is tokenized in text mode
     const old_mode = p.switchToTextMode();
-    try p.eatExpect(.newline);
+    try p.eatExpect(.newline, .eof);
 
     // Setup block to be parsed
     const old_end = p.ending_kind;
-    p.ending_kind.addKind(.keyword_end);
-    p.ending_kind.addKind(.keyword_else);
-    p.ending_kind.addKind(.keyword_elseif);
+    p.ending_kind.add(.keyword_end);
+    p.ending_kind.add(.keyword_else);
+    p.ending_kind.add(.keyword_elseif);
     try parseText(p);
+
+    defer {
+        // Switch mode before eating the end so that the next token is in the correct mode.
+        p.setMode(old_mode);
+        p.reparse();
+        p.ending_kind = old_end;
+    }
 
     while (true) {
         switch (p.current.node.kind) {
             .keyword_elseif => {
                 try p.eatAssert(.keyword_elseif);
                 try parseExpression(p, 0);
-                try p.eatExpect(.keyword_then);
+                try p.eatExpect(.keyword_then, .{ .dont_eat = .newline });
                 _ = p.switchToTextMode();
-                try p.eatExpect(.newline);
+                try p.eatExpect(.newline, .eof);
 
                 try parseText(p);
             },
@@ -423,10 +407,10 @@ fn parseConditional(p: *Parser) !void {
             .keyword_else => {
                 try p.eatAssert(.keyword_else);
                 _ = p.switchToTextMode();
-                try p.eatExpect(.newline);
+                try p.eatExpect(.newline, .eof);
 
-                p.ending_kind.removeKind(.keyword_else);
-                p.ending_kind.removeKind(.keyword_elseif);
+                p.ending_kind.remove(.keyword_else);
+                p.ending_kind.remove(.keyword_elseif);
                 try parseText(p);
             },
 
@@ -441,36 +425,31 @@ fn parseConditional(p: *Parser) !void {
             },
         }
     }
-
-    // Switch mode before eating the end so that the next token is in the correct mode.
-    p.setMode(old_mode);
-    p.reparse();
-    p.ending_kind = old_end;
 }
 
-fn parseWhileLoop(p: *Parser) !void {
+fn parseWhileLoop(p: *Parser) Error!void {
     const m = p.marker();
     defer p.wrap(m, .while_loop);
     try p.eatAssert(.keyword_while);
     try parseExpression(p, 0);
-    try p.eatExpect(.keyword_do);
-    try p.eatExpect(.newline);
+    try p.eatExpect(.keyword_do, .{ .dont_eat = .newline });
+    try p.eatExpect(.newline, .eof);
     try parseBlock(p);
 }
 
-fn parseForLoop(p: *Parser) !void {
+fn parseForLoop(p: *Parser) Error!void {
     const m = p.marker();
     defer p.wrap(m, .for_loop);
     try p.eatAssert(.keyword_for);
-    try p.eatExpect(.ident);
-    try p.eatExpect(.keyword_in);
+    try p.eatExpect(.ident, .{ .dont_eat = .newline });
+    try p.eatExpect(.keyword_in, .{ .dont_eat = .newline });
     try parseExpression(p, 0);
-    try p.eatExpect(.keyword_do);
-    try p.eatExpect(.newline);
+    try p.eatExpect(.keyword_do, .{ .dont_eat = .newline });
+    try p.eatExpect(.newline, .eof);
     try parseBlock(p);
 }
 
-fn parseReturnStatement(p: *Parser) !void {
+fn parseReturnStatement(p: *Parser) Error!void {
     const m = p.marker();
     defer p.wrap(m, .return_statement);
     try p.eatAssert(.keyword_return);
@@ -479,7 +458,7 @@ fn parseReturnStatement(p: *Parser) !void {
     }
 }
 
-fn parseExportStatement(p: *Parser) !void {
+fn parseExportStatement(p: *Parser) Error!void {
     const m = p.marker();
     defer p.wrap(m, .export_statement);
     try p.eatAssert(.keyword_export);
@@ -490,19 +469,19 @@ fn parseExportStatement(p: *Parser) !void {
     }
 }
 
-fn parseLetStatement(p: *Parser) !void {
+fn parseLetStatement(p: *Parser) Error!void {
     const m = p.marker();
     defer p.wrap(m, .let_statement);
     try p.eatAssert(.keyword_let);
-    try p.eatExpect(.ident);
+    try p.eatExpect(.ident, .{ .dont_eat = .newline });
     if (try p.eatIf(.eq)) try parseExpression(p, 0);
 }
 
-fn skipNewlines(p: *Parser) !void {
+fn skipNewlines(p: *Parser) Error!void {
     while (try eatNewline(p)) {}
 }
 
-fn expectNewline(p: *Parser) !void {
+fn expectNewline(p: *Parser) Error!void {
     if (p.at(.eof)) return;
 
     switch (p.mode()) {
@@ -522,7 +501,7 @@ fn eatNewline(p: *Parser) !bool {
     return switch (p.mode()) {
         .code_line => blk: {
             if (try p.eatIf(.newline)) {
-                try p.eatExpect(.code_begin);
+                try p.eatExpect(.code_begin, .{ .dont_eat = .any });
                 break :blk true;
             }
             break :blk false;
@@ -531,10 +510,11 @@ fn eatNewline(p: *Parser) !bool {
         .code_block,
         .text,
         .multiline_string,
-        .text,
         => try p.eatIf(.newline),
     };
 }
+
+const Error = error{ParseError} || Allocator.Error;
 
 const Parser = struct {
     text: []const u8,
@@ -597,7 +577,7 @@ const Parser = struct {
     }
 
     fn isEndingKind(self: Parser, kind: SyntaxKind) bool {
-        return self.ending_kind.hasKind(kind);
+        return self.ending_kind.contains(kind);
     }
 
     fn at(self: Parser, kind: SyntaxKind) bool {
@@ -646,7 +626,24 @@ const Parser = struct {
         self.current = self.l.next();
     }
 
-    fn eatExpect(self: *Parser, kind: SyntaxKind) !void {
+    const ExpectOpts = struct {
+        error_on: SyntaxSet = .eof,
+        dont_eat: SyntaxSet,
+
+        const eof: ExpectOpts = .{ .dont_eat = .eof, .error_on = .eof };
+        const none: ExpectOpts = .{ .dont_eat = .none, .error_on = .none };
+        const newline: ExpectOpts = .{ .dont_eat = .newline, .error_on = .newline };
+    };
+
+    fn ExpectError(comptime opts: ExpectOpts) type {
+        return if (opts.error_on.v == SyntaxSet.none.v) Allocator.Error else Error;
+    }
+
+    fn eatExpect(
+        self: *Parser,
+        kind: SyntaxKind,
+        comptime opts: ExpectOpts,
+    ) ExpectError(opts)!void {
         if (self.current.node.kind != kind) {
             try self.addError(.{
                 .position = self.current.position,
@@ -655,7 +652,16 @@ const Parser = struct {
                     .expected_token = .{ .expected = kind, .actual = self.current.node.kind },
                 },
             });
+
+            if (opts.error_on.contains(kind))
+                return if (opts.error_on.v == SyntaxSet.none.v)
+                    error.OutOfMemory
+                else
+                    error.ParseError;
+
+            if (opts.dont_eat.contains(kind)) return;
         }
+
         try self.eat();
     }
 
