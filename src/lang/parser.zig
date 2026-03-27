@@ -131,7 +131,16 @@ fn parseStatement(p: *Parser) Allocator.Error!void {
     };
 
     if (!p.at(.eof)) {
-        try p.eatExpect(.newline, .none);
+        if (!p.at(.newline)) {
+            try p.addError(.{
+                .expected_token = .{ .expected = .newline, .actual = p.current.node.kind },
+            });
+            // Look for the actual newline
+            const set = SyntaxSet.init(&.{ .eof, .newline });
+            while (!set.contains(p.current.node.kind)) try p.eat();
+            if (p.at(.eof)) return;
+        }
+        try p.eatAssert(.newline);
     }
 }
 
@@ -154,15 +163,15 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
         .static_string,
         => try p.eat(),
 
-        .l_bracket => try parseDict(p),
-        .l_brace => try parseList(p),
+        .l_brace => try parseDict(p),
+        .l_bracket => try parseList(p),
 
         .l_paren => {
             const m2 = try p.marker();
             defer p.wrap(m2, .grouping);
             try p.eatAssert(.l_paren);
             try parseExpression(p, 0);
-            try p.eatExpect(.r_paren, .newline);
+            try p.eatExpect(.r_paren, .{ .dont_eat = .any });
         },
 
         .keyword_func => try parseFunctionDefinition(p),
@@ -183,7 +192,7 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
         if (try p.eatIf(.l_bracket)) {
             defer p.wrap(m, .bracket_access);
             try parseExpression(p, 0);
-            try p.eatExpect(.r_bracket, .newline);
+            try p.eatExpect(.r_bracket, .{ .dont_eat = .any });
             continue;
         }
 
@@ -220,7 +229,7 @@ fn parseFunctionCallArguments(p: *Parser) Error!void {
     while (!try p.eatIf(.r_paren)) {
         try parseExpression(p, 0);
         if (!try p.eatIf(.comma)) {
-            try p.eatExpect(.r_paren, .newline);
+            try p.eatExpect(.r_paren, .{ .dont_eat = .any });
             break;
         }
     }
@@ -248,7 +257,7 @@ fn parseFunctionParameters(p: *Parser) Error!void {
     while (!try p.eatIf(.r_paren)) {
         try p.eatExpect(.ident, .eof);
         if (!try p.eatIf(.comma)) {
-            try p.eatExpect(.r_paren, .newline);
+            try p.eatExpect(.r_paren, .{ .dont_eat = .any });
             break;
         }
     }
@@ -317,7 +326,7 @@ fn parseMultilineString(p: *Parser) Error!void {
                 // switch back to multiline string before eating the rparen so that the next token
                 // is parsed in the correct mode.
                 p.setMode(.multiline_string);
-                try p.eatExpect(.r_paren, .none);
+                try p.eatExpect(.r_paren, .{ .dont_eat = .any });
             },
             else => @panic("Lexer doesn't yield any other tokens while in multiline mode"),
         }
@@ -328,13 +337,11 @@ fn parseList(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .list);
 
-    try p.eatExpect(.l_brace);
-    while (!try p.eatIf(.r_brace)) {
-        try skipNewlines(p);
+    try p.eatAssert(.l_bracket);
+    while (!try p.eatIf(.r_bracket)) {
         try parseExpression(p, 0);
-        try skipNewlines(p);
         if (!try p.eatIf(.comma)) {
-            try p.eatExpect(.r_brace);
+            try p.eatExpect(.r_bracket, .{ .dont_eat = .any });
             break;
         }
     }
@@ -343,21 +350,17 @@ fn parseList(p: *Parser) Error!void {
 fn parseDict(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .dict);
-    try p.eatExpect(.l_bracket);
-    while (!try p.eatIf(.r_bracket)) {
-        try skipNewlines(p);
+    try p.eatAssert(.l_brace);
+    while (!try p.eatIf(.r_brace)) {
         {
             const m2 = try p.marker();
             defer p.wrap(m2, .dict_field);
-            try p.eatExpect(.ident);
-            try skipNewlines(p);
-            try p.eatExpect(.eq);
-            try skipNewlines(p);
+            try p.eatExpect(.ident, .{ .dont_eat = .init(&.{.eq}) });
+            try p.eatExpect(.eq, .{ .dont_eat = .init(&.{.r_brace}) });
             try parseExpression(p, 0);
         }
-        try skipNewlines(p);
         if (!try p.eatIf(.comma)) {
-            try p.eatExpect(.r_bracket);
+            try p.eatExpect(.r_brace, .{ .dont_eat = .any });
             break;
         }
     }
@@ -620,6 +623,12 @@ const Parser = struct {
     const ExpectOpts = struct {
         error_on: SyntaxSet = .eof,
         dont_eat: SyntaxSet,
+        if_ending_kind: enum {
+            none,
+            eat,
+            err,
+            eat_and_err,
+        } = .eat_and_err,
 
         const eof: ExpectOpts = .{ .dont_eat = .eof, .error_on = .eof };
         const none: ExpectOpts = .{ .dont_eat = .none, .error_on = .none };
@@ -640,13 +649,22 @@ const Parser = struct {
                 .expected_token = .{ .expected = kind, .actual = self.current.node.kind },
             });
 
-            if (opts.error_on.contains(kind))
+            const error_on_ending_kind, const eat_ending_kind = blk: {
+                if (!self.isEndingKind(self.current.node.kind)) break :blk .{ false, false };
+                break :blk switch (opts.if_ending_kind) {
+                    .none => .{ false, false },
+                    .eat => .{ false, true },
+                    .err => .{ true, false },
+                    .eat_and_err => .{ true, true },
+                };
+            };
+            if (opts.error_on.contains(kind) or error_on_ending_kind)
                 return if (opts.error_on.v == SyntaxSet.none.v)
                     error.OutOfMemory
                 else
                     error.ParseError;
 
-            if (opts.dont_eat.contains(self.current.node.kind)) return;
+            if (opts.dont_eat.contains(self.current.node.kind) or eat_ending_kind) return;
         }
 
         try self.eat();
