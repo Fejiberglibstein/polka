@@ -323,10 +323,10 @@ fn parseMultilineString(p: *Parser) Error!void {
 
                 try parseExpression(p, 0);
 
-                // switch back to multiline string before eating the rparen so that the next token
-                // is parsed in the correct mode.
+                try p.eatExpect(.r_paren, .{ .dont_eat = .any, .error_on = .none });
+
                 p.setMode(.multiline_string);
-                try p.eatExpect(.r_paren, .{ .dont_eat = .any });
+                p.reparse();
             },
             else => @panic("Lexer doesn't yield any other tokens while in multiline mode"),
         }
@@ -658,11 +658,9 @@ const Parser = struct {
                     .eat_and_err => .{ true, true },
                 };
             };
-            if (opts.error_on.contains(kind) or error_on_ending_kind)
-                return if (opts.error_on.v == SyntaxSet.none.v)
-                    error.OutOfMemory
-                else
-                    error.ParseError;
+            if (opts.error_on.contains(kind) or error_on_ending_kind) {
+                return if (opts.error_on.v != SyntaxSet.none.v) error.ParseError;
+            }
 
             if (opts.dont_eat.contains(self.current.node.kind) or eat_ending_kind) return;
         }
