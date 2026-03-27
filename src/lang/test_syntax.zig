@@ -509,6 +509,57 @@ test "simple multiline string" {
     }));
 }
 
+test "Dicts" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#* {foo = 10, bar = []}
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.dict, &.{
+                x.leaf(.l_brace),
+                x.tree(.dict_field, &.{
+                    x.leaf(.ident),
+                    x.leaf(.eq),
+                    x.leaf(.integer),
+                }),
+                x.leaf(.comma),
+                x.tree(.dict_field, &.{
+                    x.leaf(.ident), x.leaf(.eq), x.tree(.list, &.{
+                        x.leaf(.l_bracket),
+                        x.leaf(.r_bracket),
+                    }),
+                }),
+                x.leaf(.r_brace),
+            }),
+        }),
+    }));
+}
+
+test "Lists" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#* [ 10, 2 ]
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.list, &.{
+                x.leaf(.l_bracket),
+                x.leaf(.integer),
+                x.leaf(.comma),
+                x.leaf(.integer),
+                x.leaf(.r_bracket),
+            }),
+        }),
+    }));
+}
+
 test "Multiline string with expressions" {
     std.testing.log_level = .debug;
     var gpa = std.heap.DebugAllocator(.{}).init;
@@ -546,6 +597,22 @@ test "Multiline string with expressions" {
             }),
         }),
     }));
+}
+
+test "errors" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\1jk
+        \\#* let h = )
+        \\#* 12
+        \\foo
+        \\#* 10 -
+        \\j
+        \\#* if (false + (true and (wfalse)) then
+    , x.root(&.{}));
 }
 
 test "Multiline string recovery" {
