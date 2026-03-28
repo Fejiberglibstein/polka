@@ -224,7 +224,7 @@ pub const Object = struct {
 
     const Kind = enum {
         string,
-        upvalue,
+        list,
         function,
     };
 
@@ -234,6 +234,14 @@ pub const Object = struct {
     }
     pub fn getString(self: *Object) ?*String {
         return if (self.tag == .string) self.asString() else null;
+    }
+
+    pub fn asList(self: *Object) *List {
+        assert(self.tag == .list);
+        return @alignCast(@fieldParentPtr("base", self));
+    }
+    pub fn getList(self: *Object) ?*List {
+        return if (self.tag == .list) self.asList() else null;
     }
 
     pub fn asFunction(self: *Object) *Function {
@@ -255,11 +263,25 @@ pub const Object = struct {
             len: u32,
         };
 
-        pub fn init(gpa: Allocator, slice: Slice) !*Object {
-            var ret = try gpa.create(@This());
+        pub fn init(alloc: Allocator, slice: Slice) !*Object {
+            var ret = try alloc.create(@This());
             ret.* = .{
                 .base = .{ .tag = .string },
                 .slice = slice,
+            };
+            return &ret.base;
+        }
+    };
+
+    pub const List = struct {
+        base: Object = .{ .tag = .string },
+        items: std.ArrayList(Value),
+
+        pub fn init(alloc: Allocator) !*Object {
+            var ret = try alloc.create(@This());
+            ret.* = .{
+                .base = .{ .tag = .string },
+                .items = .empty,
             };
             return &ret.base;
         }

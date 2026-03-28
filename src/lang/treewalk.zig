@@ -91,7 +91,7 @@ pub fn evalConditional(vm: *Vm, node: ast.Conditional) ControlFlow!void {
 
 pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
     return switch (node) {
-        .list => @panic("TODO"),
+        .list => |list| try evalList(vm, list),
         .dict => @panic("TODO"),
         .dot_access => @panic("TODO"),
         .bracket_access => @panic("TODO"),
@@ -151,6 +151,20 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
         try vm.setError(node.node_index, .internal_oom);
     return Value.object(Object.String.init(vm.valueAllocator(), slice) catch
         try vm.setError(node.node_index, .value_oom));
+}
+
+pub fn evalList(vm: *Vm, node: ast.List) RuntimeError!Value {
+    const object = Object.List.init(vm.valueAllocator()) catch
+        try vm.setError(node.node_index, .value_oom);
+    const list = object.asList();
+
+    var items = node.items(vm.all_nodes);
+    while (items.next(vm.all_nodes)) |item| {
+        list.items.append(vm.valueAllocator(), try evalExpression(vm, item)) catch
+            try vm.setError(node.node_index, .value_oom);
+    }
+
+    return Value.object(object);
 }
 
 pub fn evalVariable(vm: *Vm, node: ast.Ident) RuntimeError!Value {
