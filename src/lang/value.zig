@@ -4,7 +4,8 @@ pub const Tag = enum(u3) {
     nil    = 0b001,
     true   = 0b010,
     false  = 0b011,
-    object = 0b100,
+    string = 0b100,
+    object = 0b101,
     // zig fmt: on
 };
 
@@ -25,7 +26,8 @@ pub const ValueType = enum(u8) {
     number  = 0b000,
     nil     = 0b001,
     boolean = 0b010,
-    object  = 0b100,
+    string  = 0b100,
+    object  = 0b101,
     // zig fmt: on
 };
 
@@ -61,6 +63,9 @@ pub const Value = packed union {
     pub fn isNil(self: Value) bool {
         return self.bits == nil_value;
     }
+    pub fn isString(self: Value) bool {
+        return !self.isNumber() and self.tagged.tag == Tag.string;
+    }
     pub fn isObject(self: Value) bool {
         return !self.isNumber() and self.tagged.tag == Tag.object;
     }
@@ -68,34 +73,46 @@ pub const Value = packed union {
     pub fn getNumber(self: Value) ?f64 {
         return if (self.isNumber()) self.float else null;
     }
-    pub fn getObject(self: Value) ?*Object {
-        return if (self.isObject()) @ptrFromInt(self.bits & payload_mask) else null;
-    }
     pub fn getBoolean(self: Value) ?bool {
         return if (self.isBoolean()) self.bits == true_value else null;
+    }
+    pub fn getString(self: Value) ?StringPool.String {
+        return if (self.isString()) self.asString() else null;
+    }
+    pub fn getObject(self: Value) ?*Object {
+        return if (self.isObject()) self.asObject() else null;
     }
 
     pub fn asNumber(self: Value) f64 {
         return self.float;
     }
-    pub fn asObject(self: Value) *Object {
-        return @ptrFromInt(self.bits & payload_mask);
-    }
     pub fn asBoolean(self: Value) bool {
         return self.bits == true_value;
     }
+    pub fn asString(self: Value) StringPool.String {
+        return @enumFromInt(self.bits & payload_mask);
+    }
+    pub fn asObject(self: Value) *Object {
+        return @ptrFromInt(self.bits & payload_mask);
+    }
 
     pub fn object(o: *const Object) Value {
-        return Value{ .tagged = .{
+        return .{ .tagged = .{
             .bits = @truncate(@intFromPtr(o)),
             .tag = Tag.object,
         } };
     }
+    pub fn string(s: StringPool.String) Value {
+        return .{ .tagged = .{
+            .bits = @intFromEnum(s),
+            .tag = Tag.string,
+        } };
+    }
     pub fn boolean(b: bool) Value {
-        return Value{ .bits = if (b) true_value else false_value };
+        return .{ .bits = if (b) true_value else false_value };
     }
     pub fn number(n: f64) Value {
-        return Value{ .float = n };
+        return .{ .float = n };
     }
     pub const nil: Value = .{ .bits = nil_value };
 
@@ -203,12 +220,10 @@ pub const Value = packed union {
             .nil => error.ValueError,
             .number => w.print("{}", .{self.asNumber()}),
             .boolean => w.print("{}", .{self.asBoolean()}),
-            .object => switch (self.asObject().tag) {
-                .string => w.print("{s}", .{
-                    vm.intern_pool.getString(self.asObject().asString().slice),
-                }),
-                else => error.ValueError,
-            },
+            .string => w.print("{s}", .{
+                vm.string_pool.getString(self.asString()),
+            }),
+            .object => error.ValueError,
         };
     }
 };
@@ -223,18 +238,9 @@ pub const Object = struct {
     tag: Kind,
 
     const Kind = enum {
-        string,
         list,
         function,
     };
-
-    pub fn asString(self: *Object) *String {
-        assert(self.tag == .string);
-        return @alignCast(@fieldParentPtr("base", self));
-    }
-    pub fn getString(self: *Object) ?*String {
-        return if (self.tag == .string) self.asString() else null;
-    }
 
     pub fn asList(self: *Object) *List {
         assert(self.tag == .list);
@@ -252,35 +258,14 @@ pub const Object = struct {
         return if (self.tag == .function) self.asFunction() else null;
     }
 
-    pub const String = struct {
-        base: Object = .{ .tag = .string },
-        slice: Slice,
-
-        /// A string slice. The u32s are indices in the vm's string intern pool
-        pub const Slice = struct {
-            /// Starting index of the string in the intern pool
-            index: u32,
-            len: u32,
-        };
-
-        pub fn init(alloc: Allocator, slice: Slice) !*Object {
-            var ret = try alloc.create(@This());
-            ret.* = .{
-                .base = .{ .tag = .string },
-                .slice = slice,
-            };
-            return &ret.base;
-        }
-    };
-
     pub const List = struct {
-        base: Object = .{ .tag = .string },
+        base: Object = .{ .tag = .list },
         items: std.ArrayList(Value),
 
         pub fn init(alloc: Allocator) !*Object {
             var ret = try alloc.create(@This());
             ret.* = .{
-                .base = .{ .tag = .string },
+                .base = .{ .tag = .list },
                 .items = .empty,
             };
             return &ret.base;
@@ -396,7 +381,7 @@ test "Value nil" {
 }
 
 test "Value object" {
-    const object: Object = .{ .tag = .string };
+    const object: Object = .{ .tag = .list };
     const value = Value.object(&object);
 
     try expectEqual(@intFromPtr(&object), @intFromPtr(value.asObject()));
@@ -416,4 +401,5 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 const Vm = @import("Vm.zig");
+const StringPool = Vm.StringPool;
 const RuntimeError = Vm.RuntimeError;

@@ -31,11 +31,11 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
                 // Inline else so that the node's node_index may be used
                 inline else => |v| {
                     const res = try evalExpression(vm, expr);
-                    if (res.getObject()) |obj| if (obj.getString()) |str| {
-                        vm.output.print("{s}", .{vm.intern_pool.getString(str.slice)}) catch
+                    if (res.getString()) |str| {
+                        vm.output.print("{s}", .{vm.string_pool.getString(str)}) catch
                             try vm.setError(v.node_index, .write_failure);
                         continue;
-                    };
+                    }
 
                     if (!res.isNil()) {
                         try vm.setError(v.node_index, .{ .cannot_print_value = res });
@@ -114,18 +114,16 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
 }
 
 pub fn evalStaticString(vm: *Vm, node: ast.StaticString) RuntimeError!Value {
-    const m, const writer = vm.intern_pool.beginString();
-    node.create(vm.all_nodes, vm.src, writer) catch
+    const b = vm.string_pool.buildString();
+    node.create(vm.all_nodes, vm.src, b.w) catch
         try vm.setError(node.node_index, .internal_oom);
 
-    const slice = vm.intern_pool.internString(m, vm.gpa) catch
-        try vm.setError(node.node_index, .internal_oom);
-    return Value.object(Object.String.init(vm.valueAllocator(), slice) catch
-        try vm.setError(node.node_index, .value_oom));
+    return Value.string(b.finish(&vm.string_pool, vm.gpa) catch
+        try vm.setError(node.node_index, .internal_oom));
 }
 
 pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Value {
-    const m, const writer = vm.intern_pool.beginString();
+    const b = vm.string_pool.buildString();
 
     var parts = node.parts(vm.all_nodes);
     while (parts.next(vm.all_nodes)) |part| {
@@ -134,23 +132,21 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
         };
 
         (switch (part) {
-            .newline => |_| writer.print("\n", .{}),
-            .text => |text| writer.print("{s}", .{text.get(vm.all_nodes, vm.src)}),
+            .newline => |_| b.w.print("\n", .{}),
+            .text => |text| b.w.print("{s}", .{text.get(vm.all_nodes, vm.src)}),
             .expression => |expr| blk: {
                 const v = try evalExpression(vm, expr.get(vm.all_nodes));
-                v.print(vm, writer) catch |err| switch (err) {
+                v.print(vm, b.w) catch |err| switch (err) {
                     error.ValueError => try vm.setError(node_index, .{ .cannot_print_value = v }),
                     error.WriteFailed => break :blk error.WriteFailed,
                 };
             },
         }) catch try vm.setError(node_index, .internal_oom);
     }
+    b.w.print("\n", .{}) catch try vm.setError(node.node_index, .internal_oom);
 
-    writer.print("\n", .{}) catch try vm.setError(node.node_index, .internal_oom);
-    const slice = vm.intern_pool.internString(m, vm.gpa) catch
-        try vm.setError(node.node_index, .internal_oom);
-    return Value.object(Object.String.init(vm.valueAllocator(), slice) catch
-        try vm.setError(node.node_index, .value_oom));
+    return Value.string(b.finish(&vm.string_pool, vm.gpa) catch
+        try vm.setError(node.node_index, .internal_oom));
 }
 
 pub fn evalList(vm: *Vm, node: ast.List) RuntimeError!Value {

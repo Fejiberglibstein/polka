@@ -18,7 +18,7 @@ gpa: Allocator,
 /// Allocator specifically used to allocate values. For now it's just an arena, but it may be more
 /// complex in the future.
 value_allocator: *std.heap.ArenaAllocator,
-intern_pool: InternPool,
+string_pool: StringPool,
 
 err: ?RuntimeErrorPayload,
 variables: std.ArrayList(Variable),
@@ -28,69 +28,83 @@ function_return_value: ?Value,
 
 const Vm = @This();
 
-const InternPool = struct {
+pub const StringPool = struct {
     string_bytes: std.Io.Writer.Allocating,
-    string_map: std.HashMapUnmanaged(Object.String.Slice, void, InternContext, 50),
+    string_map: std.HashMapUnmanaged(HashedString, void, intern_context, 50),
 
-    pub fn init(gpa: Allocator) InternPool {
+    /// Index into .string_bytes
+    pub const String = enum(u32) {
+        _,
+    };
+
+    const HashedString = struct {
+        index: String,
+        hash: u64,
+    };
+
+    pub fn init(gpa: Allocator) StringPool {
         return .{
             .string_map = .empty,
             .string_bytes = .init(gpa),
         };
     }
 
-    pub fn deinit(self: *InternPool, gpa: Allocator) void {
+    pub fn deinit(self: *StringPool, gpa: Allocator) void {
         self.string_map.deinit(gpa);
     }
 
-    const Slice = Object.String.Slice;
-
-    const InternContext = struct {
-        const K = Slice;
-        bytes: []const u8,
-
-        pub fn hash(self: InternContext, k: K) u64 {
-            return std.hash_map.hashString(self.bytes[k.index..][0..k.len]);
+    const intern_context = struct {
+        pub fn hash(_: intern_context, k: HashedString) u64 {
+            return k.hash;
         }
-        pub fn eql(_: InternContext, k1: K, k2: K) bool {
-            return k1.len == k2.len and k1.index == k2.index;
+
+        pub fn eql(_: intern_context, k1: HashedString, k2: HashedString) bool {
+            return k1.index == k2.index;
         }
     };
 
-    pub const Marker = enum(u32) { _ };
+    pub const Marker = enum(u32) {
+        _,
+    };
 
-    pub fn beginString(self: *InternPool) struct { Marker, *std.Io.Writer } {
-        const m: Marker = @enumFromInt(self.string_bytes.written().len);
-        return .{ m, &self.string_bytes.writer };
-    }
+    pub const StringBuilder = struct {
+        start: Marker,
+        w: *std.Io.Writer,
 
-    pub fn internString(self: *InternPool, m: Marker, gpa: Allocator) !Slice {
+        pub fn finish(builder: StringBuilder, pool: *StringPool, gpa: Allocator) !String {
+            // Add null terminator to the string
+            try pool.string_bytes.writer.writeByte(0);
 
-        const slice: Slice = .{
-            .index = @intFromEnum(m),
-            .len = @intCast(self.string_bytes.written().len - @intFromEnum(m)),
-        };
+            const start: String = @enumFromInt(@intFromEnum(builder.start));
+            const str = pool.getString(start);
+            const hash = std.hash_map.hashString(str);
 
-        // Add null terminator to the string, this is *not* part of the slice.
-        try self.string_bytes.writer.writeByte(0);
-        const gop = try self.string_map.getOrPutContext(
-            gpa,
-            slice,
-            InternContext{ .bytes = self.string_bytes.written() },
-        );
+            const gop = try pool.string_map.getOrPut(gpa, .{
+                .index = start,
+                .hash = hash,
+            });
 
-        // If the string already existed in the pool, we can clear the string that was made.
-        if (gop.found_existing) {
-            self.string_bytes.shrinkRetainingCapacity(@intFromEnum(m));
-        } else {
-            gop.key_ptr.* = slice;
+            // If the string already existed in the pool, we can clear the string that was made.
+            if (gop.found_existing) {
+                pool.string_bytes.shrinkRetainingCapacity(@intFromEnum(start));
+            }
+
+            return gop.key_ptr.index;
         }
+    };
 
-        return gop.key_ptr.*;
+    pub fn buildString(self: *StringPool) StringBuilder {
+        return .{
+            .start = @enumFromInt(self.string_bytes.written().len),
+            .w = &self.string_bytes.writer,
+        };
     }
 
-    pub fn getString(self: *InternPool, slice: Slice) []const u8 {
-        return self.string_bytes.written()[slice.index..][0..slice.len];
+    pub fn getString(pool: *StringPool, str: String) [:0]const u8 {
+        const start = @intFromEnum(str);
+        const bytes = pool.string_bytes.written();
+        const sentinel_pos = std.mem.indexOfScalarPos(u8, bytes, start, 0) orelse unreachable;
+        return bytes[start..sentinel_pos :0];
     }
 };
 
@@ -109,7 +123,7 @@ pub fn init(
         .scope_level = 0,
         .function_depth = 0,
         .all_nodes = all_nodes,
-        .intern_pool = .init(gpa),
+        .string_pool = .init(gpa),
         .function_return_value = null,
         .value_allocator = value_arena,
         .variables = try .initCapacity(gpa, 512),
@@ -119,7 +133,7 @@ pub fn init(
 pub fn deinit(self: *Vm) void {
     _ = self.value_allocator.reset(.retain_capacity);
     self.variables.deinit(self.gpa);
-    self.intern_pool.deinit(self.gpa);
+    self.string_pool.deinit(self.gpa);
 }
 
 pub fn eval(self: *Vm) ?RuntimeErrorPayload {
