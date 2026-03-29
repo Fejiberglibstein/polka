@@ -242,7 +242,17 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     defer value_arena.deinit();
     var output: std.Io.Writer.Allocating = .init(gpa.allocator());
     errdefer output.deinit();
-    var vm = try Vm.init(parsed.nodes, source, gpa.allocator(), &value_arena, &output.writer);
+    var pool: Vm.String.Pool = .init(gpa.allocator());
+    defer pool.deinit();
+
+    var vm = try Vm.init(
+        parsed.nodes,
+        source,
+        gpa.allocator(),
+        &value_arena,
+        &pool,
+        &output.writer,
+    );
     defer vm.deinit();
 
     const result = vm.eval();

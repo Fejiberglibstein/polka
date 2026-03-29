@@ -9,7 +9,7 @@ pub fn main() !void {
     var writer = std.Io.Writer.Allocating.init(gpa).writer;
 
     var value_allocator = std.heap.ArenaAllocator.init((std.heap.page_allocator));
-    var vm = try Vm.init(parsed.nodes, "", gpa, &value_allocator, &writer);
+    var vm = try Vm.init(parsed.nodes, "", gpa, &value_allocator, undefined, &writer);
     try treewalk.evalText(&vm, undefined);
 }
 

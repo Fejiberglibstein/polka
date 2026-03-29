@@ -76,7 +76,7 @@ pub const Value = packed union {
     pub fn getBoolean(self: Value) ?bool {
         return if (self.isBoolean()) self.bits == true_value else null;
     }
-    pub fn getString(self: Value) ?StringPool.String {
+    pub fn getString(self: Value) ?String {
         return if (self.isString()) self.asString() else null;
     }
     pub fn getObject(self: Value) ?*Object {
@@ -89,7 +89,7 @@ pub const Value = packed union {
     pub fn asBoolean(self: Value) bool {
         return self.bits == true_value;
     }
-    pub fn asString(self: Value) StringPool.String {
+    pub fn asString(self: Value) String {
         return @enumFromInt(self.bits & payload_mask);
     }
     pub fn asObject(self: Value) *Object {
@@ -102,7 +102,7 @@ pub const Value = packed union {
             .tag = Tag.object,
         } };
     }
-    pub fn string(s: StringPool.String) Value {
+    pub fn string(s: String) Value {
         return .{ .tagged = .{
             .bits = @intFromEnum(s),
             .tag = Tag.string,
@@ -221,7 +221,7 @@ pub const Value = packed union {
             .number => w.print("{}", .{self.asNumber()}),
             .boolean => w.print("{}", .{self.asBoolean()}),
             .string => w.print("{s}", .{
-                vm.string_pool.getString(self.asString()),
+                vm.string_builder.get(self.asString()),
             }),
             .object => error.ValueError,
         };
@@ -401,5 +401,5 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 const Vm = @import("Vm.zig");
-const StringPool = Vm.StringPool;
+const String = Vm.String;
 const RuntimeError = Vm.RuntimeError;

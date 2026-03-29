@@ -18,7 +18,7 @@ gpa: Allocator,
 /// Allocator specifically used to allocate values. For now it's just an arena, but it may be more
 /// complex in the future.
 value_allocator: *std.heap.ArenaAllocator,
-string_pool: StringPool,
+string_builder: String.Builder,
 
 err: ?RuntimeErrorPayload,
 variables: std.ArrayList(Variable),
@@ -28,83 +28,106 @@ function_return_value: ?Value,
 
 const Vm = @This();
 
-pub const StringPool = struct {
-    string_bytes: std.Io.Writer.Allocating,
-    string_map: std.HashMapUnmanaged(HashedString, void, intern_context, 50),
+pub const String = enum(u32) {
+    _,
 
-    /// Index into .string_bytes
-    pub const String = enum(u32) {
-        _,
-    };
+    pub const Pool = struct {
+        gpa: Allocator,
+        bytes: std.ArrayList(u8),
+        map: std.HashMapUnmanaged(String, void, Context, 50),
 
-    const HashedString = struct {
-        index: String,
-        hash: u64,
-    };
-
-    pub fn init(gpa: Allocator) StringPool {
-        return .{
-            .string_map = .empty,
-            .string_bytes = .init(gpa),
-        };
-    }
-
-    pub fn deinit(self: *StringPool, gpa: Allocator) void {
-        self.string_map.deinit(gpa);
-    }
-
-    const intern_context = struct {
-        pub fn hash(_: intern_context, k: HashedString) u64 {
-            return k.hash;
+        pub fn init(gpa: Allocator) String.Pool {
+            return .{
+                .bytes = .empty,
+                .map = .empty,
+                .gpa = gpa,
+            };
         }
 
-        pub fn eql(_: intern_context, k1: HashedString, k2: HashedString) bool {
-            return k1.index == k2.index;
+        pub fn deinit(pool: *String.Pool) void {
+            pool.bytes.deinit(pool.gpa);
+            pool.map.deinit(pool.gpa);
         }
-    };
 
-    pub const Marker = enum(u32) {
-        _,
-    };
+        const Context = struct {
+            bytes: []const u8,
 
-    pub const StringBuilder = struct {
-        start: Marker,
-        w: *std.Io.Writer,
-
-        pub fn finish(builder: StringBuilder, pool: *StringPool, gpa: Allocator) !String {
-            // Add null terminator to the string
-            try pool.string_bytes.writer.writeByte(0);
-
-            const start: String = @enumFromInt(@intFromEnum(builder.start));
-            const str = pool.getString(start);
-            const hash = std.hash_map.hashString(str);
-
-            const gop = try pool.string_map.getOrPut(gpa, .{
-                .index = start,
-                .hash = hash,
-            });
-
-            // If the string already existed in the pool, we can clear the string that was made.
-            if (gop.found_existing) {
-                pool.string_bytes.shrinkRetainingCapacity(@intFromEnum(start));
+            pub fn hash(ctx: @This(), key: String) u64 {
+                return std.hash_map.hashString(std.mem.sliceTo(ctx.bytes[@intFromEnum(key)..], 0));
             }
 
-            return gop.key_ptr.index;
+            pub fn eql(_: @This(), a: String, b: String) bool {
+                return a == b;
+            }
+        };
+
+        const ContextAdapted = struct {
+            bytes: []const u8,
+
+            pub fn hash(_: @This(), key: []const u8) u64 {
+                assert(std.mem.indexOfScalar(u8, key, 0) == null);
+                return std.hash_map.hashString(key);
+            }
+
+            pub fn eql(ctx: @This(), a: []const u8, b: String) bool {
+                return std.mem.eql(u8, a, std.mem.sliceTo(ctx.bytes[@intFromEnum(b)..], 0));
+            }
+        };
+    };
+
+    pub const Builder = struct {
+        pool: *String.Pool,
+        w: std.Io.Writer.Allocating,
+
+        pub fn init(gpa: Allocator, pool: *String.Pool) !Builder {
+            return .{
+                .pool = pool,
+                .w = .init(gpa),
+            };
+        }
+
+        pub fn deinit(self: *Builder) void {
+            self.w.deinit();
+            self.* = undefined;
+        }
+
+        pub const Marker = enum(u32) { _ };
+
+        pub fn begin(b: *Builder) Marker {
+            return @enumFromInt(b.w.written().len);
+        }
+
+        pub fn finish(b: *Builder, m: Marker) !String {
+            var pool = b.pool;
+
+            const str = b.w.written()[@intFromEnum(m)..];
+            const gop = try pool.map.getOrPutContextAdapted(
+                pool.gpa,
+                str,
+                String.Pool.ContextAdapted{ .bytes = pool.bytes.items },
+                String.Pool.Context{ .bytes = pool.bytes.items },
+            );
+
+            if (!gop.found_existing) {
+                try pool.bytes.ensureTotalCapacity(pool.gpa, str.len + 1);
+                const index: String = @enumFromInt(pool.bytes.items.len);
+                pool.bytes.appendSliceAssumeCapacity(str);
+                pool.bytes.appendAssumeCapacity(0);
+                gop.key_ptr.* = index;
+            }
+            b.w.shrinkRetainingCapacity(@intFromEnum(m));
+
+            return gop.key_ptr.*;
+        }
+
+        pub fn get(b: String.Builder, index: String) []const u8 {
+            return index.slice(b.pool);
         }
     };
 
-    pub fn buildString(self: *StringPool) StringBuilder {
-        return .{
-            .start = @enumFromInt(self.string_bytes.written().len),
-            .w = &self.string_bytes.writer,
-        };
-    }
-
-    pub fn getString(pool: *StringPool, str: String) [:0]const u8 {
-        const start = @intFromEnum(str);
-        const bytes = pool.string_bytes.written();
-        const sentinel_pos = std.mem.indexOfScalarPos(u8, bytes, start, 0) orelse unreachable;
-        return bytes[start..sentinel_pos :0];
+    pub fn slice(index: String, pool: *String.Pool) []const u8 {
+        std.debug.print("{any}, {}, \n", .{ pool.bytes.items, index });
+        return std.mem.sliceTo(pool.bytes.items[@intFromEnum(index)..], 0);
     }
 };
 
@@ -113,6 +136,7 @@ pub fn init(
     src: []const u8,
     gpa: Allocator,
     value_arena: *std.heap.ArenaAllocator,
+    string_pool: *String.Pool,
     output: *std.Io.Writer,
 ) !Vm {
     return .{
@@ -123,17 +147,17 @@ pub fn init(
         .scope_level = 0,
         .function_depth = 0,
         .all_nodes = all_nodes,
-        .string_pool = .init(gpa),
         .function_return_value = null,
         .value_allocator = value_arena,
         .variables = try .initCapacity(gpa, 512),
+        .string_builder = try .init(gpa, string_pool),
     };
 }
 
 pub fn deinit(self: *Vm) void {
     _ = self.value_allocator.reset(.retain_capacity);
     self.variables.deinit(self.gpa);
-    self.string_pool.deinit(self.gpa);
+    self.string_builder.deinit();
 }
 
 pub fn eval(self: *Vm) ?RuntimeErrorPayload {
