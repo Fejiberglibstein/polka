@@ -32,7 +32,7 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
                 inline else => |v| {
                     const res = try evalExpression(vm, expr);
                     if (res.getString()) |str| {
-                        vm.output.print("{s}", .{vm.string_builder.get(str)}) catch
+                        vm.output.print("{s}", .{vm.string_builder.pool.get(str)}) catch
                             try vm.setError(v.node_index, .write_failure);
                         continue;
                     }
@@ -138,7 +138,7 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
             .text => |text| b.w.writer.print("{s}", .{text.get(vm.all_nodes, vm.src)}),
             .expression => |expr| blk: {
                 const v = try evalExpression(vm, expr.get(vm.all_nodes));
-                v.print(vm, &b.w.writer) catch |err| switch (err) {
+                v.print(vm.string_builder.pool, &b.w.writer) catch |err| switch (err) {
                     error.ValueError => try vm.setError(node_index, .{ .cannot_print_value = v }),
                     error.WriteFailed => break :blk error.WriteFailed,
                 };
@@ -302,7 +302,7 @@ pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
         .@"and" => unreachable,
         .assign => unreachable,
         .in => Value.operators.in(lhs, rhs),
-        .add => Value.operators.add(lhs, rhs),
+        .add => Value.operators.add(vm, lhs, rhs),
         .equal => Value.operators.equal(lhs, rhs),
         .divide => Value.operators.divide(lhs, rhs),
         .modulo => Value.operators.modulo(lhs, rhs),
@@ -313,10 +313,13 @@ pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
         .greater_than => Value.operators.greater_than(lhs, rhs),
         .less_than_equal => Value.operators.less_than_equal(lhs, rhs),
         .greater_than_equal => Value.operators.greater_than_equal(lhs, rhs),
-    } catch try vm.setError(
-        node.node_index,
-        .{ .invalid_binary_operands = .{ .lhs = lhs, .rhs = rhs } },
-    );
+    } catch |err| try vm.setError(node.node_index, switch (err) {
+        error.WriteFailed => .internal_oom,
+        error.OutOfMemory => .value_oom,
+        error.ValueError, error.InvalidOperands => .{
+            .invalid_binary_operands = .{ .lhs = lhs, .rhs = rhs },
+        },
+    });
 }
 
 const std = @import("std");

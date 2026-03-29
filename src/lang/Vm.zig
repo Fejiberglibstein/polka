@@ -31,6 +31,10 @@ const Vm = @This();
 pub const String = enum(u32) {
     _,
 
+    /// A global pool of every string across all files.
+    ///
+    /// One instance of this will usually be made at a time, so that all files intern into a single
+    /// pool to increase the likelihood of intern hits.
     pub const Pool = struct {
         gpa: Allocator,
         bytes: std.ArrayList(u8),
@@ -44,14 +48,17 @@ pub const String = enum(u32) {
             };
         }
 
-        pub fn deinit(pool: *String.Pool) void {
+        pub fn deinit(pool: *@This()) void {
             pool.bytes.deinit(pool.gpa);
             pool.map.deinit(pool.gpa);
         }
 
+        pub fn get(pool: *@This(), index: String) []const u8 {
+            return std.mem.sliceTo(pool.bytes.items[@intFromEnum(index)..], 0);
+        }
+
         const Context = struct {
             bytes: []const u8,
-
             pub fn hash(ctx: @This(), key: String) u64 {
                 return std.hash_map.hashString(std.mem.sliceTo(ctx.bytes[@intFromEnum(key)..], 0));
             }
@@ -75,6 +82,8 @@ pub const String = enum(u32) {
         };
     };
 
+    /// A file-local string builder, this is used to create strings using .begin() & .finish(). A
+    /// finished string may be placed in the String.Pool if it doesn't already exist in the pool.
     pub const Builder = struct {
         pool: *String.Pool,
         w: std.Io.Writer.Allocating,
@@ -86,18 +95,18 @@ pub const String = enum(u32) {
             };
         }
 
-        pub fn deinit(self: *Builder) void {
+        pub fn deinit(self: *@This()) void {
             self.w.deinit();
             self.* = undefined;
         }
 
         pub const Marker = enum(u32) { _ };
 
-        pub fn begin(b: *Builder) Marker {
+        pub fn begin(b: *@This()) Marker {
             return @enumFromInt(b.w.written().len);
         }
 
-        pub fn finish(b: *Builder, m: Marker) !String {
+        pub fn finish(b: *@This(), m: Marker) !String {
             var pool = b.pool;
 
             const str = b.w.written()[@intFromEnum(m)..];
@@ -109,7 +118,7 @@ pub const String = enum(u32) {
             );
 
             if (!gop.found_existing) {
-                try pool.bytes.ensureTotalCapacity(pool.gpa, str.len + 1);
+                try pool.bytes.ensureUnusedCapacity(pool.gpa, str.len + 1);
                 const index: String = @enumFromInt(pool.bytes.items.len);
                 pool.bytes.appendSliceAssumeCapacity(str);
                 pool.bytes.appendAssumeCapacity(0);
@@ -119,16 +128,7 @@ pub const String = enum(u32) {
 
             return gop.key_ptr.*;
         }
-
-        pub fn get(b: String.Builder, index: String) []const u8 {
-            return index.slice(b.pool);
-        }
     };
-
-    pub fn slice(index: String, pool: *String.Pool) []const u8 {
-        std.debug.print("{any}, {}, \n", .{ pool.bytes.items, index });
-        return std.mem.sliceTo(pool.bytes.items[@intFromEnum(index)..], 0);
-    }
 };
 
 pub fn init(

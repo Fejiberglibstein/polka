@@ -26,19 +26,24 @@ test "assignment" {
     );
 }
 
-// test "binary" {
-//     try testEval(
-//         \\#* 3 - 2
-//         \\#* 4 * 3 - 6
-//         \\#* 2.2 + 9
-//         \\#* -8
-//         \\#* "ternaries" + (true and " are " or " aren't ") + "cool!"
-//         \\#* nil and ":(" or ":)"
-//     ,
-//         \\1 6 11.2 -8 ternaries are cool! :)
-//         \\
-//     );
-// }
+test "binary" {
+    try testEval(
+        \\#* `@(3 - 2)
+        \\#* `@(4 * 3 - 6)
+        \\#* `@(2.2 + 9)
+        \\#* `@("hello" + " " + "world")
+        \\#* `@("ternaries" + (true and " are " or " aren't ") + "cool!")
+        \\#* `@(nil and ":(" or ":)")
+    ,
+        \\1
+        \\6
+        \\11.2
+        \\hello world
+        \\ternaries are cool!
+        \\:)
+        \\
+    );
+}
 
 test "conditional" {
     try testEval(

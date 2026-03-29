@@ -138,10 +138,21 @@ pub const Value = packed union {
         pub fn not_equal(a: Value, b: Value) Value {
             return Value.boolean(!operators.equal(a, b).asBoolean());
         }
-        pub fn add(a: Value, b: Value) !Value {
+        pub fn add(vm: *Vm, a: Value, b: Value) !Value {
             if (a.isNumber() and b.isNumber()) {
                 return Value.number(a.asNumber() + b.asNumber());
             }
+
+            if (a.isString()) {
+                const pool = vm.string_builder.pool;
+                var builder = vm.string_builder;
+                const m = builder.begin();
+                try print(a, pool, &builder.w.writer);
+                try print(b, pool, &builder.w.writer);
+                const str = try builder.finish(m);
+                return Value.string(str);
+            }
+
             return error.InvalidOperands;
         }
         pub fn subtract(a: Value, b: Value) !Value {
@@ -210,10 +221,10 @@ pub const Value = packed union {
     };
 
     /// Note that this should *not* be done with a format() function. This is because this function
-    /// needs the *Vm so that it can print out strings correctly.
+    /// needs the *String.Pool so that it can print out strings correctly.
     pub fn print(
         self: Value,
-        vm: *Vm,
+        strings: *String.Pool,
         w: *std.Io.Writer,
     ) error{ WriteFailed, ValueError }!void {
         return switch (self.tag()) {
@@ -221,7 +232,7 @@ pub const Value = packed union {
             .number => w.print("{}", .{self.asNumber()}),
             .boolean => w.print("{}", .{self.asBoolean()}),
             .string => w.print("{s}", .{
-                vm.string_builder.get(self.asString()),
+                strings.get(self.asString()),
             }),
             .object => error.ValueError,
         };
