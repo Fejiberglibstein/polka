@@ -249,7 +249,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     defer value_arena.deinit();
     var output: std.Io.Writer.Allocating = .init(gpa.allocator());
     errdefer output.deinit();
-    var pool: Vm.String.Pool = .init(gpa.allocator());
+    var pool: String.Pool = .init(gpa.allocator());
     defer pool.deinit();
 
     var vm = try Vm.init(
@@ -281,6 +281,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
 }
 
 const Vm = @import("Vm.zig");
+const String = @import("value.zig").String;
 const parser = @import("parser.zig");
 
 const std = @import("std");

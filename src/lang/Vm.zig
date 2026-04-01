@@ -30,109 +30,6 @@ function_return_value: ?Value,
 
 const Vm = @This();
 
-pub const String = enum(u32) {
-    _,
-
-    /// A global pool of every string across all files.
-    ///
-    /// One instance of this will usually be made at a time, so that all files intern into a single
-    /// pool to increase the likelihood of intern hits.
-    pub const Pool = struct {
-        gpa: Allocator,
-        bytes: std.ArrayList(u8),
-        map: std.HashMapUnmanaged(String, void, Context, 50),
-
-        pub fn init(gpa: Allocator) String.Pool {
-            return .{
-                .bytes = .empty,
-                .map = .empty,
-                .gpa = gpa,
-            };
-        }
-
-        pub fn deinit(pool: *@This()) void {
-            pool.bytes.deinit(pool.gpa);
-            pool.map.deinit(pool.gpa);
-        }
-
-        pub fn get(pool: *@This(), index: String) []const u8 {
-            return std.mem.sliceTo(pool.bytes.items[@intFromEnum(index)..], 0);
-        }
-
-        const Context = struct {
-            bytes: []const u8,
-            pub fn hash(ctx: @This(), key: String) u64 {
-                return std.hash_map.hashString(std.mem.sliceTo(ctx.bytes[@intFromEnum(key)..], 0));
-            }
-
-            pub fn eql(_: @This(), a: String, b: String) bool {
-                return a == b;
-            }
-        };
-
-        const ContextAdapted = struct {
-            bytes: []const u8,
-
-            pub fn hash(_: @This(), key: []const u8) u64 {
-                assert(std.mem.indexOfScalar(u8, key, 0) == null);
-                return std.hash_map.hashString(key);
-            }
-
-            pub fn eql(ctx: @This(), a: []const u8, b: String) bool {
-                return std.mem.eql(u8, a, std.mem.sliceTo(ctx.bytes[@intFromEnum(b)..], 0));
-            }
-        };
-    };
-
-    /// A file-local string builder, this is used to create strings using .begin() & .finish(). A
-    /// finished string may be placed in the String.Pool if it doesn't already exist in the pool.
-    pub const Builder = struct {
-        pool: *String.Pool,
-        w: std.Io.Writer.Allocating,
-
-        pub fn init(gpa: Allocator, pool: *String.Pool) !Builder {
-            return .{
-                .pool = pool,
-                .w = .init(gpa),
-            };
-        }
-
-        pub fn deinit(self: *@This()) void {
-            self.w.deinit();
-            self.* = undefined;
-        }
-
-        pub const Marker = enum(u32) { _ };
-
-        pub fn begin(b: *@This()) Marker {
-            return @enumFromInt(b.w.written().len);
-        }
-
-        pub fn finish(b: *@This(), m: Marker) !String {
-            var pool = b.pool;
-
-            const str = b.w.written()[@intFromEnum(m)..];
-            const gop = try pool.map.getOrPutContextAdapted(
-                pool.gpa,
-                str,
-                String.Pool.ContextAdapted{ .bytes = pool.bytes.items },
-                String.Pool.Context{ .bytes = pool.bytes.items },
-            );
-
-            if (!gop.found_existing) {
-                try pool.bytes.ensureUnusedCapacity(pool.gpa, str.len + 1);
-                const index: String = @enumFromInt(pool.bytes.items.len);
-                pool.bytes.appendSliceAssumeCapacity(str);
-                pool.bytes.appendAssumeCapacity(0);
-                gop.key_ptr.* = index;
-            }
-            b.w.shrinkRetainingCapacity(@intFromEnum(m));
-
-            return gop.key_ptr.*;
-        }
-    };
-};
-
 pub fn init(
     all_nodes: []const SyntaxNode,
     src: []const u8,
@@ -339,3 +236,4 @@ const SyntaxNode = @import("node.zig").SyntaxNode;
 const Object = @import("value.zig").Object;
 const treewalk = @import("treewalk.zig");
 const Value = @import("value.zig").Value;
+const String = @import("value.zig").String;
