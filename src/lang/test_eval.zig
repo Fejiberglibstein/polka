@@ -98,48 +98,50 @@ test "While loop" {
     );
 }
 
-// test "functions" {
-//     try testEval(
-//         \\Hello
-//         \\
-//         \\#* let h = 1
-//         \\#* h
-//         \\#*
-//         \\#* function foo()
-//         \\hi
-//         \\#* end
-//         \\#*
-//         \\#* foo()
-//         \\#* foo()
-//         \\#*
-//         \\#*
-//         \\#* function bar(b)
-//         \\#* return b
-//         \\#* end
-//         \\#*
-//         \\#* bar(10)
-//         \\#* let hhfu = bar("graggg")
-//         \\#* hhfu
-//         \\
-//         \\#* function baz(a, b)
-//         \\#*    let h = a + b + "boogie"
-//         \\#*    return h
-//         \\#* end
-//         \\#*
-//         \\#* let is_string = " is "
-//         \\#*
-//         \\#* baz("this", is_string)
-//         \\#* "h"
-//     ,
-//         \\Hello
-//         \\
-//         \\1 hi
-//         \\hi
-//         \\10 graggg
-//         \\this is boogie h
-//         \\
-//     );
-// }
+test "functions" {
+    try testEval(
+        \\Hello
+        \\
+        \\#* let h = 1
+        \\#* `@(h)
+        \\#*
+        \\#* func foo()
+        \\hi
+        \\#* "there "
+        \\#* end
+        \\#*
+        \\#* foo()
+        \\#* foo()
+        \\#*
+        \\#*
+        \\#* func bar(b)
+        \\#* return "" + b
+        \\#* end
+        \\#*
+        \\#* bar(10)
+        \\#* let hhfu = bar("graggg")
+        \\#* hhfu
+        \\
+        \\#* func baz(a, b)
+        \\#*    let h = a + b + "boogie"
+        \\#*    return h
+        \\#* end
+        \\#*
+        \\#* let is_string = " is "
+        \\#*
+        // \\#* baz("this", is_string)
+        // \\#* "h"
+    ,
+        \\Hello
+        \\
+        \\1
+        \\hi 
+        \\there hi
+        \\there 10graggg
+        \\this is boogie h
+        \\
+    );
+}
 
 // test "closures" {
 //     try testEval(

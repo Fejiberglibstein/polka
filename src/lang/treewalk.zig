@@ -1,22 +1,25 @@
 pub fn evalText(vm: *Vm, node: ast.Text) ControlFlow!void {
     var parts = node.parts(vm.all_nodes);
     vm.pushScope();
+    defer vm.popScope();
+
+    const out = vm.out();
     while (parts.next(vm.all_nodes)) |part| {
         switch (part) {
-            .newline => |nl| _ = vm.output.write("\n") catch
+            .newline => |nl| _ = out.write("\n") catch
                 try vm.setError(nl.node_index, .write_failure),
-            .text_line => |line| _ = vm.output.write(line.get(vm.src, vm.all_nodes)) catch
+            .text_line => |line| _ = out.write(line.get(vm.src, vm.all_nodes)) catch
                 try vm.setError(line.node_index, .write_failure),
             .code => |code| {
                 try evalCode(vm, code);
             },
         }
     }
-    vm.popScope();
 }
 
 pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
     var statements = node.statements(vm.all_nodes);
+    const out = vm.out();
     while (statements.next(vm.all_nodes)) |statement| {
         switch (statement) {
             .for_loop => {},
@@ -32,7 +35,7 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
                 inline else => |v| {
                     const res = try evalExpression(vm, expr);
                     if (res.getString()) |str| {
-                        vm.output.print("{s}", .{vm.string_builder.pool.get(str)}) catch
+                        out.print("{s}", .{vm.string_builder.pool.get(str)}) catch
                             try vm.setError(v.node_index, .write_failure);
                         continue;
                     }
@@ -176,11 +179,20 @@ pub fn evalVariable(vm: *Vm, node: ast.Ident) RuntimeError!Value {
 pub fn evalFunctionDef(vm: *Vm, node: ast.FunctionDef) RuntimeError!Value {
     var parameters = node.parameters(vm.all_nodes).get(vm.all_nodes);
     const len = parameters.len(vm.all_nodes);
-    return Value.object(Object.Function.initRuntime(
+
+    const function = Value.object(Object.Function.initRuntime(
         vm.valueAllocator(),
         node.node_index,
         len,
     ) catch try vm.setError(node.node_index, .value_oom));
+
+    if (node.name(vm.all_nodes)) |fn_name| {
+        vm.bindVariable(fn_name.get(vm.all_nodes, vm.src), function) catch
+            try vm.setError(node.node_index, .too_many_variables);
+        return Value.nil;
+    }
+
+    return function;
 }
 
 pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
@@ -215,13 +227,15 @@ pub fn callRuntimeFunction(
     var arg_iter = arguments.get(vm.all_nodes);
     var param_iter = func.parameters(vm.all_nodes).get(vm.all_nodes);
     var i: u32 = 0;
+
     while (true) {
         defer i += 1;
 
         const arg = arg_iter.next(vm.all_nodes);
         const param = param_iter.next(vm.all_nodes);
+        if (arg == null and param == null)
+            break;
 
-        if (arg == null and param == null) break;
         if (arg == null) try vm.setError(arguments.node_index, .{
             .invalid_function_args = .{
                 // .len() will get the number of remaining parameters.
@@ -246,16 +260,35 @@ pub fn callRuntimeFunction(
             try vm.setError(name.node_index, .too_many_variables);
     }
 
-    const body = ast.toASTNode(ast.Text, func_node.definition_index, vm.all_nodes).?;
-    evalText(vm, body) catch |err| switch (err) {
-        ControlFlow.Error => return ControlFlow.Error,
-        ControlFlow.Continue => @panic("TODO"),
-        ControlFlow.Break => @panic("TODO"),
-        ControlFlow.Return => {},
-    };
+    const return_value = switch (func.body(vm.all_nodes)) {
+        .text => |body| return_value: {
+            const m = vm.string_builder.begin();
 
-    const return_value = vm.function_return_value orelse Value.nil;
-    vm.function_return_value = null;
+            evalText(vm, body) catch |err| switch (err) {
+                ControlFlow.Error => return ControlFlow.Error,
+                ControlFlow.Continue => @panic("TODO"),
+                ControlFlow.Break => @panic("TODO"),
+                ControlFlow.Return => {},
+            };
+
+            const function_text = if (m != vm.string_builder.begin())
+                Value.string(vm.string_builder.finish(m) catch
+                    // TODO error index isn't correct here.
+                    try vm.setError(func.node_index, .internal_oom))
+            else
+                null;
+
+            const return_value = vm.function_return_value;
+            vm.function_return_value = null;
+
+            if (return_value) |_| if (function_text) |_| {
+                try vm.setError(func.node_index, .function_return_and_text);
+            };
+
+            break :return_value return_value orelse function_text orelse Value.nil;
+        },
+        .expression => |expr| try evalExpression(vm, expr),
+    };
 
     return return_value;
 }

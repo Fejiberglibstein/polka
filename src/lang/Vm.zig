@@ -13,7 +13,9 @@ const Variable = struct {
 
 src: []const u8,
 all_nodes: []const SyntaxNode,
-output: *std.Io.Writer,
+
+/// Use Vm.out() to write text to the output file, since that will handle functions as well
+output_file: *std.Io.Writer,
 gpa: Allocator,
 /// Allocator specifically used to allocate values. For now it's just an arena, but it may be more
 /// complex in the future.
@@ -143,7 +145,7 @@ pub fn init(
         .gpa = gpa,
         .src = src,
         .err = null,
-        .output = output,
+        .output_file = output,
         .scope_level = 0,
         .function_depth = 0,
         .all_nodes = all_nodes,
@@ -177,6 +179,13 @@ pub fn eval(self: *Vm) ?RuntimeErrorPayload {
     return null;
 }
 
+pub fn out(self: *Vm) *std.Io.Writer {
+    return if (self.inFunction())
+        &self.string_builder.w.writer
+    else
+        self.output_file;
+}
+
 pub fn valueAllocator(self: *Vm) Allocator {
     return self.value_allocator.allocator();
 }
@@ -184,6 +193,10 @@ pub fn valueAllocator(self: *Vm) Allocator {
 pub fn setError(self: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) RuntimeError!noreturn {
     self.err = .{ .node_index = node_index, .kind = kind };
     return RuntimeError.Error;
+}
+
+pub fn inFunction(self: *const Vm) bool {
+    return self.function_depth > 0;
 }
 
 pub fn setVariable(self: *Vm, ident: []const u8, value: Value) !void {
@@ -224,7 +237,6 @@ pub fn getVariable(self: *Vm, ident: []const u8) !Value {
 }
 
 pub fn bindVariable(self: *Vm, ident: []const u8, value: Value) !void {
-    assert(self.scope_level > 0);
     try self.variables.appendBounded(.{
         .name = ident,
         .value = value,
@@ -304,6 +316,7 @@ const RuntimeErrorPayload = struct {
         misplaced_break,
         misplaced_continue,
         misplaced_return,
+        function_return_and_text,
     };
 };
 
