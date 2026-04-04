@@ -3,6 +3,7 @@ const Variable = struct {
     name: []const u8,
     /// The value bound to the variable
     value: Value,
+
     /// The scope level of the variable. Starts at 0 for the outermost block, and increases by one
     /// for every inner block. When a block ends, all scopes are popped.
     scope_level: u32,
@@ -11,8 +12,18 @@ const Variable = struct {
     function_depth: u32,
 };
 
+pub const Scope = struct {
+    level: u32,
+    function_depth: u32,
+    /// The index in .variables of the top of this stack
+    top: u32,
+
+    pub const init: Scope = .{ .level = 0, .function_depth = 0, .top = 0 };
+};
+
 src: []const u8,
 all_nodes: []const SyntaxNode,
+err: ?RuntimeErrorPayload,
 
 /// Use Vm.out() to write text to the output file, since that will handle functions as well
 output_file: *std.Io.Writer,
@@ -22,10 +33,9 @@ gpa: Allocator,
 value_allocator: *std.heap.ArenaAllocator,
 string_builder: String.Builder,
 
-err: ?RuntimeErrorPayload,
 variables: std.ArrayList(Variable),
-scope_level: u32,
-function_depth: u32,
+
+scope: Scope,
 function_return_value: ?Value,
 
 const Vm = @This();
@@ -43,8 +53,7 @@ pub fn init(
         .src = src,
         .err = null,
         .output_file = output,
-        .scope_level = 0,
-        .function_depth = 0,
+        .scope = .init,
         .all_nodes = all_nodes,
         .function_return_value = null,
         .value_allocator = value_arena,
@@ -93,7 +102,7 @@ pub fn setError(self: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) Runt
 }
 
 pub fn inFunction(self: *const Vm) bool {
-    return self.function_depth > 0;
+    return self.scope.function_depth > 0;
 }
 
 pub fn setVariable(self: *Vm, ident: []const u8, value: Value) !void {
@@ -103,9 +112,10 @@ pub fn setVariable(self: *Vm, ident: []const u8, value: Value) !void {
         i = i - 1;
         const variable = &self.variables.items[i];
 
-        if (variable.function_depth != self.function_depth)
+        if (variable.function_depth < self.scope.function_depth)
             break;
 
+        assert(variable.function_depth == self.scope.function_depth);
         if (std.mem.eql(u8, variable.name, ident)) {
             variable.value = value;
             return;
@@ -115,15 +125,19 @@ pub fn setVariable(self: *Vm, ident: []const u8, value: Value) !void {
     return error.UndeclaredVariable;
 }
 
-pub fn getVariable(self: *Vm, ident: []const u8) !Value {
-    var i: usize = self.variables.items.len;
+pub fn getVariable(self: *Vm, ident: []const u8, scope: Scope) !Value {
+    var i: usize = scope.top;
 
     while (i > 0) {
         i = i - 1;
         const variable = self.variables.items[i];
 
-        if (variable.function_depth != self.function_depth)
+        if (variable.function_depth < self.scope.function_depth)
             break;
+
+        // We can assert this because we started at the top of the scope so no variables have a
+        // function depth greater than the scope's.
+        assert(variable.function_depth == self.scope.function_depth);
 
         if (std.mem.eql(u8, variable.name, ident)) {
             return variable.value;
@@ -134,55 +148,31 @@ pub fn getVariable(self: *Vm, ident: []const u8) !Value {
 }
 
 pub fn bindVariable(self: *Vm, ident: []const u8, value: Value) !void {
+    self.scope.top += 1;
     try self.variables.appendBounded(.{
         .name = ident,
         .value = value,
-        .scope_level = self.scope_level,
-        .function_depth = self.function_depth,
+        .scope_level = self.scope.level,
+        .function_depth = self.scope.function_depth,
     });
 }
 
-pub fn pushScope(self: *Vm) void {
-    self.scope_level += 1;
+pub fn pushScope(self: *Vm) Scope {
+    const old_scope = self.scope;
+    self.scope.level += 1;
+    return old_scope;
 }
 
-pub fn popScope(self: *Vm) void {
-    self.scope_level -= 1;
-
-    while (self.variables.items.len > 0) {
-        const variable = self.variables.getLast();
-        if (variable.scope_level > self.scope_level and
-            variable.function_depth == self.function_depth)
-        {
-            _ = self.variables.pop();
-        } else {
-            break;
-        }
-    }
+pub fn popScope(self: *Vm, old_scope: Scope) void {
+    self.scope = old_scope;
+    self.variables.items.len = @intCast(old_scope.top);
 }
 
-pub const StackState = struct {
-    scope_level: u32,
-    function_depth: u32,
-    variables_len: usize,
-};
-
-pub fn setupFunctionCall(self: *Vm) StackState {
-    const scope_level = self.scope_level;
-    const function_depth = self.function_depth;
-    self.scope_level = 0;
-    self.function_depth += 1;
-    return .{
-        .scope_level = scope_level,
-        .function_depth = function_depth,
-        .variables_len = self.variables.items.len,
-    };
-}
-
-pub fn endFunctioncall(self: *Vm, old_state: StackState) void {
-    self.scope_level = old_state.scope_level;
-    self.function_depth = old_state.function_depth;
-    self.variables.items.len = old_state.variables_len;
+pub fn pushFunctionScope(self: *Vm) Scope {
+    const old_scope = self.scope;
+    self.scope.level = 0;
+    self.scope.function_depth += 1;
+    return old_scope;
 }
 
 const RuntimeErrorPayload = struct {

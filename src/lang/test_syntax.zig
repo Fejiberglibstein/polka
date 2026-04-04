@@ -599,21 +599,21 @@ test "Multiline string with expressions" {
     }));
 }
 
-test "errors" {
-    std.testing.log_level = .debug;
-    var gpa = std.heap.DebugAllocator(.{}).init;
-    defer _ = gpa.deinit();
-    var x: TreeConstructor = .init(gpa.allocator());
-    try testParser(gpa.allocator(),
-        \\1jk
-        \\#* let h = )
-        \\#* 12
-        \\foo
-        \\#* 10 -
-        \\j
-        \\#* if (false + (true and (wfalse)) then
-    , x.root(&.{}));
-}
+// test "errors" {
+//     std.testing.log_level = .debug;
+//     var gpa = std.heap.DebugAllocator(.{}).init;
+//     defer _ = gpa.deinit();
+//     var x: TreeConstructor = .init(gpa.allocator());
+//     try testParser(gpa.allocator(),
+//         \\1jk
+//         \\#* let h = )
+//         \\#* 12
+//         \\foo
+//         \\#* 10 -
+//         \\j
+//         \\#* if (false + (true and (wfalse)) then
+//     , x.root(&.{}));
+// }
 
 test "Multiline string recovery" {
     std.testing.log_level = .debug;

@@ -1,7 +1,7 @@
 pub fn evalText(vm: *Vm, node: ast.Text) ControlFlow!void {
     var parts = node.parts(vm.all_nodes);
-    vm.pushScope();
-    defer vm.popScope();
+    const old_scope = vm.pushScope();
+    defer vm.popScope(old_scope);
 
     const out = vm.out();
     while (parts.next(vm.all_nodes)) |part| {
@@ -170,7 +170,7 @@ pub fn evalList(vm: *Vm, node: ast.List) RuntimeError!Value {
 
 pub fn evalVariable(vm: *Vm, node: ast.Ident) RuntimeError!Value {
     const ident = node.get(vm.all_nodes, vm.src);
-    return vm.getVariable(ident) catch {
+    return vm.getVariable(ident, vm.scope) catch {
         // TODO add builtin function & variables here like sys, range(), etc.
         try vm.setError(node.node_index, .undeclared_variable);
     };
@@ -217,9 +217,6 @@ pub fn callRuntimeFunction(
 ) RuntimeError!Value {
     const func_node = function.func.runtime;
 
-    const old_state = vm.setupFunctionCall();
-    defer vm.endFunctioncall(old_state);
-
     const func = ast.toASTNode(ast.FunctionDef, func_node.definition_index, vm.all_nodes).?;
 
     const arguments = callsite.arguments(vm.all_nodes);
@@ -227,6 +224,9 @@ pub fn callRuntimeFunction(
     var arg_iter = arguments.get(vm.all_nodes);
     var param_iter = func.parameters(vm.all_nodes).get(vm.all_nodes);
     var i: u32 = 0;
+
+    const caller_scope = vm.pushFunctionScope();
+    defer vm.popScope(caller_scope);
 
     while (true) {
         defer i += 1;
@@ -251,7 +251,14 @@ pub fn callRuntimeFunction(
             },
         });
 
-        vm.bindVariable(param.?.get(vm.all_nodes, vm.src), try evalExpression(vm, arg.?)) catch
+        // The value needs to be evaluated in the old scope so that variables bound outside the
+        // function call can be passed as arguments to the function.
+        const function_scope = vm.scope;
+        vm.scope = caller_scope;
+        const value = try evalExpression(vm, arg.?);
+        vm.scope = function_scope;
+
+        vm.bindVariable(param.?.get(vm.all_nodes, vm.src), value) catch
             try vm.setError(arguments.node_index, .too_many_variables);
     }
 
@@ -260,6 +267,7 @@ pub fn callRuntimeFunction(
             try vm.setError(name.node_index, .too_many_variables);
     }
 
+    // Call the function
     const return_value = switch (func.body(vm.all_nodes)) {
         .text => |body| return_value: {
             const m = vm.string_builder.begin();
@@ -273,7 +281,6 @@ pub fn callRuntimeFunction(
 
             const function_text = if (m != vm.string_builder.begin())
                 Value.string(vm.string_builder.finish(m) catch
-                    // TODO error index isn't correct here.
                     try vm.setError(func.node_index, .internal_oom))
             else
                 null;
@@ -356,6 +363,7 @@ pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
 }
 
 const std = @import("std");
+const assert = std.debug.assert;
 
 const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;

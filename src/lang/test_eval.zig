@@ -129,17 +129,16 @@ test "functions" {
         \\#*
         \\#* let is_string = " is "
         \\#*
-        // \\#* baz("this", is_string)
-        // \\#* "h"
+        \\#* baz("this", is_string)
+        \\#* " h"
     ,
         \\Hello
         \\
         \\1
-        \\hi 
+        \\hi
         \\there hi
         \\there 10graggg
         \\this is boogie h
-        \\
     );
 }
 
