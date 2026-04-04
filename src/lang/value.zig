@@ -250,6 +250,7 @@ pub const Object = struct {
 
     const Kind = enum {
         list,
+        dict,
         function,
     };
 
@@ -261,6 +262,14 @@ pub const Object = struct {
         return if (self.tag == .list) self.asList() else null;
     }
 
+    pub fn asDict(self: *Object) *Dict {
+        assert(self.tag == .dict);
+        return @alignCast(@fieldParentPtr("base", self));
+    }
+    pub fn getDict(self: *Object) ?*Dict {
+        return if (self.tag == .dict) self.asDict() else null;
+    }
+
     pub fn asFunction(self: *Object) *Function {
         assert(self.tag == .function);
         return @alignCast(@fieldParentPtr("base", self));
@@ -270,7 +279,7 @@ pub const Object = struct {
     }
 
     pub const List = struct {
-        base: Object = .{ .tag = .list },
+        base: Object,
         items: std.ArrayList(Value),
 
         pub fn init(alloc: Allocator) !*Object {
@@ -283,8 +292,22 @@ pub const Object = struct {
         }
     };
 
+    pub const Dict = struct {
+        base: Object,
+        items: std.HashMapUnmanaged(String, Value, String.Pool.Context, max_load_percentage),
+
+        pub fn init(alloc: Allocator) !*Object {
+            var ret = try alloc.create(@This());
+            ret.* = .{
+                .base = .{ .tag = .dict },
+                .items = .empty,
+            };
+            return &ret.base;
+        }
+    };
+
     pub const Function = struct {
-        base: Object = .{ .tag = .function },
+        base: Object,
 
         func: union(enum) {
             builtin: union(enum) {
@@ -415,7 +438,7 @@ pub const String = enum(u32) {
     pub const Pool = struct {
         gpa: Allocator,
         bytes: std.ArrayList(u8),
-        map: std.HashMapUnmanaged(String, void, Context, 50),
+        map: std.HashMapUnmanaged(String, void, Context, max_load_percentage),
 
         pub fn init(gpa: Allocator) String.Pool {
             return .{
@@ -430,14 +453,14 @@ pub const String = enum(u32) {
             pool.map.deinit(pool.gpa);
         }
 
-        pub fn get(pool: *@This(), index: String) []const u8 {
+        pub fn get(pool: *const @This(), index: String) []const u8 {
             return std.mem.sliceTo(pool.bytes.items[@intFromEnum(index)..], 0);
         }
 
         const Context = struct {
-            bytes: []const u8,
+            pool: *const Pool,
             pub fn hash(ctx: @This(), key: String) u64 {
-                return std.hash_map.hashString(std.mem.sliceTo(ctx.bytes[@intFromEnum(key)..], 0));
+                return std.hash_map.hashString(ctx.pool.get(key));
             }
 
             pub fn eql(_: @This(), a: String, b: String) bool {
@@ -446,7 +469,7 @@ pub const String = enum(u32) {
         };
 
         const ContextAdapted = struct {
-            bytes: []const u8,
+            pool: *const Pool,
 
             pub fn hash(_: @This(), key: []const u8) u64 {
                 assert(std.mem.indexOfScalar(u8, key, 0) == null);
@@ -454,7 +477,7 @@ pub const String = enum(u32) {
             }
 
             pub fn eql(ctx: @This(), a: []const u8, b: String) bool {
-                return std.mem.eql(u8, a, std.mem.sliceTo(ctx.bytes[@intFromEnum(b)..], 0));
+                return std.mem.eql(u8, a, ctx.pool.get(b));
             }
         };
     };
@@ -490,8 +513,8 @@ pub const String = enum(u32) {
             const gop = try pool.map.getOrPutContextAdapted(
                 pool.gpa,
                 str,
-                String.Pool.ContextAdapted{ .bytes = pool.bytes.items },
-                String.Pool.Context{ .bytes = pool.bytes.items },
+                String.Pool.ContextAdapted{ .pool = pool },
+                String.Pool.Context{ .pool = pool },
             );
 
             if (!gop.found_existing) {
@@ -513,6 +536,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const max_load_percentage = std.hash_map.default_max_load_percentage;
 
 const Vm = @import("Vm.zig");
 const RuntimeError = Vm.RuntimeError;

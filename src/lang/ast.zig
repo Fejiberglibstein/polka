@@ -203,7 +203,7 @@ pub const Dict = struct {
     const kind: SyntaxKind = .dict;
     pub const node = nodeFn;
 
-    pub fn items(self: Dict, all_nodes: []const SyntaxNode) ASTIterator(DictField) {
+    pub fn fields(self: Dict, all_nodes: []const SyntaxNode) ASTIterator(DictField) {
         return .init(self.node_index, all_nodes);
     }
 };
@@ -213,8 +213,8 @@ pub const DictField = struct {
     const kind: SyntaxKind = .dict_field;
     pub const node = nodeFn;
 
-    pub fn key(self: DictField, all_nodes: []const SyntaxNode) Expression {
-        return getFirstChild(Expression, self.node_index, all_nodes) orelse unreachable;
+    pub fn key(self: DictField, all_nodes: []const SyntaxNode) Ident {
+        return getFirstChild(Ident, self.node_index, all_nodes) orelse unreachable;
     }
 
     pub fn value(self: DictField, all_nodes: []const SyntaxNode) Expression {

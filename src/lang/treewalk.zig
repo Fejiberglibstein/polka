@@ -94,13 +94,13 @@ pub fn evalConditional(vm: *Vm, node: ast.Conditional) ControlFlow!void {
 
 pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
     return switch (node) {
-        .list => |list| try evalList(vm, list),
-        .dict => @panic("TODO"),
         .dot_access => @panic("TODO"),
         .bracket_access => @panic("TODO"),
         .nil => Value.nil,
         .true => Value.boolean(true),
         .false => Value.boolean(false),
+        .list => |list| try evalList(vm, list),
+        .dict => |dict| try evalDict(vm, dict),
         .unary => |unary| try evalUnary(vm, unary),
         .binary => |binary| try evalBinary(vm, binary),
         .function_def => |def| evalFunctionDef(vm, def),
@@ -110,25 +110,24 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
         .multi_line_string => |str| try evalMultiLineString(vm, str),
         .number => |num| Value.number(num.get(vm.all_nodes, vm.src)),
         .grouping => |group| try evalExpression(vm, group.inner(vm.all_nodes)),
-        .integer => |num| Value.number(@floatFromInt(num.getAsInt(vm.all_nodes, vm.src) catch {
-            try vm.setError(num.node_index, .number_too_large);
-        })),
+        .integer => |num| Value.number(@floatFromInt(num.getAsInt(vm.all_nodes, vm.src) catch
+            try vm.setError(num.node_index, .number_too_large))),
     };
 }
 
 pub fn evalStaticString(vm: *Vm, node: ast.StaticString) RuntimeError!Value {
-    var b = &vm.string_builder;
-    const m = b.begin();
-    node.create(vm.all_nodes, vm.src, &b.w.writer) catch
+    var sb = &vm.string_builder;
+    const m = sb.begin();
+    node.create(vm.all_nodes, vm.src, &sb.w.writer) catch
         try vm.setError(node.node_index, .internal_oom);
 
-    return Value.string(b.finish(m) catch
+    return Value.string(sb.finish(m) catch
         try vm.setError(node.node_index, .internal_oom));
 }
 
 pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Value {
-    var b = &vm.string_builder;
-    const m = b.begin();
+    var sb = &vm.string_builder;
+    const m = sb.begin();
 
     var parts = node.parts(vm.all_nodes);
     while (parts.next(vm.all_nodes)) |part| {
@@ -137,21 +136,48 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
         };
 
         (switch (part) {
-            .newline => |_| b.w.writer.print("\n", .{}),
-            .text => |text| b.w.writer.print("{s}", .{text.get(vm.all_nodes, vm.src)}),
+            .newline => |_| sb.w.writer.print("\n", .{}),
+            .text => |text| sb.w.writer.print("{s}", .{text.get(vm.all_nodes, vm.src)}),
             .expression => |expr| blk: {
                 const v = try evalExpression(vm, expr.get(vm.all_nodes));
-                v.print(vm.string_builder.pool, &b.w.writer) catch |err| switch (err) {
+                v.print(vm.string_builder.pool, &sb.w.writer) catch |err| switch (err) {
                     error.ValueError => try vm.setError(node_index, .{ .cannot_print_value = v }),
                     error.WriteFailed => break :blk error.WriteFailed,
                 };
             },
         }) catch try vm.setError(node_index, .internal_oom);
     }
-    b.w.writer.print("\n", .{}) catch try vm.setError(node.node_index, .internal_oom);
+    sb.w.writer.print("\n", .{}) catch try vm.setError(node.node_index, .internal_oom);
 
-    return Value.string(b.finish(m) catch
+    return Value.string(sb.finish(m) catch
         try vm.setError(node.node_index, .internal_oom));
+}
+
+pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
+    const object = Object.Dict.init(vm.valueAllocator()) catch
+        try vm.setError(node.node_index, .value_oom);
+    const dict = object.asDict();
+
+    var sb = &vm.string_builder;
+
+    var fields = node.fields(vm.all_nodes);
+    while (fields.next(vm.all_nodes)) |field| {
+        const key = key: {
+            const m = sb.begin();
+            const key_node = field.key(vm.all_nodes);
+            sb.w.writer.print("{s}", .{key_node.get(vm.all_nodes, vm.src)}) catch
+                try vm.setError(node.node_index, .internal_oom);
+            break :key sb.finish(m) catch
+                try vm.setError(key_node.node_index, .internal_oom);
+        };
+
+        const value = try evalExpression(vm, field.value(vm.all_nodes));
+
+        dict.items.putContext(vm.valueAllocator(), key, value, .{ .pool = sb.pool }) catch
+            try vm.setError(field.node_index, .value_oom);
+    }
+
+    return Value.object(object);
 }
 
 pub fn evalList(vm: *Vm, node: ast.List) RuntimeError!Value {
