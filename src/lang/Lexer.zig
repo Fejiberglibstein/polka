@@ -9,6 +9,10 @@ pub const Mode = enum {
     text,
     /// Parsing a multiline string
     multiline_string,
+
+    pub fn isCode(mode: Mode) bool {
+        return mode != .text;
+    }
 };
 
 src: []const u8,

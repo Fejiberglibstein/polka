@@ -170,7 +170,9 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
             const m2 = try p.marker();
             defer p.wrap(m2, .grouping);
             try p.eatAssert(.l_paren);
+            try skipNewlines(p);
             try parseExpression(p, 0);
+            try skipNewlines(p);
             try p.eatExpect(.r_paren, .{ .dont_eat = .any });
         },
 
@@ -224,14 +226,17 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
 fn parseFunctionCallArguments(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .function_args);
-    try p.eatAssert(.l_paren);
 
+    try p.eatAssert(.l_paren);
     while (!try p.eatIf(.r_paren)) {
+        try skipNewlines(p);
         try parseExpression(p, 0);
+        try skipNewlines(p);
         if (!try p.eatIf(.comma)) {
             try p.eatExpect(.r_paren, .{ .dont_eat = .any });
             break;
         }
+        try skipNewlines(p);
     }
 }
 
@@ -253,19 +258,24 @@ fn parseBlock(p: *Parser) Error!void {
 fn parseFunctionParameters(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .function_parameters);
+
     try p.eatExpect(.l_paren, .{ .dont_eat = .any });
     while (!try p.eatIf(.r_paren)) {
+        try skipNewlines(p);
         try p.eatExpect(.ident, .eof);
+        try skipNewlines(p);
         if (!try p.eatIf(.comma)) {
             try p.eatExpect(.r_paren, .{ .dont_eat = .any });
             break;
         }
+        try skipNewlines(p);
     }
 }
 
 fn parseFunctionDefinition(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .function_def);
+
     try p.eatAssert(.keyword_func);
     _ = try p.eatIf(.ident);
     try parseFunctionParameters(p);
@@ -339,36 +349,47 @@ fn parseList(p: *Parser) Error!void {
 
     try p.eatAssert(.l_bracket);
     while (!try p.eatIf(.r_bracket)) {
+        try skipNewlines(p);
         try parseExpression(p, 0);
+        try skipNewlines(p);
         if (!try p.eatIf(.comma)) {
             try p.eatExpect(.r_bracket, .{ .dont_eat = .any });
             break;
         }
+        try skipNewlines(p);
     }
 }
 
 fn parseDict(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .dict);
+
     try p.eatAssert(.l_brace);
     while (!try p.eatIf(.r_brace)) {
+        try skipNewlines(p);
         {
             const m2 = try p.marker();
             defer p.wrap(m2, .dict_field);
-            try p.eatExpect(.ident, .{ .dont_eat = .init(&.{.eq}) });
-            try p.eatExpect(.eq, .{ .dont_eat = .init(&.{.r_brace}) });
+
+            try p.eatExpect(.ident, .{ .dont_eat = comptime .init(&.{ .eq, .r_brace, .newline }) });
+            try skipNewlines(p);
+            try p.eatExpect(.eq, .{ .dont_eat = comptime .init(&.{ .r_brace, .newline }) });
+            try skipNewlines(p);
             try parseExpression(p, 0);
         }
+        try skipNewlines(p);
         if (!try p.eatIf(.comma)) {
             try p.eatExpect(.r_brace, .{ .dont_eat = .any });
             break;
         }
+        try skipNewlines(p);
     }
 }
 
 fn parseConditional(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .conditional);
+
     try p.eatAssert(.keyword_if);
     try parseExpression(p, 0);
     try p.eatExpect(.keyword_then, .{ .dont_eat = .newline });
@@ -428,6 +449,7 @@ fn parseConditional(p: *Parser) Error!void {
 fn parseWhileLoop(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .while_loop);
+
     try p.eatAssert(.keyword_while);
     try parseExpression(p, 0);
     try p.eatExpect(.keyword_do, .{ .dont_eat = .newline });
@@ -438,11 +460,12 @@ fn parseWhileLoop(p: *Parser) Error!void {
 fn parseForLoop(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .for_loop);
+
     try p.eatAssert(.keyword_for);
-    try p.eatExpect(.ident, .{ .dont_eat = .newline });
-    try p.eatExpect(.keyword_in, .{ .dont_eat = .newline });
+    try p.eatExpect(.ident, .{ .dont_eat = .init(&.{ .newline, .keyword_in, .keyword_do }) });
+    try p.eatExpect(.keyword_in, .{ .dont_eat = .init(&.{ .newline, .keyword_do }) });
     try parseExpression(p, 0);
-    try p.eatExpect(.keyword_do, .{ .dont_eat = .newline });
+    try p.eatExpect(.keyword_do, .{ .dont_eat = .init(&.{.newline}) });
     try p.eatExpect(.newline, .eof);
     try parseBlock(p);
 }
@@ -450,6 +473,7 @@ fn parseForLoop(p: *Parser) Error!void {
 fn parseReturnStatement(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .return_statement);
+
     try p.eatAssert(.keyword_return);
     if (!p.at(.newline)) {
         try parseExpression(p, 0);
@@ -459,10 +483,11 @@ fn parseReturnStatement(p: *Parser) Error!void {
 fn parseExportStatement(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .export_statement);
+
     try p.eatAssert(.keyword_export);
     switch (p.current.node.kind) {
         .keyword_let => try parseLetStatement(p),
-        .keyword_export => try parseExportStatement(p),
+        .keyword_func => try parseFunctionDefinition(p),
         else => try p.unexpected(),
     }
 }
@@ -470,28 +495,31 @@ fn parseExportStatement(p: *Parser) Error!void {
 fn parseLetStatement(p: *Parser) Error!void {
     const m = try p.marker();
     defer p.wrap(m, .let_statement);
+
     try p.eatAssert(.keyword_let);
     try p.eatExpect(.ident, .{ .dont_eat = .newline });
     if (try p.eatIf(.eq)) try parseExpression(p, 0);
 }
 
 fn skipNewlines(p: *Parser) Error!void {
-    while (try eatNewline(p)) {}
-}
-
-fn expectNewline(p: *Parser) Error!void {
-    if (p.at(.eof)) return;
-
     switch (p.mode()) {
-        .code_line => {
-            try p.eatExpect(.newline);
-            try p.eatExpect(.code_begin);
+        .code_line => while (p.at(.newline)) {
+            const state = p.getState();
+            try p.eatAssert(.newline);
+            if (!p.at(.code_begin)) {
+                p.resetToState(state);
+                break;
+            }
+            try p.eatAssert(.code_begin);
         },
-        .code_file,
-        .code_block,
-        .text,
-        .multiline_string,
-        => _ = try p.eatExpect(.newline),
+
+        .code_file, .code_block => {
+            while (p.at(.newline)) try p.eat();
+        },
+
+        inline else => |tag| @panic(
+            ".skipNewlines() should not be called in " ++ @tagName(tag) ++ " mode",
+        ),
     }
 }
 

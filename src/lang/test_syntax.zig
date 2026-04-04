@@ -539,6 +539,69 @@ test "Dicts" {
     }));
 }
 
+test "Multiline dicts" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#* {
+        \\#*   foo = 10, j = 3,
+        \\#*
+        \\#*   bar
+        \\#*   =
+        \\#*   []
+        \\#*   ,
+        \\#*
+        \\#* }
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.dict, &.{
+                x.leaf(.l_brace),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.tree(.dict_field, &.{
+                    x.leaf(.ident),
+                    x.leaf(.eq),
+                    x.leaf(.integer),
+                }),
+                x.leaf(.comma),
+                x.tree(.dict_field, &.{
+                    x.leaf(.ident),
+                    x.leaf(.eq),
+                    x.leaf(.integer),
+                }),
+                x.leaf(.comma),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.tree(.dict_field, &.{
+                    x.leaf(.ident),
+                    x.leaf(.newline),
+                    x.leaf(.code_begin),
+                    x.leaf(.eq),
+                    x.leaf(.newline),
+                    x.leaf(.code_begin),
+                    x.tree(.list, &.{
+                        x.leaf(.l_bracket),
+                        x.leaf(.r_bracket),
+                    }),
+                }),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.comma),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.r_brace),
+            }),
+        }),
+    }));
+}
+
 test "Lists" {
     std.testing.log_level = .debug;
     var gpa = std.heap.DebugAllocator(.{}).init;
@@ -555,6 +618,72 @@ test "Lists" {
                 x.leaf(.comma),
                 x.leaf(.integer),
                 x.leaf(.r_bracket),
+            }),
+        }),
+    }));
+}
+
+test "multiline lists" {
+    std.testing.log_level = .debug;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var x: TreeConstructor = .init(gpa.allocator());
+    try testParser(gpa.allocator(),
+        \\#* [
+        \\#*   10,
+        \\#*   nil,
+        \\#*   4
+        \\#*   ,
+        \\#*
+        \\#*   [ true 
+        \\#*   ]
+        \\#*   ,
+        \\#* ]
+        \\#* let h = 10
+    , x.root(&.{
+        x.tree(.code, &.{
+            x.leaf(.code_begin),
+            x.tree(.list, &.{
+                x.leaf(.l_bracket),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.integer), // 10
+                x.leaf(.comma),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.keyword_nil),
+                x.leaf(.comma),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.integer), // 4
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.comma),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.tree(.list, &.{
+                    x.leaf(.l_bracket),
+                    x.leaf(.keyword_true),
+                    x.leaf(.newline),
+                    x.leaf(.code_begin),
+                    x.leaf(.r_bracket),
+                }),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.comma),
+                x.leaf(.newline),
+                x.leaf(.code_begin),
+                x.leaf(.r_bracket),
+            }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.tree(.let_statement, &.{
+                x.leaf(.keyword_let),
+                x.leaf(.ident),
+                x.leaf(.eq),
+                x.leaf(.integer),
             }),
         }),
     }));
