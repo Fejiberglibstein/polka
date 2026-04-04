@@ -112,6 +112,7 @@ fn parseCode(p: *Parser) Allocator.Error!void {
 
 fn parseStatement(p: *Parser) Allocator.Error!void {
     if (try p.eatIf(.newline)) return;
+
     (switch (p.current.node.kind) {
         .keyword_for => parseForLoop(p),
         .keyword_if => parseConditional(p),
@@ -132,9 +133,19 @@ fn parseStatement(p: *Parser) Allocator.Error!void {
 
     if (!p.at(.eof)) {
         if (!p.at(.newline)) {
-            try p.addError(.{
-                .expected_token = .{ .expected = .newline, .actual = p.current.node.kind },
-            });
+            const stack_top = if (p.stack.getLastOrNull()) |n| n.kind else .eof;
+            const at_start_of_line: bool = if (p.mode() == .code_line)
+                stack_top == .code_begin
+            else
+                stack_top == .newline;
+            if (!at_start_of_line) {
+                // Only add this error if we are not at the beginning of the line. If we are at the
+                // beginning of the line, there was already a syntax error that is most likely
+                // "expected expression"
+                try p.addError(.{
+                    .expected_token = .{ .expected = .newline, .actual = p.current.node.kind },
+                });
+            }
             // Look for the actual newline
             const set = SyntaxSet.init(&.{ .eof, .newline });
             while (!set.contains(p.current.node.kind)) try p.eat();
