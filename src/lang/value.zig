@@ -1,4 +1,4 @@
-pub const Tag = enum(u3) {
+const Tag = enum(u3) {
     // zig fmt: off
     nan    = 0b000,
     nil    = 0b001,
@@ -16,20 +16,10 @@ const sign_mask: u64    = 0x8000000000000000;
 const payload_mask: u64 = 0x0000FFFFFFFFFFFF;
 // zig fmt: on
 
-const nil_value = nan_mask | (@as(u64, @intFromEnum(Tag.nil)) << 48);
-const true_value = nan_mask | (@as(u64, @intFromEnum(Tag.true)) << 48);
-const false_value = nan_mask | (@as(u64, @intFromEnum(Tag.false)) << 48);
-
-pub const ValueType = enum(u8) {
-    // The values of the enum are based on the values that the `Tag` enum has.
-    // zig fmt: off
-    number  = 0b000,
-    nil     = 0b001,
-    boolean = 0b010,
-    string  = 0b100,
-    object  = 0b101,
-    // zig fmt: on
-};
+const tag_offset = @ctz(tag_mask);
+const nil_value = nan_mask | (@as(u64, @intFromEnum(Tag.nil)) << tag_offset);
+const true_value = nan_mask | (@as(u64, @intFromEnum(Tag.true)) << tag_offset);
+const false_value = nan_mask | (@as(u64, @intFromEnum(Tag.false)) << tag_offset);
 
 /// `Value` is the primitive type. It supports nils, booleans, numbers, and object pointers.
 ///
@@ -45,7 +35,7 @@ pub const Value = packed union {
     float: f64,
     /// Raw bits of the value
     bits: u64,
-    tagged: packed struct {
+    tagged: packed struct(u64) {
         bits: u48,
         tag: Tag,
         nan_mask: u13 = 0b0_11111111111_1,
@@ -116,15 +106,50 @@ pub const Value = packed union {
     }
     pub const nil: Value = .{ .bits = nil_value };
 
-    pub fn tag(self: Value) ValueType {
-        if (self.isNumber()) {
-            return ValueType.number;
-        }
-        if (self.isBoolean()) {
-            return ValueType.boolean;
-        }
+    pub const Type = enum(u8) {
+        nil,
+        number,
+        boolean,
+        string,
+        list,
+        dict,
+        function,
+    };
 
-        return @enumFromInt(@as(u8, @intFromEnum(self.tagged.tag)));
+    pub const Tagged = union(Value.Type) {
+        nil: void,
+        number: f64,
+        boolean: bool,
+        string: String,
+        list: *Object.List,
+        dict: *Object.Dict,
+        function: *Object.Function,
+    };
+
+    pub fn tag(self: Value) Value.Type {
+        return if (self.isNil())
+            .nil
+        else if (self.isNumber())
+            .number
+        else if (self.isBoolean())
+            .boolean
+        else if (self.isString())
+            .string
+        else if (self.getObject()) |obj| switch (obj.tag) {
+            inline else => |t| std.meta.stringToEnum(Value.Type, @tagName(t)) orelse unreachable,
+        } else unreachable;
+    }
+
+    pub fn taggedValue(self: Value) Tagged {
+        return switch (self.tag()) {
+            .nil => .nil,
+            .number => .{ .number = self.asNumber() },
+            .boolean => .{ .boolean = self.asBoolean() },
+            .string => .{ .string = self.asString() },
+            .list => .{ .list = self.asObject().asList() },
+            .dict => .{ .dict = self.asObject().asDict() },
+            .function => .{ .function = self.asObject().asFunction() },
+        };
     }
 
     pub fn isTruthy(self: Value) bool {
@@ -227,14 +252,12 @@ pub const Value = packed union {
         strings: *String.Pool,
         w: *std.Io.Writer,
     ) error{ WriteFailed, ValueError }!void {
-        return switch (self.tag()) {
+        return switch (self.taggedValue()) {
             .nil => error.ValueError,
-            .number => w.print("{}", .{self.asNumber()}),
-            .boolean => w.print("{}", .{self.asBoolean()}),
-            .string => w.print("{s}", .{
-                strings.get(self.asString()),
-            }),
-            .object => error.ValueError,
+            .number => |n| w.print("{}", .{n}),
+            .boolean => |b| w.print("{}", .{b}),
+            .string => |str| w.print("{s}", .{strings.get(str)}),
+            else => error.ValueError,
         };
     }
 };
@@ -290,6 +313,17 @@ pub const Object = struct {
             };
             return &ret.base;
         }
+
+        pub const methods = struct {
+            pub fn append(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
+                assert(args.len > 1);
+                const self = args[0].asObject().asList();
+                for (args[1..]) |arg| {
+                    self.items.append(ctx.vm.valueAllocator(), arg) catch
+                        try ctx.vm.setError(ctx.caller_node_index, .value_oom);
+                }
+            }
+        };
     };
 
     pub const Dict = struct {
@@ -302,41 +336,59 @@ pub const Object = struct {
                 .base = .{ .tag = .dict },
                 .items = .empty,
             };
+
+            _ = try Dict.methods.get(undefined, undefined);
+
             return &ret.base;
         }
+
+        pub const methods = struct {
+            pub fn get(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
+                assert(args.len > 0);
+                const self = args[0].asObject().asDict();
+
+                const key_val: Value = if (args.len > 1) args[1] else .nil;
+                const key = key_val.getString() orelse
+                    try ctx.vm.setError(ctx.caller_node_index, .{ .invalid_type = .{
+                        .expected = .string,
+                        .actual = key_val,
+                    } });
+
+                const sb = &ctx.vm.string_builder;
+                return self.items.getContext(key, .{ .pool = sb.pool }) orelse .nil;
+            }
+        };
     };
 
     pub const Function = struct {
         base: Object,
 
         func: union(enum) {
-            builtin: union(enum) {
-                f1: *const fn (*Vm, Value) RuntimeError!Value,
-                f2: *const fn (*Vm, Value, Value) RuntimeError!Value,
-                f3: *const fn (*Vm, Value, Value, Value) RuntimeError!Value,
-                f4: *const fn (*Vm, Value, Value, Value, Value) RuntimeError!Value,
+            builtin: struct {
+                func: *const fn (ctx: CallCtx, args: []const Value) RuntimeError!Value,
             },
             runtime: struct {
                 /// Index into the list of all nodes of this function's definition
                 definition_index: u32,
-                /// Number of parameters this function expects
-                arity: u32,
             },
         },
 
-        pub fn initBuiltin(func: anytype) *Object {
+        /// Number of parameters this function expects
+        arity: u32,
+
+        const CallCtx = struct {
+            vm: *Vm,
+            caller_node_index: u32,
+        };
+
+        pub fn initBuiltin(comptime func: anytype) *Object {
             const FuncType = @TypeOf(func);
 
             var ret: Function = .{
+                .base = .{ .tag = .function },
                 .func = .{
-                    .builtin = if (FuncType == fn (*Vm, Value) RuntimeError!Value)
+                    .builtin = if (FuncType == fn (Function.CallCtx, []const Value) RuntimeError!Value)
                         .{ .f1 = &func }
-                    else if (FuncType == fn (*Vm, Value, Value) RuntimeError!Value)
-                        .{ .f2 = &func }
-                    else if (FuncType == fn (*Vm, Value, Value, Value) RuntimeError!Value)
-                        .{ .f3 = &func }
-                    else if (FuncType == fn (*Vm, Value, Value, Value, Value) RuntimeError!Value)
-                        .{ .f4 = &func }
                     else
                         @compileError("Invalid builtin function type " ++ @typeName(FuncType)),
                 },
@@ -348,12 +400,10 @@ pub const Object = struct {
             const ret = try gpa.create(@This());
             ret.* = .{
                 .base = .{ .tag = .function },
-                .func = .{
-                    .runtime = .{
-                        .definition_index = body_index,
-                        .arity = arity,
-                    },
-                },
+                .func = .{ .runtime = .{
+                    .definition_index = body_index,
+                } },
+                .arity = arity,
             };
             return &ret.base;
         }
@@ -420,7 +470,7 @@ test "Value object" {
 
     try expectEqual(@intFromPtr(&object), @intFromPtr(value.asObject()));
 
-    try expect(value.tag() == .object);
+    try expect(value.tag() == .list);
     try expect(value.isObject());
     try expect(!value.isNumber());
     try expect(!value.isBoolean());

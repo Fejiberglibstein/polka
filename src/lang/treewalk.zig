@@ -109,9 +109,8 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
         .static_string => |str| try evalStaticString(vm, str),
         .multi_line_string => |str| try evalMultiLineString(vm, str),
         .number => |num| Value.number(num.get(vm.all_nodes, vm.src)),
+        .integer => |num| Value.number(num.getAsFloat(vm.all_nodes, vm.src)),
         .grouping => |group| try evalExpression(vm, group.inner(vm.all_nodes)),
-        .integer => |num| Value.number(@floatFromInt(num.getAsInt(vm.all_nodes, vm.src) catch
-            try vm.setError(num.node_index, .number_too_large))),
     };
 }
 
