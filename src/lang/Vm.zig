@@ -68,11 +68,11 @@ pub fn deinit(self: *Vm) void {
     self.string_builder.deinit();
 }
 
-pub fn eval(self: *Vm) ?RuntimeErrorPayload {
+pub fn run(self: *Vm) ?RuntimeErrorPayload {
     if (self.all_nodes.len == 0) return null;
 
     const root = ast.toASTNode(ast.Text, @intCast(self.all_nodes.len - 1), self.all_nodes) orelse unreachable;
-    treewalk.evalText(self, root) catch |err| {
+    eval.evalText(self, root) catch |err| {
         (switch (err) {
             ControlFlow.Error => RuntimeError.Error,
             ControlFlow.Break => self.setError(root.node_index, .misplaced_break),
@@ -225,6 +225,6 @@ const Allocator = std.mem.Allocator;
 const ast = @import("ast.zig");
 const SyntaxNode = @import("node.zig").SyntaxNode;
 const Object = @import("value.zig").Object;
-const treewalk = @import("treewalk.zig");
+const eval = @import("eval.zig");
 const Value = @import("value.zig").Value;
 const String = @import("value.zig").String;

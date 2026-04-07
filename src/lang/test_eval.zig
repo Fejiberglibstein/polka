@@ -236,7 +236,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     );
     defer vm.deinit();
 
-    const result = vm.eval();
+    const result = vm.run();
     if (result) |err| {
         std.debug.print("Error: {any}\n", .{err});
 

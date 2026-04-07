@@ -10,7 +10,7 @@ pub fn main() !void {
 
     var value_allocator = std.heap.ArenaAllocator.init((std.heap.page_allocator));
     var vm = try Vm.init(parsed.nodes, "", gpa, &value_allocator, undefined, &writer);
-    try treewalk.evalText(&vm, undefined);
+    try eval.evalText(&vm, undefined);
 }
 
 test {
@@ -26,4 +26,4 @@ const SyntaxNode = @import("lang/node.zig").SyntaxNode;
 const parser = @import("lang/parser.zig");
 const ast = @import("lang/ast.zig");
 const Vm = @import("lang/Vm.zig");
-const treewalk = @import("lang/treewalk.zig");
+const eval = @import("lang/eval.zig");
