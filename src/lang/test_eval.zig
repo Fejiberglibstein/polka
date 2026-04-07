@@ -142,104 +142,79 @@ test "functions" {
     );
 }
 
-// test "closures" {
-//     try testEval(
-//         \\#* let number = 3
-//         \\#* let h = function(x) [number]
-//         \\#*    let seven = 9 - number
-//         \\#*    return function(y) [seven, x, number]
-//         \\#*        seven + number
-//         \\#*        return x + y
-//         \\#*    end
-//         \\#* end
-//         \\#* let b = h("hi ")
-//         \\
-//         \\#* "there"
-//         \\#* b("there")
-//         \\#* b = "two"
-//         \\#* h = ""
-//     ,
-//         \\there 9 hi there
-//         \\
-//     );
-// }
+test "list" {
+    try testEval(
+        \\#* let h = [
+        \\#*    "hi",
+        \\#*    10,
+        \\#*    [
+        \\#*        10,
+        \\#*        2,
+        \\#*    ],
+        \\#*    func(h)
+        \\#*        return h + 3
+        \\#*    end
+        \\#* ]
+        \\#* `@(h[0])
+        \\#* `@(h[1])
+        \\#* `@(h[2][1])
+        \\#* `@(h[3](h[0]))
+        \\#* `@(h[3](h[2][0]))
+    ,
+        \\hi
+        \\10
+        \\2
+        \\hi3
+        \\13
+        \\
+    );
+}
 
-// test "list" {
-//     try testEval(
-//         \\#* let b = 12
-//         \\#* let h = {
-//         \\#*    "hi",
-//         \\#*    10,
-//         \\#*    {
-//         \\#*        10,
-//         \\#*        2,
-//         \\#*    },
-//         \\#*    function(h) [b]
-//         \\#*        return h + b
-//         \\#*    end
-//         \\#* }
-//         \\#* h[0]
-//         \\#* h[1]
-//         \\#* h[2][1]
-//         \\#* h[3](h[0])
-//         \\
-//         \\#* h[3](h[2][1])
-//         \\#* h = ""
-//     ,
-//         \\hi 10 2 hi12
-//         \\14
-//         \\
-//     );
-// }
-
-// test "dict" {
-//     try testEval(
-//         \\#* let b = {"whar"}
-//         \\#* let h = {
-//         \\#*    red: "red??",
-//         \\#*    orange: "orange!?",
-//         \\#*    green: "green!",
-//         \\#*    blue: "blue.",
-//         \\#*    index: "blue",
-//         \\#*    func: function(a) [b]
-//         \\#*        return a[0] + b[0]
-//         \\#*    end,
-//         \\#* }
-//         \\#* h.red
-//         \\#* h["orange"]
-//         \\#* h[h.index]
-//         \\#* h.green
-//         \\#*
-//         \\#* b = {"yelp"}
-//         \\#*
-//         \\#* h.func(b)
-//         \\#* h = ""
-//         \\#* ""
-//     ,
-//         \\red?? orange!? blue. green! yelpwhar
-//         \\
-//     );
-// }
+test "dict" {
+    try testEval(
+        \\#* let h = {
+        \\#*    red = "red??",
+        \\#*    orange = "orange!?",
+        \\#*    green = "green!",
+        \\#*    blue = "blue.",
+        \\#*    index = "blue",
+        \\#*    f = func(a)
+        \\#*        return a[0]
+        \\#*    end,
+        \\#* }
+        \\#* `@(h.red)
+        \\#* `@(h["orange"])
+        \\#* `@(h[h.index])
+        \\#* `@(h.green)
+        \\#*
+        \\#* let b = ["yelp"]
+        \\#* h.f(b)
+    ,
+        \\red??
+        \\orange!?
+        \\blue.
+        \\green!
+        \\yelp
+    );
+}
 
 fn testEval(source: []const u8, expected: []const u8) !void {
     var gpa = std.heap.DebugAllocator(.{}).init;
-    // It is detecting a memory leak that i dont think is my fault since the stacktrace doesnt come
-    // from my code
-    // defer _ = gpa.deinit();
+    defer _ = gpa.deinit();
 
     const parsed = try parser.parse(source, .text, gpa.allocator());
     defer gpa.allocator().free(parsed.errors);
     defer gpa.allocator().free(parsed.nodes);
     const root = parsed.nodes[parsed.nodes.len - 1];
     if (parsed.errors.len != 0) {
-        for (parsed.errors) |err| {
-            std.log.err(" \nERROR: {}", .{err});
-        }
-
         var buffer: [2048]u8 = undefined;
         var writer = std.fs.File.stderr().writer(&buffer);
         try root.print(parsed.nodes, source, 0, &writer.interface);
         try writer.interface.flush();
+
+        for (parsed.errors) |err| {
+            std.log.err(" \nERROR: {}", .{err});
+        }
 
         try std.testing.expectEqual(0, parsed.errors.len);
     }

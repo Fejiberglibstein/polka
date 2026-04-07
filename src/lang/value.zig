@@ -303,13 +303,13 @@ pub const Object = struct {
 
     pub const List = struct {
         base: Object,
-        items: std.ArrayList(Value),
+        array: std.ArrayList(Value),
 
         pub fn init(alloc: Allocator) !*Object {
             var ret = try alloc.create(@This());
             ret.* = .{
                 .base = .{ .tag = .list },
-                .items = .empty,
+                .array = .empty,
             };
             return &ret.base;
         }
@@ -319,7 +319,7 @@ pub const Object = struct {
                 assert(args.len > 1);
                 const self = args[0].asObject().asList();
                 for (args[1..]) |arg| {
-                    self.items.append(ctx.vm.valueAllocator(), arg) catch
+                    self.array.append(ctx.vm.valueAllocator(), arg) catch
                         try ctx.vm.setError(ctx.caller_node_index, .value_oom);
                 }
             }
@@ -328,16 +328,14 @@ pub const Object = struct {
 
     pub const Dict = struct {
         base: Object,
-        items: std.HashMapUnmanaged(String, Value, String.Pool.Context, max_load_percentage),
+        map: std.HashMapUnmanaged(String, Value, String.Pool.Context, max_load_percentage),
 
         pub fn init(alloc: Allocator) !*Object {
             var ret = try alloc.create(@This());
             ret.* = .{
                 .base = .{ .tag = .dict },
-                .items = .empty,
+                .map = .empty,
             };
-
-            _ = try Dict.methods.get(undefined, undefined);
 
             return &ret.base;
         }
@@ -355,7 +353,7 @@ pub const Object = struct {
                     } });
 
                 const sb = &ctx.vm.string_builder;
-                return self.items.getContext(key, .{ .pool = sb.pool }) orelse .nil;
+                return self.map.getContext(key, .{ .pool = sb.pool }) orelse .nil;
             }
         };
     };

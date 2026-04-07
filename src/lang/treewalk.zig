@@ -91,23 +91,23 @@ pub fn evalConditional(vm: *Vm, node: ast.Conditional) ControlFlow!void {
 
 pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
     return switch (node) {
-        .dot_access => @panic("TODO"),
-        .bracket_access => @panic("TODO"),
         .nil => Value.nil,
         .true => Value.boolean(true),
         .false => Value.boolean(false),
-        .list => |list| try evalList(vm, list),
-        .dict => |dict| try evalDict(vm, dict),
-        .unary => |unary| try evalUnary(vm, unary),
-        .binary => |binary| try evalBinary(vm, binary),
+        .list => |list| evalList(vm, list),
+        .dict => |dict| evalDict(vm, dict),
+        .unary => |unary| evalUnary(vm, unary),
+        .binary => |binary| evalBinary(vm, binary),
+        .ident => |variable| evalVariable(vm, variable),
         .function_def => |def| evalFunctionDef(vm, def),
+        .static_string => |str| evalStaticString(vm, str),
         .function_call => |call| evalFunctionCall(vm, call),
-        .ident => |variable| try evalVariable(vm, variable),
-        .static_string => |str| try evalStaticString(vm, str),
-        .multi_line_string => |str| try evalMultiLineString(vm, str),
+        .multi_line_string => |str| evalMultiLineString(vm, str),
+        .dot_access => |dot_access| evalDotAccess(vm, dot_access),
+        .bracket_access => |access| evalBracketAccess(vm, access),
         .number => |num| Value.number(num.get(vm.all_nodes, vm.src)),
+        .grouping => |group| evalExpression(vm, group.inner(vm.all_nodes)),
         .integer => |num| Value.number(num.getAsFloat(vm.all_nodes, vm.src)),
-        .grouping => |group| try evalExpression(vm, group.inner(vm.all_nodes)),
     };
 }
 
@@ -168,7 +168,7 @@ pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
 
         const value = try evalExpression(vm, field.value(vm.all_nodes));
 
-        dict.items.putContext(vm.valueAllocator(), key, value, .{ .pool = sb.pool }) catch
+        dict.map.putContext(vm.valueAllocator(), key, value, .{ .pool = sb.pool }) catch
             try vm.setError(field.node_index, .value_oom);
     }
 
@@ -182,11 +182,81 @@ pub fn evalList(vm: *Vm, node: ast.List) RuntimeError!Value {
 
     var items = node.items(vm.all_nodes);
     while (items.next(vm.all_nodes)) |item| {
-        list.items.append(vm.valueAllocator(), try evalExpression(vm, item)) catch
+        list.array.append(vm.valueAllocator(), try evalExpression(vm, item)) catch
             try vm.setError(node.node_index, .value_oom);
     }
 
     return Value.object(object);
+}
+
+pub fn evalAccess(
+    vm: *Vm,
+    lhs: Value,
+    rhs: Value,
+    node_indices: struct { lhs: u32, rhs: u32, node: u32 },
+) RuntimeError!Value {
+    return switch (lhs.taggedValue()) {
+        .list => |list| ret: {
+            if (!rhs.isNumber()) try vm.setError(
+                node_indices.rhs,
+                .{ .invalid_type = .{ .expected = .number, .actual = rhs } },
+            );
+
+            if (rhs.asNumber() < 0) break :ret Value.nil;
+            const index: usize = @intFromFloat(rhs.asNumber());
+            if (index > list.array.items.len) break :ret Value.nil;
+
+            break :ret list.array.items[index];
+        },
+        .dict => |dict| ret: {
+            if (!rhs.isString()) try vm.setError(
+                node_indices.rhs,
+                .{ .invalid_type = .{ .expected = .string, .actual = rhs } },
+            );
+
+            const field = rhs.asString();
+            const sb = &vm.string_builder;
+            break :ret dict.map.getContext(field, .{ .pool = sb.pool }) orelse Value.nil;
+        },
+        else => try vm.setError(
+            node_indices.lhs,
+            .{ .invalid_type = .{ .expected = .list, .actual = lhs } },
+        ),
+    };
+}
+
+pub fn evalDotAccess(vm: *Vm, node: ast.DotAccess) RuntimeError!Value {
+    const sb = &vm.string_builder;
+    const lhs_node = node.lhs(vm.all_nodes);
+    const lhs = try evalExpression(vm, lhs_node);
+
+    const rhs_node = node.rhs(vm.all_nodes);
+    const rhs_name = rhs_node.get(vm.all_nodes, vm.src);
+    const m = sb.begin();
+    const rhs = Value.string(blk: {
+        sb.w.writer.writeAll(rhs_name) catch |err| break :blk err;
+        break :blk sb.finish(m);
+    } catch try vm.setError(rhs_node.node_index, .internal_oom));
+
+    return evalAccess(vm, lhs, rhs, .{
+        .rhs = rhs_node.node_index,
+        .lhs = lhs_node.nodeIndex(),
+        .node = node.node_index,
+    });
+}
+
+pub fn evalBracketAccess(vm: *Vm, node: ast.BracketAccess) RuntimeError!Value {
+    const lhs_node = node.lhs(vm.all_nodes);
+    const rhs_node = node.rhs(vm.all_nodes);
+
+    const lhs = try evalExpression(vm, lhs_node);
+    const rhs = try evalExpression(vm, rhs_node);
+
+    return evalAccess(vm, lhs, rhs, .{
+        .rhs = rhs_node.nodeIndex(),
+        .lhs = lhs_node.nodeIndex(),
+        .node = node.node_index,
+    });
 }
 
 pub fn evalVariable(vm: *Vm, node: ast.Ident) RuntimeError!Value {
