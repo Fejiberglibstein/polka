@@ -348,8 +348,8 @@ pub const Object = struct {
                 const key_val: Value = if (args.len > 1) args[1] else .nil;
                 const key = key_val.getString() orelse
                     try ctx.vm.setError(ctx.caller_node_index, .{ .invalid_type = .{
-                        .expected = .string,
-                        .actual = key_val,
+                        .exp = .string,
+                        .act = key_val,
                     } });
 
                 const sb = &ctx.vm.string_builder;

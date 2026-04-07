@@ -197,10 +197,9 @@ pub fn evalAccess(
 ) RuntimeError!Value {
     return switch (lhs.taggedValue()) {
         .list => |list| ret: {
-            if (!rhs.isNumber()) try vm.setError(
-                node_indices.rhs,
-                .{ .invalid_type = .{ .expected = .number, .actual = rhs } },
-            );
+            if (!rhs.isNumber()) try vm.setError(node_indices.rhs, .{
+                .invalid_type = .{ .exp = .number, .act = rhs },
+            });
 
             if (rhs.asNumber() < 0) break :ret Value.nil;
             const index: usize = @intFromFloat(rhs.asNumber());
@@ -209,10 +208,9 @@ pub fn evalAccess(
             break :ret list.array.items[index];
         },
         .dict => |dict| ret: {
-            if (!rhs.isString()) try vm.setError(
-                node_indices.rhs,
-                .{ .invalid_type = .{ .expected = .string, .actual = rhs } },
-            );
+            if (!rhs.isString()) try vm.setError(node_indices.rhs, .{
+                .invalid_type = .{ .exp = .string, .act = rhs },
+            });
 
             const field = rhs.asString();
             const sb = &vm.string_builder;
@@ -220,20 +218,20 @@ pub fn evalAccess(
         },
         else => try vm.setError(
             node_indices.lhs,
-            .{ .invalid_type = .{ .expected = .list, .actual = lhs } },
+            .{ .invalid_type = .{ .exp = .list, .act = lhs } },
         ),
     };
 }
 
 pub fn evalDotAccess(vm: *Vm, node: ast.DotAccess) RuntimeError!Value {
-    const sb = &vm.string_builder;
     const lhs_node = node.lhs(vm.all_nodes);
     const lhs = try evalExpression(vm, lhs_node);
 
     const rhs_node = node.rhs(vm.all_nodes);
     const rhs_name = rhs_node.get(vm.all_nodes, vm.src);
-    const m = sb.begin();
     const rhs = Value.string(blk: {
+        const sb = &vm.string_builder;
+        const m = sb.begin();
         sb.w.writer.writeAll(rhs_name) catch |err| break :blk err;
         break :blk sb.finish(m);
     } catch try vm.setError(rhs_node.node_index, .internal_oom));
@@ -403,17 +401,114 @@ pub fn evalUnary(vm: *Vm, node: ast.Unary) RuntimeError!Value {
     );
 }
 
+const LValue = union(enum) {
+    variable: ast.Ident,
+    dot_access: ast.DotAccess,
+    bracket_access: ast.BracketAccess,
+};
+
+pub fn evalAccessAssignment(
+    vm: *Vm,
+    lvalue: Value,
+    lvalue_field: Value,
+    rvalue: Value,
+    node_indices: struct { lhs: u32, rhs: u32, node: u32 },
+) RuntimeError!void {
+    switch (lvalue.taggedValue()) {
+        .list => |list| {
+            if (!lvalue_field.isNumber()) try vm.setError(node_indices.rhs, .{
+                .invalid_type = .{ .exp = .number, .act = lvalue_field },
+            });
+
+            const index: usize = index: {
+                const index = lvalue_field.asNumber();
+                if (index < 0)
+                    break :index error.ValueError;
+                if (@as(usize, @intFromFloat(index)) > list.array.items.len)
+                    break :index error.ValueError;
+                break :index @as(usize, @intFromFloat(lvalue_field.asNumber()));
+            } catch try vm.setError(node_indices.rhs, .array_access_out_of_bounds);
+
+            list.array.items[index] = rvalue;
+        },
+        .dict => |dict| {
+            if (!lvalue_field.isString()) try vm.setError(node_indices.rhs, .{
+                .invalid_type = .{ .exp = .string, .act = lvalue_field },
+            });
+
+            const field = lvalue_field.asString();
+            const gop = dict.map.getOrPutContext(
+                vm.valueAllocator(),
+                field,
+                .{ .pool = vm.string_builder.pool },
+            ) catch try vm.setError(node_indices.node, .value_oom);
+
+            gop.value_ptr.* = rvalue;
+        },
+        else => try vm.setError(node_indices.lhs, .{
+            .invalid_type = .{ .exp = .list, .act = lvalue },
+        }),
+    }
+}
+
+pub fn evalAssignment(vm: *Vm, lvalue: LValue, rvalue: Value) !void {
+    switch (lvalue) {
+        .variable => |variable| {
+            vm.setVariable(variable.get(vm.all_nodes, vm.src), rvalue) catch
+                try vm.setError(variable.node_index, .undeclared_variable);
+        },
+        .dot_access => |dot_access| {
+            const lhs_node = dot_access.lhs(vm.all_nodes);
+            const lhs = try evalExpression(vm, lhs_node);
+
+            const rhs_node = dot_access.rhs(vm.all_nodes);
+            const rhs_name = rhs_node.get(vm.all_nodes, vm.src);
+            const rhs = Value.string(blk: {
+                const sb = &vm.string_builder;
+                const m = sb.begin();
+                sb.w.writer.writeAll(rhs_name) catch |err| break :blk err;
+                break :blk sb.finish(m);
+            } catch try vm.setError(rhs_node.node_index, .internal_oom));
+
+            try evalAccessAssignment(vm, lhs, rhs, rvalue, .{
+                .rhs = rhs_node.node_index,
+                .lhs = lhs_node.nodeIndex(),
+                .node = dot_access.node_index,
+            });
+        },
+        .bracket_access => |bracket_access| {
+            const lhs_node = bracket_access.lhs(vm.all_nodes);
+            const rhs_node = bracket_access.rhs(vm.all_nodes);
+
+            const lhs = try evalExpression(vm, lhs_node);
+            const rhs = try evalExpression(vm, rhs_node);
+
+            return evalAccessAssignment(vm, lhs, rhs, rvalue, .{
+                .rhs = rhs_node.nodeIndex(),
+                .lhs = lhs_node.nodeIndex(),
+                .node = bracket_access.node_index,
+            });
+        },
+    }
+}
+
 pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
     const op = node.op(vm.all_nodes);
 
     if (op == .assign) {
         const lhs = node.lhs(vm.all_nodes);
-        if (lhs == .ident) {
-            const value = try evalExpression(vm, node.rhs(vm.all_nodes));
-            vm.setVariable(lhs.ident.get(vm.all_nodes, vm.src), value) catch
-                try vm.setError(lhs.ident.node_index, .undeclared_variable);
-            return Value.nil;
-        } else try vm.setError(node.node_index, .cannot_assign_to_non_variable);
+
+        const lvalue: LValue = switch (lhs) {
+            .ident => |variable| .{ .variable = variable },
+            .dot_access => |dot_access| .{ .dot_access = dot_access },
+            .bracket_access => |bracket_access| .{ .bracket_access = bracket_access },
+            else => try vm.setError(node.node_index, .cannot_assign_to_non_variable),
+        };
+
+        const value = try evalExpression(vm, node.rhs(vm.all_nodes));
+        try evalAssignment(vm, lvalue, value);
+
+        return Value.nil;
     }
 
     const lhs = try evalExpression(vm, node.lhs(vm.all_nodes));

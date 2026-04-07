@@ -184,8 +184,6 @@ const RuntimeErrorPayload = struct {
         value_oom,
         /// Out of memory for allocating internal interpreter things
         internal_oom,
-        /// Integer literal is too large
-        number_too_large,
         /// Could not write to .output because of a std.Io.Writer.Error
         write_failure,
         /// Too many variables bound to a scope
@@ -197,7 +195,7 @@ const RuntimeErrorPayload = struct {
         invalid_binary_operands: struct { lhs: Value, rhs: Value },
         /// Invalid operands to unary operator. node.op <rhs> is not allowed.
         invalid_unary_operands: struct { rhs: Value },
-        invalid_type: struct { expected: Value.Type, actual: Value },
+        invalid_type: struct { exp: Value.Type, act: Value },
         cannot_print_value: Value,
         cannot_call_value: Value,
         invalid_function_args: struct { expected_num: u32, actual_num: u32 },
@@ -205,6 +203,7 @@ const RuntimeErrorPayload = struct {
         misplaced_continue,
         misplaced_return,
         function_return_and_text,
+        array_access_out_of_bounds,
     };
 };
 

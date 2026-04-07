@@ -155,17 +155,26 @@ test "list" {
         \\#*        return h + 3
         \\#*    end
         \\#* ]
+        \\#*
         \\#* `@(h[0])
         \\#* `@(h[1])
         \\#* `@(h[2][1])
         \\#* `@(h[3](h[0]))
         \\#* `@(h[3](h[2][0]))
+        \\
+        \\#* h[0] = "hello"
+        \\#* h[2][0] = h[2][0] + h[2][1]
+        \\#* `@(h[0])
+        \\#* `@(h[2][0])
     ,
         \\hi
         \\10
         \\2
         \\hi3
         \\13
+        \\
+        \\hello
+        \\12
         \\
     );
 }
@@ -181,20 +190,48 @@ test "dict" {
         \\#*    f = func(a)
         \\#*        return a[0]
         \\#*    end,
+        \\#*    thing = {
+        \\#*        hello = "a",
+        \\#*        there = "b"
+        \\#*    }
         \\#* }
+        \\#*
+        \\#* let b = ["yelp"]
+        \\#*
         \\#* `@(h.red)
         \\#* `@(h["orange"])
         \\#* `@(h[h.index])
         \\#* `@(h.green)
+        \\#* `@(h.f(b))
+        \\#* `@(h.thing.hello + h.thing["there"] + h["thing"].there + h["thing"]["hello"])
+        \\
+        \\#* h.index     = "green"
+        \\#* h.red       = "not " + h.red
+        \\#* h["orange"] = "not " + h.orange
+        \\#* h.blue      = "not " + h["blue"]
+        \\#* h[h.index]  = "not " + h[h.index]
+        \\#* h["thing"].hello = "b"
+        \\#* h.thing["there"] = "a"
         \\#*
-        \\#* let b = ["yelp"]
-        \\#* h.f(b)
+        \\#* `@(h.red)
+        \\#* `@(h["orange"])
+        \\#* `@(h.blue)
+        \\#* `@(h[h.index])
+        \\#* `@(h.thing.hello + h.thing["there"] + h["thing"].there + h["thing"]["hello"])
     ,
         \\red??
         \\orange!?
         \\blue.
         \\green!
         \\yelp
+        \\abba
+        \\
+        \\not red??
+        \\not orange!?
+        \\not blue.
+        \\not green!
+        \\baab
+        \\
     );
 }
 
