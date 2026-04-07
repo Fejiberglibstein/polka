@@ -229,7 +229,13 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
             }
         }
 
-        if (m == try p.marker()) try p.addError(.expected_expression);
+        if (m == try p.marker()) {
+            if (p.at(.unexpected_character)) {
+                try p.eat();
+            } else {
+                try p.addError(.expected_expression);
+            }
+        }
         break;
     }
 }

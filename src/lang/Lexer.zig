@@ -222,15 +222,18 @@ fn string(self: *Lexer) SyntaxKind {
     while (true) {
         self.s.eatUntil(.{ .any = &.{ '\\', '"', '\n', '\r' } });
 
-        if (self.s.eatNewline()) {
-            return .unexpected_character;
-        }
+        switch (self.s.peek() orelse 0) {
+            '\\' => {
+                _ = self.s.eat();
+                _ = self.s.eatIf(.{ .char = '"' });
+            },
+            '"' => {
+                assert(self.s.eat() == '"');
+                break;
+            },
 
-        switch (self.s.eat() orelse 0) {
-            '\\' => _ = self.s.eatIf(.{ .char = '"' }),
-            '"' => break,
-
-            else => {},
+            '\n', '\r', 0 => return .unexpected_character,
+            else => unreachable,
         }
     }
     return .static_string;
