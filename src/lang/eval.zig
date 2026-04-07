@@ -5,15 +5,14 @@ pub fn evalText(vm: *Vm, node: ast.Text) ControlFlow!void {
 
     const out = vm.out();
     while (parts.next(vm.all_nodes)) |part| {
-        switch (part) {
-            .newline => |nl| _ = out.write("\n") catch
-                try vm.setError(nl.node_index, .write_failure),
-            .text_line => |line| _ = out.write(line.get(vm.src, vm.all_nodes)) catch
-                try vm.setError(line.node_index, .write_failure),
-            .code => |code| {
-                try evalCode(vm, code);
-            },
-        }
+        (switch (part) {
+            .newline => out.writeAll("\n"),
+            .code => |code| try evalCode(vm, code),
+            .text_line => |line| out.writeAll(line.get(vm.src, vm.all_nodes)),
+        }) catch |err| switch (err) {
+            error.WriteFailed => try vm.setError(part.nodeIndex(), .write_failure),
+            inline else => |e| return e,
+        };
     }
 }
 
@@ -33,7 +32,8 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
             .expression => |expr| {
                 const res = try evalExpression(vm, expr);
                 if (res.getString()) |str| {
-                    out.print("{s}", .{vm.string_builder.pool.get(str)}) catch
+                    const bytes = vm.string_builder.pool.get(str);
+                    out.writeAll(bytes) catch
                         try vm.setError(expr.nodeIndex(), .write_failure);
                     continue;
                 }

@@ -134,6 +134,12 @@ pub const TextPart = union(enum) {
     newline: Newline,
     text_line: TextLine,
     code: Code,
+
+    pub fn nodeIndex(part: TextPart) u32 {
+        return switch (part) {
+            inline else => |v| v.node_index,
+        };
+    }
 };
 
 pub const TextLine = struct {
