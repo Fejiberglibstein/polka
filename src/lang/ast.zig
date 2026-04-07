@@ -166,6 +166,13 @@ pub const Statement = union(enum) {
     return_statement: ReturnStatement,
     export_statement: ExportStatement,
     continue_statement: ContinueStatement,
+
+    pub fn nodeIndex(stmt: Statement) u32 {
+        return switch (stmt) {
+            .expression => |expr| expr.nodeIndex(),
+            inline else => |v| v.node_index,
+        };
+    }
 };
 
 pub const Expression = union(enum) {
@@ -186,6 +193,12 @@ pub const Expression = union(enum) {
     static_string: StaticString,
     bracket_access: BracketAccess,
     multi_line_string: MultiLineString,
+
+    pub fn nodeIndex(expr: Expression) u32 {
+        return switch (expr) {
+            inline else => |v| v.node_index,
+        };
+    }
 };
 
 pub const List = struct {
@@ -632,6 +645,12 @@ pub const MLSPart = union(enum) {
     newline: Newline,
     text: MLSText,
     expression: MLSExpression,
+
+    pub fn nodeIndex(part: MLSPart) u32 {
+        return switch (part) {
+            inline else => |v| v.node_index,
+        };
+    }
 };
 
 pub const MLSExpression = struct {

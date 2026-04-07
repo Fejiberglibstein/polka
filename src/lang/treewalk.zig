@@ -30,20 +30,17 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
             .return_statement => |ret| try evalReturnStatement(vm, ret),
             .while_loop => |while_loop| try evalWhileLoop(vm, while_loop),
             .conditional => |conditional| try evalConditional(vm, conditional),
-            .expression => |expr| switch (expr) {
-                // Inline else so that the node's node_index may be used
-                inline else => |v| {
-                    const res = try evalExpression(vm, expr);
-                    if (res.getString()) |str| {
-                        out.print("{s}", .{vm.string_builder.pool.get(str)}) catch
-                            try vm.setError(v.node_index, .write_failure);
-                        continue;
-                    }
+            .expression => |expr| {
+                const res = try evalExpression(vm, expr);
+                if (res.getString()) |str| {
+                    out.print("{s}", .{vm.string_builder.pool.get(str)}) catch
+                        try vm.setError(expr.nodeIndex(), .write_failure);
+                    continue;
+                }
 
-                    if (!res.isNil()) {
-                        try vm.setError(v.node_index, .{ .cannot_print_value = res });
-                    }
-                },
+                if (!res.isNil()) {
+                    try vm.setError(expr.nodeIndex(), .{ .cannot_print_value = res });
+                }
             },
         }
     }
@@ -130,21 +127,20 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
 
     var parts = node.parts(vm.all_nodes);
     while (parts.next(vm.all_nodes)) |part| {
-        const node_index = switch (part) {
-            inline else => |v| v.node_index,
-        };
-
         (switch (part) {
             .newline => |_| sb.w.writer.print("\n", .{}),
             .text => |text| sb.w.writer.print("{s}", .{text.get(vm.all_nodes, vm.src)}),
             .expression => |expr| blk: {
                 const v = try evalExpression(vm, expr.get(vm.all_nodes));
                 v.print(vm.string_builder.pool, &sb.w.writer) catch |err| switch (err) {
-                    error.ValueError => try vm.setError(node_index, .{ .cannot_print_value = v }),
+                    error.ValueError => try vm.setError(
+                        part.nodeIndex(),
+                        .{ .cannot_print_value = v },
+                    ),
                     error.WriteFailed => break :blk error.WriteFailed,
                 };
             },
-        }) catch try vm.setError(node_index, .internal_oom);
+        }) catch try vm.setError(part.nodeIndex(), .internal_oom);
     }
     sb.w.writer.print("\n", .{}) catch try vm.setError(node.node_index, .internal_oom);
 
