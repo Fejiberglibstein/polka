@@ -363,7 +363,7 @@ pub const Object = struct {
 
         func: union(enum) {
             builtin: struct {
-                func: *const fn (ctx: CallCtx, args: []const Value) RuntimeError!Value,
+                func: *const fn (ctx: CallCtx, args: *const [max_args]Value) RuntimeError!Value,
             },
             runtime: struct {
                 /// Index into the list of all nodes of this function's definition
@@ -378,6 +378,8 @@ pub const Object = struct {
             vm: *Vm,
             caller_node_index: u32,
         };
+
+        pub const max_args = 32;
 
         pub fn initBuiltin(comptime func: anytype) *Object {
             const FuncType = @TypeOf(func);

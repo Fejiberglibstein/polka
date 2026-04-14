@@ -74,10 +74,10 @@ pub fn run(self: *Vm) ?RuntimeErrorPayload {
     const root = ast.toASTNode(ast.Text, @intCast(self.all_nodes.len - 1), self.all_nodes) orelse unreachable;
     eval.evalText(self, root) catch |err| {
         (switch (err) {
-            ControlFlow.Error => RuntimeError.Error,
             ControlFlow.Break => self.setError(root.node_index, .misplaced_break),
             ControlFlow.Return => self.setError(root.node_index, .misplaced_return),
             ControlFlow.Continue => self.setError(root.node_index, .misplaced_continue),
+            ControlFlow.RuntimeError => error.RuntimeError,
         }) catch return self.err;
     };
 
@@ -98,7 +98,7 @@ pub fn valueAllocator(self: *Vm) Allocator {
 
 pub fn setError(self: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) RuntimeError!noreturn {
     self.err = .{ .node_index = node_index, .kind = kind };
-    return RuntimeError.Error;
+    return error.RuntimeError;
 }
 
 pub fn inFunction(self: *const Vm) bool {
@@ -207,7 +207,7 @@ const RuntimeErrorPayload = struct {
     };
 };
 
-pub const RuntimeError = error{Error};
+pub const RuntimeError = error{RuntimeError};
 pub const ControlFlow = error{
     /// A break statement has occurred
     Break,

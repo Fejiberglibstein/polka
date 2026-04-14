@@ -295,8 +295,35 @@ pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
 
     return switch (function.func) {
         .runtime => try callRuntimeFunction(vm, function, node),
-        .builtin => @panic("TODO"),
+        .builtin => try callBuiltinFunction(vm, function, node),
     };
+}
+
+pub fn callBuiltinFunction(
+    vm: *Vm,
+    function: *Object.Function,
+    callsite: ast.FunctionCall,
+) RuntimeError!Value {
+    const builtin = function.func.builtin;
+
+    var arguments: [Object.Function.max_args]Value = @splat(Value.nil);
+    var args_iter = callsite.arguments(vm.all_nodes).get(vm.all_nodes);
+
+    var i: usize = 0;
+    while (args_iter.next(vm.all_nodes)) |arg_node| : (i += 1) {
+        const arg = try evalExpression(vm, arg_node);
+
+        // Continue evaluating function args
+        //
+        // TODO: there should probably be an error emitted somewhere when you call a function with
+        // too many arguments
+        if (i >= Object.Function.max_args)
+            continue;
+
+        arguments[i] = arg;
+    }
+
+    return builtin.func(.{ .vm = vm, .caller_node_index = callsite.node_index }, &arguments);
 }
 
 pub fn callRuntimeFunction(
@@ -325,27 +352,20 @@ pub fn callRuntimeFunction(
         if (arg == null and param == null)
             break;
 
-        if (arg == null) try vm.setError(arguments.node_index, .{
-            .invalid_function_args = .{
-                // .len() will get the number of remaining parameters.
-                .expected_num = i + param_iter.len(vm.all_nodes),
-                .actual_num = i,
-            },
-        });
-        if (param == null) try vm.setError(arguments.node_index, .{
-            .invalid_function_args = .{
-                .expected_num = i,
-                // .len() will get the number of remaining arguments.
-                .actual_num = i + arg_iter.len(vm.all_nodes),
-            },
-        });
-
         // The value needs to be evaluated in the old scope so that variables bound outside the
         // function call can be passed as arguments to the function.
-        const function_scope = vm.scope;
-        vm.scope = caller_scope;
-        const value = try evalExpression(vm, arg.?);
-        vm.scope = function_scope;
+        const value = value: {
+            const function_scope = vm.scope;
+            vm.scope = caller_scope;
+            defer vm.scope = function_scope;
+
+            break :value if (arg) |a| try evalExpression(vm, a) else Value.nil;
+        };
+
+        // this should be placed after evaluating the argument, to have the same behavior as lua
+        // does.
+        if (param == null)
+            continue;
 
         vm.bindVariable(param.?.get(vm.all_nodes, vm.src), value) catch
             try vm.setError(arguments.node_index, .too_many_variables);
@@ -362,7 +382,7 @@ pub fn callRuntimeFunction(
             const m = vm.string_builder.begin();
 
             evalText(vm, body) catch |err| switch (err) {
-                RuntimeError.Error => return RuntimeError.Error,
+                error.RuntimeError => return error.RuntimeError,
                 ControlFlow.Continue => @panic("TODO"),
                 ControlFlow.Break => @panic("TODO"),
                 ControlFlow.Return => {},
@@ -552,8 +572,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const ast = @import("ast.zig");
-const Value = @import("value.zig").Value;
 const Object = @import("value.zig").Object;
+const Value = @import("value.zig").Value;
 const Vm = @import("Vm.zig");
 const RuntimeError = Vm.RuntimeError;
 const ControlFlow = Vm.ControlFlow;
