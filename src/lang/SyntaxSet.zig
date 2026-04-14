@@ -3,12 +3,7 @@
 //! It is made up of a bitfield with 1s for each SyntaxKind in the set
 const SyntaxSet = @This();
 
-const BackingInt = @Type(.{
-    .int = .{
-        .signedness = .unsigned,
-        .bits = @typeInfo(SyntaxKind).@"enum".fields.len,
-    },
-});
+const BackingInt = @Int(.unsigned, @typeInfo(SyntaxKind).@"enum".fields.len);
 
 v: BackingInt,
 

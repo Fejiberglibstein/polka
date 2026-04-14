@@ -16,7 +16,6 @@ pub fn main() !void {
 test {
     _ = @import("lang/test_eval.zig");
     _ = @import("lang/test_syntax.zig");
-    std.testing.refAllDeclsRecursive(@This());
 }
 
 const std = @import("std");

@@ -128,7 +128,7 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
     var parts = node.parts(vm.all_nodes);
     while (parts.next(vm.all_nodes)) |part| {
         (switch (part) {
-            .newline => |_| sb.w.writer.print("\n", .{}),
+            .newline => sb.w.writer.print("\n", .{}),
             .text => |text| sb.w.writer.print("{s}", .{text.get(vm.all_nodes, vm.src)}),
             .expression => |expr| blk: {
                 const v = try evalExpression(vm, expr.get(vm.all_nodes));
@@ -295,7 +295,7 @@ pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
 
     return switch (function.func) {
         .runtime => try callRuntimeFunction(vm, function, node),
-        .builtin => |_| @panic("TODO"),
+        .builtin => @panic("TODO"),
     };
 }
 
@@ -362,7 +362,7 @@ pub fn callRuntimeFunction(
             const m = vm.string_builder.begin();
 
             evalText(vm, body) catch |err| switch (err) {
-                ControlFlow.Error => return ControlFlow.Error,
+                RuntimeError.Error => return RuntimeError.Error,
                 ControlFlow.Continue => @panic("TODO"),
                 ControlFlow.Break => @panic("TODO"),
                 ControlFlow.Return => {},

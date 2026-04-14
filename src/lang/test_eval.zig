@@ -237,6 +237,7 @@ test "dict" {
 
 fn testEval(source: []const u8, expected: []const u8) !void {
     var gpa = std.heap.DebugAllocator(.{}).init;
+    const io = std.testing.io;
     defer _ = gpa.deinit();
 
     const parsed = try parser.parse(source, .text, gpa.allocator());
@@ -245,7 +246,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     const root = parsed.nodes[parsed.nodes.len - 1];
     if (parsed.errors.len != 0) {
         var buffer: [2048]u8 = undefined;
-        var writer = std.fs.File.stderr().writer(&buffer);
+        var writer = std.Io.File.stderr().writer(io, &buffer);
         try root.print(parsed.nodes, source, 0, &writer.interface);
         try writer.interface.flush();
 
@@ -278,7 +279,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
         std.debug.print("Error: {any}\n", .{err});
 
         var buffer: [2048]u8 = undefined;
-        var stderr = std.fs.File.stderr().writer(&buffer);
+        var stderr = std.Io.File.stderr().writer(io, &buffer);
 
         const err_node = parsed.nodes[err.node_index];
         try err_node.print(parsed.nodes, source, 0, &stderr.interface);

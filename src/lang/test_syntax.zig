@@ -911,6 +911,7 @@ const TreeConstructor = struct {
 };
 
 fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const SyntaxNode) !void {
+    const io = std.testing.io;
     const parsed = try parser.parse(source, .text, gpa);
     defer parsed.deinit(gpa);
     defer gpa.free(expected);
@@ -924,7 +925,7 @@ fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const Synt
 
     if (parsed.errors.len != 0) {
         var buffer: [2048]u8 = undefined;
-        var act_writer = std.fs.File.stderr().writer(&buffer);
+        var act_writer = std.Io.File.stderr().writer(io, &buffer);
         try actual_root.print(parsed.nodes, source, 0, &act_writer.interface);
         try act_writer.interface.flush();
 
