@@ -481,19 +481,21 @@ pub const Value = packed union {
             }
 
             pub const methods = struct {
-                pub fn append(
-                    ctx: Function.CallCtx,
-                    args: []const Value,
-                ) RuntimeError!Value {
-                    assert(args.len > 1);
+                pub fn len(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
+                    _ = args;
+                    const self = ctx.self.asObject().asList();
+                    return Value.newNumber(@floatFromInt(self.array.items.len));
+                }
+
+                pub fn append(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
                     const self = ctx.self.asObject().asList();
 
-                    for (args[1..]) |arg| {
+                    for (args[0..]) |arg| {
                         self.array.append(ctx.vm.valueAllocator(), arg) catch
                             try ctx.vm.setError(ctx.caller_node_index, .value_oom);
                     }
 
-                    return ctx.self;
+                    return Value.nil;
                 }
             };
         };
@@ -512,25 +514,7 @@ pub const Value = packed union {
                 return &ret.base;
             }
 
-            pub const methods = struct {
-                pub fn get(
-                    ctx: Function.CallCtx,
-                    args: []const Value,
-                ) RuntimeError!Value {
-                    assert(args.len > 0);
-                    const self = args[0].asObject().asDict();
-
-                    const key_val: Value = if (args.len > 1) args[1] else .nil;
-                    const key = key_val.getString() orelse
-                        try ctx.vm.setError(ctx.caller_node_index, .{ .invalid_type = .{
-                            .exp = .string,
-                            .act = key_val,
-                        } });
-
-                    const sb = &ctx.vm.string_builder;
-                    return self.map.getContext(key, .{ .pool = sb.pool }) orelse .nil;
-                }
-            };
+            pub const methods = struct {};
         };
 
         pub const Function = struct {

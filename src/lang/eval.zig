@@ -317,8 +317,8 @@ pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
     };
 
     return switch (function.func) {
-        .runtime => try callRuntimeFunction(vm, function, node),
-        .builtin => try callBuiltinFunction(vm, function, node),
+        .runtime => callRuntimeFunction(vm, function, node),
+        .builtin => callBuiltinFunction(vm, function, node),
     };
 }
 
@@ -332,25 +332,25 @@ pub fn callBuiltinFunction(
     var arguments: [Value.Object.Function.max_args]Value = @splat(Value.nil);
     var args_iter = callsite.arguments(vm.all_nodes).get(vm.all_nodes);
 
-    var i: usize = 0;
-    while (args_iter.next(vm.all_nodes)) |arg_node| : (i += 1) {
+    var total_args: usize = 0;
+    while (args_iter.next(vm.all_nodes)) |arg_node| : (total_args += 1) {
         const arg = try evalExpression(vm, arg_node);
 
         // Continue evaluating function args
         //
         // TODO: there should probably be an error emitted somewhere when you call a function with
         // too many arguments
-        if (i >= Value.Object.Function.max_args)
+        if (total_args >= Value.Object.Function.max_args)
             continue;
 
-        arguments[i] = arg;
+        arguments[total_args] = arg;
     }
 
     return builtin.func(.{
         .vm = vm,
         .caller_node_index = callsite.node_index,
         .self = builtin.self,
-    }, &arguments);
+    }, arguments[0..total_args]);
 }
 
 pub fn callRuntimeFunction(
