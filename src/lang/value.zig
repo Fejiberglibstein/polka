@@ -48,49 +48,49 @@ pub const Value = packed union {
     const false_value: Value = .{ .tagged = .{ .bits = 0, .tag = .false } };
     pub const nil: Value = .{ .tagged = .{ .bits = 0, .tag = .nil } };
 
-    pub fn isNan(self: Value) bool {
-        return self.bits & ~sign_mask == nan_mask;
+    pub fn isNan(value: Value) bool {
+        return value.bits & ~sign_mask == nan_mask;
     }
-    pub fn isNumber(self: Value) bool {
-        return self.tagged.nan_mask != 0b0_11111111111_1 or self.isNan();
+    pub fn isNumber(value: Value) bool {
+        return value.tagged.nan_mask != 0b0_11111111111_1 or value.isNan();
     }
-    pub fn isBoolean(self: Value) bool {
-        return self == true_value or self == false_value;
+    pub fn isBoolean(value: Value) bool {
+        return value == true_value or value == false_value;
     }
-    pub fn isNil(self: Value) bool {
-        return self == Value.nil;
+    pub fn isNil(value: Value) bool {
+        return value == Value.nil;
     }
-    pub fn isString(self: Value) bool {
-        return !self.isNumber() and self.tagged.tag == .string;
+    pub fn isString(value: Value) bool {
+        return !value.isNumber() and value.tagged.tag == .string;
     }
-    pub fn isObject(self: Value) bool {
-        return !self.isNumber() and self.tagged.tag == .object;
-    }
-
-    pub fn getNumber(self: Value) ?f64 {
-        return if (self.isNumber()) self.asNumber() else null;
-    }
-    pub fn getBoolean(self: Value) ?bool {
-        return if (self.isBoolean()) self.asBoolean() else null;
-    }
-    pub fn getString(self: Value) ?String {
-        return if (self.isString()) self.asString() else null;
-    }
-    pub fn getObject(self: Value) ?*Object {
-        return if (self.isObject()) self.asObject() else null;
+    pub fn isObject(value: Value) bool {
+        return !value.isNumber() and value.tagged.tag == .object;
     }
 
-    pub fn asNumber(self: Value) f64 {
-        return self.float;
+    pub fn getNumber(value: Value) ?f64 {
+        return if (value.isNumber()) value.asNumber() else null;
     }
-    pub fn asBoolean(self: Value) bool {
-        return self == true_value;
+    pub fn getBoolean(value: Value) ?bool {
+        return if (value.isBoolean()) value.asBoolean() else null;
     }
-    pub fn asString(self: Value) String {
-        return @enumFromInt(self.bits & payload_mask);
+    pub fn getString(value: Value) ?String {
+        return if (value.isString()) value.asString() else null;
     }
-    pub fn asObject(self: Value) *Object {
-        return @ptrFromInt(self.bits & payload_mask);
+    pub fn getObject(value: Value) ?*Object {
+        return if (value.isObject()) value.asObject() else null;
+    }
+
+    pub fn asNumber(value: Value) f64 {
+        return value.float;
+    }
+    pub fn asBoolean(value: Value) bool {
+        return value == true_value;
+    }
+    pub fn asString(value: Value) String {
+        return @enumFromInt(value.bits & payload_mask);
+    }
+    pub fn asObject(value: Value) *Object {
+        return @ptrFromInt(value.bits & payload_mask);
     }
 
     pub fn newObject(o: *const Object) Value {
@@ -121,16 +121,16 @@ pub const Value = packed union {
         dict,
         function,
     };
-    pub fn typ(self: Value) Type {
-        return if (self.isNil())
+    pub fn typ(value: Value) Type {
+        return if (value.isNil())
             .nil
-        else if (self.isNumber())
+        else if (value.isNumber())
             .number
-        else if (self.isBoolean())
+        else if (value.isBoolean())
             .boolean
-        else if (self.isString())
+        else if (value.isString())
             .string
-        else if (self.getObject()) |obj| switch (obj.tag) {
+        else if (value.getObject()) |obj| switch (obj.tag) {
             inline else => |t| std.meta.stringToEnum(Type, @tagName(t)) orelse unreachable,
         } else unreachable;
     }
@@ -145,23 +145,23 @@ pub const Value = packed union {
         dict: *Object.Dict,
         function: *Object.Function,
     };
-    pub fn taggedValue(self: Value) TaggedValue {
-        return switch (self.typ()) {
+    pub fn taggedValue(value: Value) TaggedValue {
+        return switch (value.typ()) {
             .nil => .nil,
-            .number => .{ .number = self.asNumber() },
-            .boolean => .{ .boolean = self.asBoolean() },
-            .string => .{ .string = self.asString() },
-            .list => .{ .list = self.asObject().asList() },
-            .dict => .{ .dict = self.asObject().asDict() },
-            .function => .{ .function = self.asObject().asFunction() },
+            .number => .{ .number = value.asNumber() },
+            .boolean => .{ .boolean = value.asBoolean() },
+            .string => .{ .string = value.asString() },
+            .list => .{ .list = value.asObject().asList() },
+            .dict => .{ .dict = value.asObject().asDict() },
+            .function => .{ .function = value.asObject().asFunction() },
         };
     }
 
-    pub fn isTruthy(self: Value) bool {
-        return self != Value.nil and self != false_value;
+    pub fn isTruthy(value: Value) bool {
+        return value != Value.nil and value != false_value;
     }
 
-    pub fn methods(self: Value) std.StaticStringMap(Object.Function.BuiltinFn) {
+    pub fn methods(value: Value) std.StaticStringMap(Object.Function.BuiltinFn) {
         const vtable = comptime vtables: {
             const tagged_fields = @typeInfo(Value.TaggedValue).@"union".fields;
             const VTable = std.StaticStringMap(Object.Function.BuiltinFn);
@@ -191,16 +191,16 @@ pub const Value = packed union {
             break :vtables vtables;
         };
 
-        return vtable[@intFromEnum(self.typ())];
+        return vtable[@intFromEnum(value.typ())];
     }
 
     pub fn getMethod(
-        self: Value,
+        value: Value,
         gpa: Allocator,
         function_name: []const u8,
     ) !?*Object {
-        return if (self.methods().get(function_name)) |function|
-            try Object.Function.initBuiltin(gpa, function, self)
+        return if (value.methods().get(function_name)) |function|
+            try Object.Function.initBuiltin(gpa, function, value)
         else
             null;
     }
@@ -297,11 +297,11 @@ pub const Value = packed union {
     /// Note that this should *not* be done with a format() function. This is because this function
     /// needs the *String.Pool so that it can print out strings correctly.
     pub fn print(
-        self: Value,
+        value: Value,
         strings: *String.Pool,
         w: *std.Io.Writer,
     ) error{ WriteFailed, ValueError }!void {
-        return switch (self.taggedValue()) {
+        return switch (value.taggedValue()) {
             .number => |n| w.print("{}", .{n}),
             .boolean => |b| w.print("{}", .{b}),
             .string => |str| w.print("{s}", .{strings.get(str)}),
@@ -310,11 +310,11 @@ pub const Value = packed union {
     }
 
     pub fn debugPrint(
-        self: Value,
+        value: Value,
         strings: *String.Pool,
         w: *std.Io.Writer,
     ) error{WriteFailed}!void {
-        return switch (self.taggedValue()) {
+        return switch (value.taggedValue()) {
             .nil => w.writeAll("<nil>"),
             .number => |n| w.print("{}", .{n}),
             .boolean => |b| w.print("{}", .{b}),
@@ -392,9 +392,9 @@ pub const Value = packed union {
                 };
             }
 
-            pub fn deinit(self: *@This()) void {
-                self.w.deinit();
-                self.* = undefined;
+            pub fn deinit(builder: *Builder) void {
+                builder.w.deinit();
+                builder.* = undefined;
             }
 
             pub const Marker = enum(u32) { _ };
@@ -443,28 +443,28 @@ pub const Value = packed union {
             function,
         };
 
-        pub fn asList(self: *Object) *List {
-            assert(self.tag == .list);
-            return @alignCast(@fieldParentPtr("base", self));
+        pub fn asList(obj: *Object) *List {
+            assert(obj.tag == .list);
+            return @alignCast(@fieldParentPtr("base", obj));
         }
-        pub fn getList(self: *Object) ?*List {
-            return if (self.tag == .list) self.asList() else null;
-        }
-
-        pub fn asDict(self: *Object) *Dict {
-            assert(self.tag == .dict);
-            return @alignCast(@fieldParentPtr("base", self));
-        }
-        pub fn getDict(self: *Object) ?*Dict {
-            return if (self.tag == .dict) self.asDict() else null;
+        pub fn getList(obj: *Object) ?*List {
+            return if (obj.tag == .list) obj.asList() else null;
         }
 
-        pub fn asFunction(self: *Object) *Function {
-            assert(self.tag == .function);
-            return @alignCast(@fieldParentPtr("base", self));
+        pub fn asDict(obj: *Object) *Dict {
+            assert(obj.tag == .dict);
+            return @alignCast(@fieldParentPtr("base", obj));
         }
-        pub fn getFunction(self: *Object) ?*Function {
-            return if (self.tag == .function) self.asFunction() else null;
+        pub fn getDict(obj: *Object) ?*Dict {
+            return if (obj.tag == .dict) obj.asDict() else null;
+        }
+
+        pub fn asFunction(obj: *Object) *Function {
+            assert(obj.tag == .function);
+            return @alignCast(@fieldParentPtr("base", obj));
+        }
+        pub fn getFunction(obj: *Object) ?*Function {
+            return if (obj.tag == .function) obj.asFunction() else null;
         }
 
         pub const List = struct {

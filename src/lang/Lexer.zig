@@ -48,8 +48,8 @@ pub const Token = struct {
     before_whitespace_index: u32,
 };
 
-pub fn reparse(self: *Lexer, token: Token) void {
-    self.position = .{
+pub fn reparse(lexer: *Lexer, token: Token) void {
+    lexer.position = .{
         .line = token.position.line,
         .col = if (token.position.col != 1)
             token.position.col - (token.start_index - token.before_whitespace_index)
@@ -58,42 +58,42 @@ pub fn reparse(self: *Lexer, token: Token) void {
             // whitespace
             1,
     };
-    self.s.moveTo(token.before_whitespace_index);
+    lexer.s.moveTo(token.before_whitespace_index);
 }
 
-pub fn next(self: *Lexer) Token {
-    const before_whitespace = self.s.cursor;
-    if (!(self.mode == .text or self.mode == .multiline_string)) {
-        self.s.eatWhitespace();
+pub fn next(lexer: *Lexer) Token {
+    const before_whitespace = lexer.s.cursor;
+    if (!(lexer.mode == .text or lexer.mode == .multiline_string)) {
+        lexer.s.eatWhitespace();
     }
-    const start = self.s.cursor;
-    self.position.col += @intCast(start - before_whitespace);
+    const start = lexer.s.cursor;
+    lexer.position.col += @intCast(start - before_whitespace);
 
-    const position = self.position;
+    const position = lexer.position;
 
-    const kind: SyntaxKind = if (self.s.peek() == null)
+    const kind: SyntaxKind = if (lexer.s.peek() == null)
         .eof
-    else if (self.s.eatNewline()) blk: {
-        self.position.line += 1;
-        self.position.col = 1;
+    else if (lexer.s.eatNewline()) blk: {
+        lexer.position.line += 1;
+        lexer.position.col = 1;
         break :blk .newline;
     } else blk: {
-        self.position.col += @intCast(self.s.cursor - start);
+        lexer.position.col += @intCast(lexer.s.cursor - start);
 
-        break :blk switch (self.mode) {
-            .multiline_string => self.multilineString(),
-            .code_file, .code_block, .code_line => self.code(),
+        break :blk switch (lexer.mode) {
+            .multiline_string => lexer.multilineString(),
+            .code_file, .code_block, .code_line => lexer.code(),
 
             .text => {
-                if (self.eatCodeBeginOrDelim()) |kind| break :blk kind;
-                self.s.eatUntil(.{ .any = &.{ '\r', '\n' } });
+                if (lexer.eatCodeBeginOrDelim()) |kind| break :blk kind;
+                lexer.s.eatUntil(.{ .any = &.{ '\r', '\n' } });
                 break :blk .text_line;
             },
         };
     };
 
-    self.position.col += @intCast(self.s.cursor - start);
-    const end = self.s.cursor;
+    lexer.position.col += @intCast(lexer.s.cursor - start);
+    const end = lexer.s.cursor;
 
     const node: SyntaxNode = .{
         .kind = kind,
@@ -110,29 +110,29 @@ pub fn next(self: *Lexer) Token {
     };
 }
 
-fn multilineString(self: *Lexer) SyntaxKind {
-    if (self.s.at(.{ .str = "@(" })) {
-        assert(self.s.eat() == '@');
+fn multilineString(lexer: *Lexer) SyntaxKind {
+    if (lexer.s.at(.{ .str = "@(" })) {
+        assert(lexer.s.eat() == '@');
         return .at;
     }
 
     while (true) {
-        self.s.eatUntil(.{ .any = &.{ '\r', '\n', '@' } });
+        lexer.s.eatUntil(.{ .any = &.{ '\r', '\n', '@' } });
 
-        if (!self.s.at(.{ .char = '@' })) break; // Break if we are at a newline
-        if (self.s.at(.{ .str = "@(" })) break; //  Break _only_ if we have @(
+        if (!lexer.s.at(.{ .char = '@' })) break; // Break if we are at a newline
+        if (lexer.s.at(.{ .str = "@(" })) break; //  Break _only_ if we have @(
 
         // If we don't have @(, we should consume the @
-        const char = self.s.eat() orelse break;
+        const char = lexer.s.eat() orelse break;
         assert(char == '@');
     }
     return .mls_text;
 }
 
-fn code(self: *Lexer) SyntaxKind {
-    if (eatCodeBeginOrDelim(self)) |tok| return tok;
+fn code(lexer: *Lexer) SyntaxKind {
+    if (eatCodeBeginOrDelim(lexer)) |tok| return tok;
 
-    return sw: switch (self.s.eat() orelse 0) {
+    return sw: switch (lexer.s.eat() orelse 0) {
         '@' => .at,
         '.' => .dot,
         '+' => .plus,
@@ -148,14 +148,14 @@ fn code(self: *Lexer) SyntaxKind {
         '`' => .backtick,
         '[' => .l_bracket,
         ']' => .r_bracket,
-        '=' => if (self.s.eatIf(.{ .char = '=' })) .eq_eq else .eq,
-        '<' => if (self.s.eatIf(.{ .char = '=' })) .lt_eq else .lt,
-        '>' => if (self.s.eatIf(.{ .char = '=' })) .gt_eq else .gt,
-        '~' => if (self.s.eatIf(.{ .char = '=' })) .not_eq else continue :sw 0,
+        '=' => if (lexer.s.eatIf(.{ .char = '=' })) .eq_eq else .eq,
+        '<' => if (lexer.s.eatIf(.{ .char = '=' })) .lt_eq else .lt,
+        '>' => if (lexer.s.eatIf(.{ .char = '=' })) .gt_eq else .gt,
+        '~' => if (lexer.s.eatIf(.{ .char = '=' })) .not_eq else continue :sw 0,
 
-        '"' => string(self),
-        '0'...'9' => self.number(),
-        'a'...'z', 'A'...'Z', '_' => ident(self),
+        '"' => string(lexer),
+        '0'...'9' => lexer.number(),
+        'a'...'z', 'A'...'Z', '_' => ident(lexer),
 
         else => .unexpected_character,
     };
@@ -169,22 +169,22 @@ fn isIdentChar(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or isDigit(c) or c == '_';
 }
 
-fn number(self: *Lexer) SyntaxKind {
+fn number(lexer: *Lexer) SyntaxKind {
     var kind: SyntaxKind = .integer;
-    self.s.eatWhile(.{ .func = isDigit });
-    if (self.s.eatIf(.{ .char = '.' })) {
+    lexer.s.eatWhile(.{ .func = isDigit });
+    if (lexer.s.eatIf(.{ .char = '.' })) {
         kind = .number;
-        self.s.eatWhile(.{ .func = isDigit });
+        lexer.s.eatWhile(.{ .func = isDigit });
     }
     return kind;
 }
 
-fn ident(self: *Lexer) SyntaxKind {
+fn ident(lexer: *Lexer) SyntaxKind {
     // we already parsed the first character of the ident
-    const cursor = self.s.cursor - 1;
-    self.s.eatWhile(.{ .func = isIdentChar });
+    const cursor = lexer.s.cursor - 1;
+    lexer.s.eatWhile(.{ .func = isIdentChar });
 
-    return if (keyword(self.s.from(cursor))) |k|
+    return if (keyword(lexer.s.from(cursor))) |k|
         k
     else
         .ident;
@@ -218,17 +218,17 @@ pub fn keyword(str: []const u8) ?SyntaxKind {
     return keywords.get(str);
 }
 
-fn string(self: *Lexer) SyntaxKind {
+fn string(lexer: *Lexer) SyntaxKind {
     while (true) {
-        self.s.eatUntil(.{ .any = &.{ '\\', '"', '\n', '\r' } });
+        lexer.s.eatUntil(.{ .any = &.{ '\\', '"', '\n', '\r' } });
 
-        switch (self.s.peek() orelse 0) {
+        switch (lexer.s.peek() orelse 0) {
             '\\' => {
-                _ = self.s.eat();
-                _ = self.s.eatIf(.{ .char = '"' });
+                _ = lexer.s.eat();
+                _ = lexer.s.eatIf(.{ .char = '"' });
             },
             '"' => {
-                assert(self.s.eat() == '"');
+                assert(lexer.s.eat() == '"');
                 break;
             },
 
@@ -239,40 +239,40 @@ fn string(self: *Lexer) SyntaxKind {
     return .static_string;
 }
 
-fn eatCodeBegin(self: *Lexer) ?SyntaxKind {
-    const start = self.s.cursor;
-    if (self.s.eatIf(.{ .str = self.comment_string })) {
-        if (self.s.eatIf(.{ .char = '*' })) {
+fn eatCodeBegin(lexer: *Lexer) ?SyntaxKind {
+    const start = lexer.s.cursor;
+    if (lexer.s.eatIf(.{ .str = lexer.comment_string })) {
+        if (lexer.s.eatIf(.{ .char = '*' })) {
             return .code_begin;
         } else {
-            self.s.moveTo(start);
+            lexer.s.moveTo(start);
         }
     }
     return null;
 }
 
-fn eatCodeDelim(self: *Lexer) ?SyntaxKind {
-    const start = self.s.cursor;
-    if (self.s.eatIf(.{ .str = self.comment_string })) {
-        if (self.s.eatIf(.{ .str = "**" })) {
+fn eatCodeDelim(lexer: *Lexer) ?SyntaxKind {
+    const start = lexer.s.cursor;
+    if (lexer.s.eatIf(.{ .str = lexer.comment_string })) {
+        if (lexer.s.eatIf(.{ .str = "**" })) {
             return .code_delim;
         } else {
-            self.s.moveTo(start);
+            lexer.s.moveTo(start);
         }
     }
     return null;
 }
 
-fn eatCodeBeginOrDelim(self: *Lexer) ?SyntaxKind {
-    const start = self.s.cursor;
-    if (self.s.eatIf(.{ .str = self.comment_string })) {
-        if (self.s.eatIf(.{ .char = '*' })) {
-            return if (self.s.eatIf(.{ .char = '*' }))
+fn eatCodeBeginOrDelim(lexer: *Lexer) ?SyntaxKind {
+    const start = lexer.s.cursor;
+    if (lexer.s.eatIf(.{ .str = lexer.comment_string })) {
+        if (lexer.s.eatIf(.{ .char = '*' })) {
+            return if (lexer.s.eatIf(.{ .char = '*' }))
                 .codeblock_delim
             else
                 .code_begin;
         } else {
-            self.s.moveTo(start);
+            lexer.s.moveTo(start);
         }
     }
     return null;

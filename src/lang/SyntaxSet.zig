@@ -8,29 +8,29 @@ const BackingInt = @Int(.unsigned, @typeInfo(SyntaxKind).@"enum".fields.len);
 v: BackingInt,
 
 pub fn init(kinds: []const SyntaxKind) SyntaxSet {
-    var self: SyntaxSet = .{ .v = 0 };
+    var set: SyntaxSet = .{ .v = 0 };
 
     for (kinds) |kind| {
-        _ = self.add(kind);
+        _ = set.add(kind);
     }
 
-    return self;
+    return set;
 }
 
-pub fn contains(self: SyntaxSet, kind: SyntaxKind) bool {
-    return self.v & (@as(BackingInt, 1) << @intFromEnum(kind)) != 0;
+pub fn contains(set: SyntaxSet, kind: SyntaxKind) bool {
+    return set.v & (@as(BackingInt, 1) << @intFromEnum(kind)) != 0;
 }
 
-pub fn add(self: *SyntaxSet, kind: SyntaxKind) void {
-    self.v |= (@as(BackingInt, 1) << @intFromEnum(kind));
+pub fn add(set: *SyntaxSet, kind: SyntaxKind) void {
+    set.v |= (@as(BackingInt, 1) << @intFromEnum(kind));
 }
 
-pub fn combine(self: *SyntaxSet, other: SyntaxSet) void {
-    self.v |= other.v;
+pub fn combine(a: *SyntaxSet, b: SyntaxSet) void {
+    a.v |= b.v;
 }
 
-pub fn remove(self: *SyntaxSet, kind: SyntaxKind) void {
-    self.v &= ~(@as(BackingInt, 1) << @intFromEnum(kind));
+pub fn remove(set: *SyntaxSet, kind: SyntaxKind) void {
+    set.v &= ~(@as(BackingInt, 1) << @intFromEnum(kind));
 }
 
 pub const newline: SyntaxSet = .init(&.{.newline});
@@ -38,5 +38,6 @@ pub const eof: SyntaxSet = .init(&.{.eof});
 pub const any: SyntaxSet = .{ .v = ~@as(BackingInt, 0) }; // Every bit is 1
 pub const none: SyntaxSet = .init(&.{});
 
-const SyntaxKind = @import("node.zig").SyntaxKind;
 const std = @import("std");
+
+const SyntaxKind = @import("node.zig").SyntaxKind;

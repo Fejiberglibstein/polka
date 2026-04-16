@@ -64,24 +64,24 @@ fn ASTIterator(T: type) type {
             };
         }
 
-        pub fn len(self: *@This(), all_nodes: []const SyntaxNode) u32 {
+        pub fn len(iter: *@This(), all_nodes: []const SyntaxNode) u32 {
             var count: u32 = 0;
-            while (self.next(all_nodes)) |_| {
+            while (iter.next(all_nodes)) |_| {
                 count += 1;
             }
             return count;
         }
 
-        pub fn skip(self: *@This(), n: usize, all_nodes: []const SyntaxNode) void {
+        pub fn skip(iter: *@This(), n: usize, all_nodes: []const SyntaxNode) void {
             for (0..n) |_| {
-                _ = self.next(all_nodes);
+                _ = iter.next(all_nodes);
             }
         }
 
-        pub fn next(self: *@This(), all_nodes: []const SyntaxNode) ?T {
-            while (self.index < self.stop_index) : (self.index += 1) {
-                if (toASTNode(T, self.index, all_nodes)) |child| {
-                    self.index += 1;
+        pub fn next(iter: *@This(), all_nodes: []const SyntaxNode) ?T {
+            while (iter.index < iter.stop_index) : (iter.index += 1) {
+                if (toASTNode(T, iter.index, all_nodes)) |child| {
+                    iter.index += 1;
                     return child;
                 }
             }
@@ -374,25 +374,25 @@ pub const Conditional = struct {
             body: Text,
         };
 
-        pub fn len(self: *BranchIterator, all_nodes: []const SyntaxNode) u32 {
+        pub fn len(iter: *BranchIterator, all_nodes: []const SyntaxNode) u32 {
             var count: u32 = 0;
-            while (self.next(all_nodes)) |_| {
+            while (iter.next(all_nodes)) |_| {
                 count += 1;
             }
             return count;
         }
 
-        pub fn next(self: *BranchIterator, all_nodes: []const SyntaxNode) ?Branch {
+        pub fn next(iter: *BranchIterator, all_nodes: []const SyntaxNode) ?Branch {
             // Will be null for an else branch
             var condition: ?Expression = null;
 
-            while (self.index < self.stop_index) {
-                defer self.index += 1;
+            while (iter.index < iter.stop_index) {
+                defer iter.index += 1;
 
-                if (toASTNode(Expression, self.index, all_nodes)) |child|
+                if (toASTNode(Expression, iter.index, all_nodes)) |child|
                     condition = child;
 
-                if (toASTNode(Text, self.index, all_nodes)) |body|
+                if (toASTNode(Text, iter.index, all_nodes)) |body|
                     return .{ .condition = condition, .body = body };
             }
             return null;
@@ -652,8 +652,8 @@ pub const MLSPart = union(enum) {
     text: MLSText,
     expression: MLSExpression,
 
-    pub fn nodeIndex(part: MLSPart) u32 {
-        return switch (part) {
+    pub fn nodeIndex(self: MLSPart) u32 {
+        return switch (self) {
             inline else => |v| v.node_index,
         };
     }
@@ -720,7 +720,8 @@ pub const False = ASTNode(.keyword_false);
 pub const BreakStatement = ASTNode(.keyword_break);
 pub const ContinueStatement = ASTNode(.keyword_continue);
 
-const SyntaxKind = @import("node.zig").SyntaxKind;
-const SyntaxNode = @import("node.zig").SyntaxNode;
 const std = @import("std");
 const assert = std.debug.assert;
+
+const SyntaxKind = @import("node.zig").SyntaxKind;
+const SyntaxNode = @import("node.zig").SyntaxNode;

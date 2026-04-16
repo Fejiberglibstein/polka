@@ -62,60 +62,60 @@ pub fn init(
     };
 }
 
-pub fn deinit(self: *Vm) void {
-    _ = self.value_allocator.reset(.retain_capacity);
-    self.variables.deinit(self.gpa);
-    self.string_builder.deinit();
+pub fn deinit(vm: *Vm) void {
+    _ = vm.value_allocator.reset(.retain_capacity);
+    vm.variables.deinit(vm.gpa);
+    vm.string_builder.deinit();
 }
 
-pub fn run(self: *Vm) ?RuntimeErrorPayload {
-    if (self.all_nodes.len == 0) return null;
+pub fn run(vm: *Vm) ?RuntimeErrorPayload {
+    if (vm.all_nodes.len == 0) return null;
 
-    const root = ast.toASTNode(ast.Text, @intCast(self.all_nodes.len - 1), self.all_nodes) orelse unreachable;
-    eval.evalText(self, root) catch |err| {
+    const root = ast.toASTNode(ast.Text, @intCast(vm.all_nodes.len - 1), vm.all_nodes) orelse unreachable;
+    eval.evalText(vm, root) catch |err| {
         (switch (err) {
-            ControlFlow.Break => self.setError(root.node_index, .misplaced_break),
-            ControlFlow.Return => self.setError(root.node_index, .misplaced_return),
-            ControlFlow.Continue => self.setError(root.node_index, .misplaced_continue),
+            ControlFlow.Break => vm.setError(root.node_index, .misplaced_break),
+            ControlFlow.Return => vm.setError(root.node_index, .misplaced_return),
+            ControlFlow.Continue => vm.setError(root.node_index, .misplaced_continue),
             ControlFlow.RuntimeError => error.RuntimeError,
-        }) catch return self.err;
+        }) catch return vm.err;
     };
 
-    assert(self.variables.items.len == 0);
+    assert(vm.variables.items.len == 0);
     return null;
 }
 
-pub fn out(self: *Vm) *std.Io.Writer {
-    return if (self.inFunction())
-        &self.string_builder.w.writer
+pub fn out(vm: *Vm) *std.Io.Writer {
+    return if (vm.inFunction())
+        &vm.string_builder.w.writer
     else
-        self.output_file;
+        vm.output_file;
 }
 
-pub fn valueAllocator(self: *Vm) Allocator {
-    return self.value_allocator.allocator();
+pub fn valueAllocator(vm: *Vm) Allocator {
+    return vm.value_allocator.allocator();
 }
 
-pub fn setError(self: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) RuntimeError!noreturn {
-    self.err = .{ .node_index = node_index, .kind = kind };
+pub fn setError(vm: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) RuntimeError!noreturn {
+    vm.err = .{ .node_index = node_index, .kind = kind };
     return error.RuntimeError;
 }
 
-pub fn inFunction(self: *const Vm) bool {
-    return self.scope.function_depth > 0;
+pub fn inFunction(vm: *const Vm) bool {
+    return vm.scope.function_depth > 0;
 }
 
-pub fn setVariable(self: *Vm, ident: []const u8, value: Value) !void {
-    var i: usize = self.variables.items.len;
+pub fn setVariable(vm: *Vm, ident: []const u8, value: Value) !void {
+    var i: usize = vm.variables.items.len;
 
     while (i > 0) {
         i = i - 1;
-        const variable = &self.variables.items[i];
+        const variable = &vm.variables.items[i];
 
-        if (variable.function_depth < self.scope.function_depth)
+        if (variable.function_depth < vm.scope.function_depth)
             break;
 
-        assert(variable.function_depth == self.scope.function_depth);
+        assert(variable.function_depth == vm.scope.function_depth);
         if (std.mem.eql(u8, variable.name, ident)) {
             variable.value = value;
             return;
@@ -125,19 +125,19 @@ pub fn setVariable(self: *Vm, ident: []const u8, value: Value) !void {
     return error.UndeclaredVariable;
 }
 
-pub fn getVariable(self: *Vm, ident: []const u8, scope: Scope) !Value {
+pub fn getVariable(vm: *Vm, ident: []const u8, scope: Scope) !Value {
     var i: usize = scope.top;
 
     while (i > 0) {
         i = i - 1;
-        const variable = self.variables.items[i];
+        const variable = vm.variables.items[i];
 
-        if (variable.function_depth < self.scope.function_depth)
+        if (variable.function_depth < vm.scope.function_depth)
             break;
 
         // We can assert this because we started at the top of the scope so no variables have a
         // function depth greater than the scope's.
-        assert(variable.function_depth == self.scope.function_depth);
+        assert(variable.function_depth == vm.scope.function_depth);
 
         if (std.mem.eql(u8, variable.name, ident)) {
             return variable.value;
@@ -147,31 +147,31 @@ pub fn getVariable(self: *Vm, ident: []const u8, scope: Scope) !Value {
     return error.UndeclaredVariable;
 }
 
-pub fn bindVariable(self: *Vm, ident: []const u8, value: Value) !void {
-    self.scope.top += 1;
-    try self.variables.appendBounded(.{
+pub fn bindVariable(vm: *Vm, ident: []const u8, value: Value) !void {
+    vm.scope.top += 1;
+    try vm.variables.appendBounded(.{
         .name = ident,
         .value = value,
-        .scope_level = self.scope.level,
-        .function_depth = self.scope.function_depth,
+        .scope_level = vm.scope.level,
+        .function_depth = vm.scope.function_depth,
     });
 }
 
-pub fn pushScope(self: *Vm) Scope {
-    const old_scope = self.scope;
-    self.scope.level += 1;
+pub fn pushScope(vm: *Vm) Scope {
+    const old_scope = vm.scope;
+    vm.scope.level += 1;
     return old_scope;
 }
 
-pub fn popScope(self: *Vm, old_scope: Scope) void {
-    self.scope = old_scope;
-    self.variables.items.len = @intCast(old_scope.top);
+pub fn popScope(vm: *Vm, old_scope: Scope) void {
+    vm.scope = old_scope;
+    vm.variables.items.len = @intCast(old_scope.top);
 }
 
-pub fn pushFunctionScope(self: *Vm) Scope {
-    const old_scope = self.scope;
-    self.scope.level = 0;
-    self.scope.function_depth += 1;
+pub fn pushFunctionScope(vm: *Vm) Scope {
+    const old_scope = vm.scope;
+    vm.scope.level = 0;
+    vm.scope.function_depth += 1;
     return old_scope;
 }
 
@@ -222,7 +222,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const ast = @import("ast.zig");
-const SyntaxNode = @import("node.zig").SyntaxNode;
 const eval = @import("eval.zig");
+const SyntaxNode = @import("node.zig").SyntaxNode;
 const Value = @import("value.zig").Value;
 const String = Value.String;

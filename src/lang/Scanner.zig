@@ -10,82 +10,82 @@ pub fn init(source: []const u8) Scanner {
 /// Consume a single character
 ///
 /// Returns null if at the end of the string
-pub fn eat(self: *Scanner) ?u8 {
-    if (self.isDone()) {
+pub fn eat(scanner: *Scanner) ?u8 {
+    if (scanner.isDone()) {
         return null;
     }
 
-    const old = self.cursor;
-    self.cursor += 1;
-    return self.source[old];
+    const old = scanner.cursor;
+    scanner.cursor += 1;
+    return scanner.source[old];
 }
 
-pub fn moveTo(self: *Scanner, m: usize) void {
-    self.cursor = m;
+pub fn moveTo(scanner: *Scanner, m: usize) void {
+    scanner.cursor = m;
 }
 
-pub fn isDone(self: Scanner) bool {
-    return self.cursor >= self.source.len;
+pub fn isDone(scanner: Scanner) bool {
+    return scanner.cursor >= scanner.source.len;
 }
 
-pub fn after(self: *Scanner) []const u8 {
-    return self.source[self.cursor..];
+pub fn after(scanner: *Scanner) []const u8 {
+    return scanner.source[scanner.cursor..];
 }
 
-pub fn before(self: *Scanner) []const u8 {
-    return self.source[0..self.cursor];
+pub fn before(scanner: *Scanner) []const u8 {
+    return scanner.source[0..scanner.cursor];
 }
 
-pub fn from(self: *Scanner, cursor: usize) []const u8 {
-    return self.source[cursor..self.cursor];
+pub fn from(scanner: *Scanner, cursor: usize) []const u8 {
+    return scanner.source[cursor..scanner.cursor];
 }
 
 /// Check if the cursor is on top of the pattern
-pub fn at(self: *Scanner, pat: Pattern) bool {
-    if (self.isDone()) return false;
-    return pat.matches(self.after());
+pub fn at(scanner: *Scanner, pat: Pattern) bool {
+    if (scanner.isDone()) return false;
+    return pat.matches(scanner.after());
 }
 
-pub fn eatIf(self: *Scanner, pat: Pattern) bool {
-    if (self.isDone()) return false;
-    if (pat.matches(self.after())) {
-        self.cursor += pat.length();
+pub fn eatIf(scanner: *Scanner, pat: Pattern) bool {
+    if (scanner.isDone()) return false;
+    if (pat.matches(scanner.after())) {
+        scanner.cursor += pat.length();
         return true;
     }
     return false;
 }
 
-pub fn eatUntil(self: *Scanner, pat: Pattern) void {
-    if (self.isDone()) return;
-    while (!pat.matches(self.after())) {
-        _ = self.eat();
-        if (self.isDone()) return;
+pub fn eatUntil(scanner: *Scanner, pat: Pattern) void {
+    if (scanner.isDone()) return;
+    while (!pat.matches(scanner.after())) {
+        _ = scanner.eat();
+        if (scanner.isDone()) return;
     }
 }
 
-pub fn eatWhile(self: *Scanner, pat: Pattern) void {
-    if (self.isDone()) return;
-    while (pat.matches(self.after())) {
-        self.cursor += pat.length();
-        if (self.isDone()) return;
+pub fn eatWhile(scanner: *Scanner, pat: Pattern) void {
+    if (scanner.isDone()) return;
+    while (pat.matches(scanner.after())) {
+        scanner.cursor += pat.length();
+        if (scanner.isDone()) return;
     }
 }
 
-pub fn eatSpaces(self: *Scanner) void {
-    self.eatWhile([_]u8{ ' ', '\t' });
+pub fn eatSpaces(scanner: *Scanner) void {
+    scanner.eatWhile([_]u8{ ' ', '\t' });
 }
 
-pub fn eatWhitespace(self: *Scanner) void {
-    self.eatWhile(.{ .any = &.{ ' ', '\t', 0x0B, 0x0C } });
+pub fn eatWhitespace(scanner: *Scanner) void {
+    scanner.eatWhile(.{ .any = &.{ ' ', '\t', 0x0B, 0x0C } });
 }
 
-pub fn eatNewline(self: *Scanner) bool {
-    if (self.isDone()) return false;
+pub fn eatNewline(scanner: *Scanner) bool {
+    if (scanner.isDone()) return false;
 
-    if (self.at(.{ .any = &.{ '\n', '\r' } })) {
-        const char = self.eat();
+    if (scanner.at(.{ .any = &.{ '\n', '\r' } })) {
+        const char = scanner.eat();
         if (char == '\r') {
-            _ = self.eatIf(.{ .char = '\n' });
+            _ = scanner.eatIf(.{ .char = '\n' });
         } else {
             assert(char == '\n');
         }
@@ -95,10 +95,10 @@ pub fn eatNewline(self: *Scanner) bool {
     return false;
 }
 
-pub fn peek(self: *Scanner) ?u8 {
-    if (self.isDone()) return null;
+pub fn peek(scanner: *Scanner) ?u8 {
+    if (scanner.isDone()) return null;
 
-    return self.source[self.cursor];
+    return scanner.source[scanner.cursor];
 }
 
 /// https://github.com/ziglang/zig/commit/d5e21a4f1a2920ef7bbe3c54feab1a3b5119bf77#diff-adfee52549c345d50c3acbd67802c959e2ba7d46f7c747844035b898c8510888L405
@@ -137,8 +137,8 @@ pub const Pattern = union(enum) {
     any: []const u8,
     func: *const fn (u8) bool,
 
-    pub fn matches(self: Pattern, source: []const u8) bool {
-        return switch (self) {
+    pub fn matches(pat: Pattern, source: []const u8) bool {
+        return switch (pat) {
             .str => |str| std.mem.eql(u8, str, source[0..str.len]),
             .char => |c| c == source[0],
             .func => |f| f(source[0]),
@@ -152,8 +152,8 @@ pub const Pattern = union(enum) {
         };
     }
 
-    pub fn length(self: Pattern) usize {
-        switch (self) {
+    pub fn length(pat: Pattern) usize {
+        switch (pat) {
             .str => |str| return str.len,
             else => return 1,
         }

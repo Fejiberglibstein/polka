@@ -4,9 +4,9 @@ pub const ParseResult = struct {
     /// List of all syntax errors.
     errors: []const SyntaxError,
 
-    pub fn deinit(self: ParseResult, gpa: Allocator) void {
-        gpa.free(self.nodes);
-        gpa.free(self.errors);
+    pub fn deinit(res: ParseResult, gpa: Allocator) void {
+        gpa.free(res.nodes);
+        gpa.free(res.errors);
     }
 };
 
@@ -581,7 +581,7 @@ const Parser = struct {
     fn init(src: []const u8, m: Lexer.Mode, gpa: Allocator) !Parser {
         const lexer = Lexer.init(src, m, "#");
 
-        var self: Parser = .{
+        var parser: Parser = .{
             .text = src,
             .l = lexer,
             .nodes = .empty,
@@ -593,76 +593,76 @@ const Parser = struct {
             .active_markers = 0,
         };
 
-        self.current = self.l.next();
+        parser.current = parser.l.next();
 
-        return self;
+        return parser;
     }
 
-    fn mode(self: *Parser) Lexer.Mode {
-        return self.l.mode;
+    fn mode(parser: *Parser) Lexer.Mode {
+        return parser.l.mode;
     }
 
-    fn setMode(self: *Parser, m: Lexer.Mode) void {
-        self.l.mode = m;
+    fn setMode(parser: *Parser, m: Lexer.Mode) void {
+        parser.l.mode = m;
     }
 
-    fn switchToTextMode(self: *Parser) Lexer.Mode {
-        const ret = self.mode();
-        switch (self.mode()) {
+    fn switchToTextMode(parser: *Parser) Lexer.Mode {
+        const ret = parser.mode();
+        switch (parser.mode()) {
             .code_file,
             .code_block,
             .text,
             => {},
-            .code_line => self.setMode(.text),
-            .multiline_string => self.setMode(.text),
+            .code_line => parser.setMode(.text),
+            .multiline_string => parser.setMode(.text),
         }
         return ret;
     }
 
-    fn isEndingKind(self: Parser, kind: SyntaxKind) bool {
-        return self.ending_kind.contains(kind);
+    fn isEndingKind(parser: Parser, kind: SyntaxKind) bool {
+        return parser.ending_kind.contains(kind);
     }
 
-    fn at(self: Parser, kind: SyntaxKind) bool {
-        return self.current.node.kind == kind;
+    fn at(parser: Parser, kind: SyntaxKind) bool {
+        return parser.current.node.kind == kind;
     }
 
-    fn eat(self: *Parser) !void {
-        if (self.current.node.kind == .unexpected_character) {
-            try self.addError(.invalid_token);
+    fn eat(parser: *Parser) !void {
+        if (parser.current.node.kind == .unexpected_character) {
+            try parser.addError(.invalid_token);
         }
 
-        try self.stack.append(self.gpa, self.current.node);
+        try parser.stack.append(parser.gpa, parser.current.node);
 
         // Ensure that there is enough space in .nodes to add the entire stack. This is done so that
         // Parser.wrap() will not return an error, see the comments in that function for more
         // information.
-        try self.nodes.ensureTotalCapacity(
-            self.gpa,
+        try parser.nodes.ensureUnusedCapacity(
+            parser.gpa,
             // Ensure we have enough space for every item in the stack and every marker, since
             // markers get turned into syntax nodes
-            self.nodes.items.len + self.stack.items.len + self.active_markers,
+            parser.stack.items.len + parser.active_markers,
         );
 
-        self.current = self.l.next();
+        parser.current = parser.l.next();
     }
 
-    fn eatAssert(self: *Parser, kind: SyntaxKind) !void {
-        assert(self.current.node.kind == kind);
-        try self.eat();
+    fn eatAssert(parser: *Parser, kind: SyntaxKind) !void {
+        assert(parser.current.node.kind == kind);
+        try parser.eat();
     }
 
-    fn eatIf(self: *Parser, kind: SyntaxKind) !bool {
-        if (self.at(kind)) {
-            try self.eat();
+    fn eatIf(parser: *Parser, kind: SyntaxKind) !bool {
+        if (parser.at(kind)) {
+            try parser.eat();
             return true;
         }
         return false;
     }
 
-    fn reparse(self: *Parser) void {
-        self.l.reparse(self.current);
-        self.current = self.l.next();
+    fn reparse(parser: *Parser) void {
+        parser.l.reparse(parser.current);
+        parser.current = parser.l.next();
     }
 
     const ExpectOpts = struct {
@@ -685,17 +685,17 @@ const Parser = struct {
     }
 
     fn eatExpect(
-        self: *Parser,
+        parser: *Parser,
         kind: SyntaxKind,
         comptime opts: ExpectOpts,
     ) ExpectError(opts)!void {
-        if (self.current.node.kind != kind) {
-            try self.addError(.{
-                .expected_token = .{ .expected = kind, .actual = self.current.node.kind },
+        if (parser.current.node.kind != kind) {
+            try parser.addError(.{
+                .expected_token = .{ .expected = kind, .actual = parser.current.node.kind },
             });
 
             const error_on_ending_kind, const eat_ending_kind = blk: {
-                if (!self.isEndingKind(self.current.node.kind)) break :blk .{ false, false };
+                if (!parser.isEndingKind(parser.current.node.kind)) break :blk .{ false, false };
                 break :blk switch (opts.if_ending_kind) {
                     .none => .{ false, false },
                     .eat => .{ false, true },
@@ -707,21 +707,21 @@ const Parser = struct {
                 return if (opts.error_on.v != SyntaxSet.none.v) error.ParseError;
             }
 
-            if (opts.dont_eat.contains(self.current.node.kind) or eat_ending_kind) return;
+            if (opts.dont_eat.contains(parser.current.node.kind) or eat_ending_kind) return;
         }
 
-        try self.eat();
+        try parser.eat();
     }
 
-    fn unexpected(self: *Parser) !void {
-        try self.addError(.{ .unexpected_token = self.current.node.kind });
+    fn unexpected(parser: *Parser) !void {
+        try parser.addError(.{ .unexpected_token = parser.current.node.kind });
     }
 
-    fn addError(self: *Parser, kind: SyntaxErrorKind) !void {
-        try self.errors.append(self.gpa, .{
+    fn addError(parser: *Parser, kind: SyntaxErrorKind) !void {
+        try parser.errors.append(parser.gpa, .{
             .kind = kind,
-            .position = self.current.position,
-            .range = self.current.node.getLeafSource(self.text),
+            .position = parser.current.position,
+            .range = parser.current.node.getLeafSource(parser.text),
         });
     }
 
@@ -731,54 +731,54 @@ const Parser = struct {
         token: Lexer.Token,
     };
 
-    fn getState(self: *Parser) Parser.State {
+    fn getState(parser: *Parser) Parser.State {
         return .{
-            .stack_len = self.stack.items.len,
-            .token = self.current,
-            .lexer = self.l,
+            .stack_len = parser.stack.items.len,
+            .token = parser.current,
+            .lexer = parser.l,
         };
     }
 
-    fn resetToState(self: *Parser, state: Parser.State) void {
-        assert(state.stack_len <= self.stack.items.len);
+    fn resetToState(parser: *Parser, state: Parser.State) void {
+        assert(state.stack_len <= parser.stack.items.len);
         // Sizing down so there can't be an allocation error
-        self.stack.resize(self.gpa, state.stack_len) catch unreachable;
-        self.l = state.lexer;
-        self.current = state.token;
+        parser.stack.resize(parser.gpa, state.stack_len) catch unreachable;
+        parser.l = state.lexer;
+        parser.current = state.token;
     }
 
     const Marker = enum(u32) {
         _,
     };
 
-    fn marker(self: *Parser) !Marker {
-        self.active_markers += 1;
+    fn marker(parser: *Parser) !Marker {
+        parser.active_markers += 1;
 
         // Ensure the stack can contain all the markers we add to it.
-        try self.stack.ensureTotalCapacity(self.gpa, self.stack.items.len + self.active_markers);
-        return @enumFromInt(self.stack.items.len);
+        try parser.stack.ensureUnusedCapacity(parser.gpa, parser.active_markers);
+        return @enumFromInt(parser.stack.items.len);
     }
 
-    fn wrap(self: *Parser, m: Marker, kind: SyntaxKind) void {
-        self.active_markers -= 1;
+    fn wrap(parser: *Parser, m: Marker, kind: SyntaxKind) void {
+        parser.active_markers -= 1;
 
         assert(kind.getType() == .tree);
-        const node_start_index = self.nodes.items.len;
+        const node_start_index = parser.nodes.items.len;
 
-        assert(@intFromEnum(m) <= self.stack.items.len);
-        const tree_nodes = self.stack.items[@intFromEnum(m)..];
+        assert(@intFromEnum(m) <= parser.stack.items.len);
+        const tree_nodes = parser.stack.items[@intFromEnum(m)..];
 
-        // In Parser.eat() we ensure that self.nodes has enough capacity to add all of
-        // self.stack.items.len. We must do it there rather than here so that this function does not
-        // error.
-        self.nodes.appendSliceAssumeCapacity(tree_nodes);
+        // In Parser.eat() we ensure that parser.nodes has enough capacity to add all of
+        // parser.stack.items.len. We must do it there rather than here so that this function does
+        // not error.
+        parser.nodes.appendSliceAssumeCapacity(tree_nodes);
 
         // Size the stack back down to how it was. This _might do nothing_ if there was a syntax
         // error.
-        self.stack.items.len = @intFromEnum(m);
+        parser.stack.items.len = @intFromEnum(m);
 
         // In Parser.marker(), the stack is expanded to be able to hold markers.
-        self.stack.appendAssumeCapacity(SyntaxNode{
+        parser.stack.appendAssumeCapacity(SyntaxNode{
             .kind = kind,
             .data = .{ .tree = .{
                 .len = @intCast(tree_nodes.len),
@@ -790,10 +790,10 @@ const Parser = struct {
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 const ast = @import("ast.zig");
 const Lexer = @import("Lexer.zig");
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;
 const SyntaxSet = @import("SyntaxSet.zig");
-const assert = std.debug.assert;

@@ -200,8 +200,8 @@ pub const SyntaxKind = enum(u7) {
     bracket_access,
 
     pub const SyntaxNodeType = enum { tree, leaf };
-    pub fn getType(self: SyntaxKind) SyntaxNodeType {
-        return switch (self) {
+    pub fn getType(kind: SyntaxKind) SyntaxNodeType {
+        return switch (kind) {
             .unexpected_character,
             .eof,
             .code_begin,
@@ -298,20 +298,20 @@ pub const SyntaxNode = packed struct {
         leaf: packed struct { offset: u32, len: u25 },
     },
 
-    pub fn getLeafSource(self: SyntaxNode, src: []const u8) []const u8 {
-        assert(self.kind.getType() == .leaf);
-        const range = self.data.leaf;
+    pub fn getLeafSource(node: SyntaxNode, src: []const u8) []const u8 {
+        assert(node.kind.getType() == .leaf);
+        const range = node.data.leaf;
         return src[range.offset .. range.offset + range.len];
     }
 
-    pub fn getTreeChildren(self: SyntaxNode, all_nodes: []const SyntaxNode) []const SyntaxNode {
-        assert(self.kind.getType() == .tree);
-        const children = self.data.tree;
+    pub fn getTreeChildren(node: SyntaxNode, all_nodes: []const SyntaxNode) []const SyntaxNode {
+        assert(node.kind.getType() == .tree);
+        const children = node.data.tree;
         return all_nodes[children.offset .. children.offset + children.len];
     }
 
     pub fn print(
-        self: SyntaxNode,
+        node: SyntaxNode,
         all_nodes: []const SyntaxNode,
         src: []const u8,
         depth: usize,
@@ -321,14 +321,13 @@ pub const SyntaxNode = packed struct {
             try writer.print("  ", .{});
         }
 
-        switch (self.kind.getType()) {
+        switch (node.kind.getType()) {
             .leaf => {
-                // const range = if (self.kind == .newline) "" else self.getLeafSource(src);
-                try writer.print("{s},\n", .{@tagName(self.kind)});
+                try writer.print("{s},\n", .{@tagName(node.kind)});
             },
             .tree => {
-                try writer.print("{s} [\n", .{@tagName(self.kind)});
-                const children = self.getTreeChildren(all_nodes);
+                try writer.print("{s} [\n", .{@tagName(node.kind)});
+                const children = node.getTreeChildren(all_nodes);
                 for (children) |child| {
                     try child.print(all_nodes, src, depth + 1, writer);
                 }
