@@ -1,7 +1,7 @@
 // zig fmt: off
-const nan_mask: u64     = 0x7FF8000000000000;
-const tag_mask: u64     = 0x0007000000000000;
-const sign_mask: u64    = 0x8000000000000000;
+const nan_mask:     u64 = 0x7FF8000000000000;
+const tag_mask:     u64 = 0x0007000000000000;
+const sign_mask:    u64 = 0x8000000000000000;
 const payload_mask: u64 = 0x0000FFFFFFFFFFFF;
 // zig fmt: on
 
@@ -39,6 +39,7 @@ pub const Value = packed union {
             nil,
             true,
             false,
+            color,
             string,
             object,
         };
@@ -66,6 +67,9 @@ pub const Value = packed union {
     pub fn isObject(value: Value) bool {
         return !value.isNumber() and value.tagged.tag == .object;
     }
+    pub fn isColor(value: Value) bool {
+        return !value.isNumber() and value.tagged.tag == .color;
+    }
 
     pub fn getNumber(value: Value) ?f64 {
         return if (value.isNumber()) value.asNumber() else null;
@@ -79,6 +83,9 @@ pub const Value = packed union {
     pub fn getObject(value: Value) ?*Object {
         return if (value.isObject()) value.asObject() else null;
     }
+    pub fn getColor(value: Value) ?Color {
+        return if (value.isObject()) value.asColor() else null;
+    }
 
     pub fn asNumber(value: Value) f64 {
         return value.float;
@@ -87,16 +94,25 @@ pub const Value = packed union {
         return value == true_value;
     }
     pub fn asString(value: Value) String {
-        return @enumFromInt(value.bits & payload_mask);
+        return @enumFromInt(value.tagged.bits);
+    }
+    pub fn asColor(value: Value) Color {
+        return @bitCast(@as(u32, @truncate(value.tagged.bits)));
     }
     pub fn asObject(value: Value) *Object {
-        return @ptrFromInt(value.bits & payload_mask);
+        return @ptrFromInt(value.tagged.bits);
     }
 
     pub fn newObject(o: *const Object) Value {
         return .{ .tagged = .{
             .bits = @truncate(@intFromPtr(o)),
             .tag = .object,
+        } };
+    }
+    pub fn newColor(c: Color) Value {
+        return .{ .tagged = .{
+            .bits = @as(u32, @bitCast(c)),
+            .tag = .string,
         } };
     }
     pub fn newString(s: String) Value {
@@ -115,6 +131,7 @@ pub const Value = packed union {
     pub const Type = enum(u8) {
         nil,
         number,
+        color,
         boolean,
         string,
         list,
@@ -130,6 +147,8 @@ pub const Value = packed union {
             .boolean
         else if (value.isString())
             .string
+        else if (value.isColor())
+            .color
         else if (value.getObject()) |obj| switch (obj.tag) {
             inline else => |t| std.meta.stringToEnum(Type, @tagName(t)) orelse unreachable,
         } else unreachable;
@@ -139,6 +158,7 @@ pub const Value = packed union {
     pub const TaggedValue = union(Type) {
         nil: void,
         number: f64,
+        color: Color,
         boolean: bool,
         string: String,
         list: *Object.List,
@@ -148,9 +168,10 @@ pub const Value = packed union {
     pub fn taggedValue(value: Value) TaggedValue {
         return switch (value.typ()) {
             .nil => .nil,
+            .color => .{ .color = value.asColor() },
             .number => .{ .number = value.asNumber() },
-            .boolean => .{ .boolean = value.asBoolean() },
             .string => .{ .string = value.asString() },
+            .boolean => .{ .boolean = value.asBoolean() },
             .list => .{ .list = value.asObject().asList() },
             .dict => .{ .dict = value.asObject().asDict() },
             .function => .{ .function = value.asObject().asFunction() },
@@ -278,16 +299,24 @@ pub const Value = packed union {
             .dict => |dict| w.print("<dict@{*}>", .{dict}),
             .string => |str| w.print("{s}", .{strings.get(str)}),
             .function => |function| w.print("<function@{*}>", .{function}),
+            .color => |c| w.print("#{x}{x}{x}{x}", .{ c.r, c.g, c.b, c.alpha }),
         };
     }
+
+    pub const Color = packed struct(u32) {
+        r: u8,
+        g: u8,
+        b: u8,
+        alpha: u8,
+    };
 
     pub const String = enum(u32) {
         _,
 
         /// A global pool of every string across all files.
         ///
-        /// One instance of this will usually be made at a time, so that all files intern into a single
-        /// pool to increase the likelihood of intern hits.
+        /// One instance of this will usually be made at a time, so that all files intern into a
+        /// single pool to increase the likelihood of intern hits.
         pub const Pool = struct {
             gpa: Allocator,
             bytes: std.ArrayList(u8),
