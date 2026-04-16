@@ -156,6 +156,46 @@ pub const Value = packed union {
         return self.bits != nil_value and self.bits != false_value;
     }
 
+    pub fn getMethod(
+        self: Value,
+        gpa: std.mem.Allocator,
+        function_name: []const u8,
+    ) !?*Object {
+        const vtables = comptime vtables: {
+            const tagged_fields = @typeInfo(Value.Tagged).@"union".fields;
+            const VTable = std.StaticStringMap(Object.Function.BuiltinFn);
+            var vtables: [tagged_fields.len]VTable = @splat(.initComptime(.{}));
+
+            for (tagged_fields, 0..) |field, i| {
+                const FieldType = if (@typeInfo(field.type) == .pointer)
+                    @typeInfo(field.type).pointer.child
+                else
+                    field.type;
+
+                if (hasDecl(FieldType, "methods")) {
+                    const methods_namespace = @field(FieldType, "methods");
+                    const decls = std.meta.declarations(methods_namespace);
+
+                    const MapField = struct { []const u8, Object.Function.BuiltinFn };
+                    var functions: [decls.len]MapField = undefined;
+                    for (decls, 0..) |decl, j| {
+                        functions[j] = .{ decl.name, &@field(methods_namespace, decl.name) };
+                    }
+
+                    const map: VTable = .initComptime(functions);
+                    vtables[i] = map;
+                }
+            }
+
+            break :vtables vtables;
+        };
+
+        return if (vtables[@intFromEnum(self.tag())].get(function_name)) |function|
+            try Object.Function.initBuiltin(gpa, function, self)
+        else
+            null;
+    }
+
     pub const operators = struct {
         pub fn equal(a: Value, b: Value) Value {
             return Value.boolean(a.bits == b.bits);
@@ -315,13 +355,19 @@ pub const Object = struct {
         }
 
         pub const methods = struct {
-            pub fn append(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
+            pub fn append(
+                ctx: Function.CallCtx,
+                args: *const [Function.max_args]Value,
+            ) RuntimeError!Value {
                 assert(args.len > 1);
                 const self = args[0].asObject().asList();
+
                 for (args[1..]) |arg| {
                     self.array.append(ctx.vm.valueAllocator(), arg) catch
                         try ctx.vm.setError(ctx.caller_node_index, .value_oom);
                 }
+
+                return args[0];
             }
         };
     };
@@ -341,7 +387,10 @@ pub const Object = struct {
         }
 
         pub const methods = struct {
-            pub fn get(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
+            pub fn get(
+                ctx: Function.CallCtx,
+                args: *const [Function.max_args]Value,
+            ) RuntimeError!Value {
                 assert(args.len > 0);
                 const self = args[0].asObject().asDict();
 
@@ -363,16 +412,22 @@ pub const Object = struct {
 
         func: union(enum) {
             builtin: struct {
-                func: *const fn (ctx: CallCtx, args: *const [max_args]Value) RuntimeError!Value,
+                this_ptr: Value,
+                func: BuiltinFn,
             },
             runtime: struct {
                 /// Index into the list of all nodes of this function's definition
                 definition_index: u32,
+
+                /// Number of parameters this function expects
+                arity: u32,
             },
         },
 
-        /// Number of parameters this function expects
-        arity: u32,
+        const BuiltinFn = *const fn (
+            ctx: CallCtx,
+            args: *const [max_args]Value,
+        ) RuntimeError!Value;
 
         const CallCtx = struct {
             vm: *Vm,
@@ -381,17 +436,14 @@ pub const Object = struct {
 
         pub const max_args = 32;
 
-        pub fn initBuiltin(comptime func: anytype) *Object {
-            const FuncType = @TypeOf(func);
-
-            var ret: Function = .{
+        pub fn initBuiltin(gpa: Allocator, func: BuiltinFn, this_ptr: Value) !*Object {
+            const ret = try gpa.create(@This());
+            ret.* = .{
                 .base = .{ .tag = .function },
-                .func = .{
-                    .builtin = if (FuncType == fn (Function.CallCtx, []const Value) RuntimeError!Value)
-                        .{ .f1 = &func }
-                    else
-                        @compileError("Invalid builtin function type " ++ @typeName(FuncType)),
-                },
+                .func = .{ .builtin = .{
+                    .func = func,
+                    .this_ptr = this_ptr,
+                } },
             };
             return &ret.base;
         }
@@ -402,8 +454,8 @@ pub const Object = struct {
                 .base = .{ .tag = .function },
                 .func = .{ .runtime = .{
                     .definition_index = body_index,
+                    .arity = arity,
                 } },
-                .arity = arity,
             };
             return &ret.base;
         }
@@ -580,6 +632,18 @@ pub const String = enum(u32) {
         }
     };
 };
+
+fn hasDecl(comptime T: type, name: []const u8) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct",
+        .@"union",
+        .@"enum",
+        .@"opaque",
+        => @hasDecl(T, name),
+        .pointer => |p| hasDecl(p.child, name),
+        else => false,
+    };
+}
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
