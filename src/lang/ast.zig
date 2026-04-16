@@ -122,7 +122,7 @@ fn nodeFn(ast_node: anytype, all_nodes: []const SyntaxNode) SyntaxNode {
 
 pub const Text = struct {
     node_index: u32,
-    const kind: SyntaxKind = .text;
+    pub const kind: SyntaxKind = .text;
     pub const node = nodeFn;
 
     pub fn parts(self: Text, all_nodes: []const SyntaxNode) ASTIterator(TextPart) {
@@ -144,7 +144,7 @@ pub const TextPart = union(enum) {
 
 pub const TextLine = struct {
     node_index: u32,
-    const kind: SyntaxKind = .text_line;
+    pub const kind: SyntaxKind = .text_line;
     pub const node = nodeFn;
 
     pub fn get(self: TextLine, src: []const u8, all_nodes: []const SyntaxNode) []const u8 {
@@ -154,7 +154,7 @@ pub const TextLine = struct {
 
 pub const Code = struct {
     node_index: u32,
-    const kind: SyntaxKind = .code;
+    pub const kind: SyntaxKind = .code;
     pub const node = nodeFn;
 
     pub fn statements(self: Code, all_nodes: []const SyntaxNode) ASTIterator(Statement) {
@@ -209,7 +209,7 @@ pub const Expression = union(enum) {
 
 pub const List = struct {
     node_index: u32,
-    const kind: SyntaxKind = .list;
+    pub const kind: SyntaxKind = .list;
     pub const node = nodeFn;
 
     pub fn items(self: List, all_nodes: []const SyntaxNode) ASTIterator(Expression) {
@@ -219,7 +219,7 @@ pub const List = struct {
 
 pub const Dict = struct {
     node_index: u32,
-    const kind: SyntaxKind = .dict;
+    pub const kind: SyntaxKind = .dict;
     pub const node = nodeFn;
 
     pub fn fields(self: Dict, all_nodes: []const SyntaxNode) ASTIterator(DictField) {
@@ -229,7 +229,7 @@ pub const Dict = struct {
 
 pub const DictField = struct {
     node_index: u32,
-    const kind: SyntaxKind = .dict_field;
+    pub const kind: SyntaxKind = .dict_field;
     pub const node = nodeFn;
 
     pub fn key(self: DictField, all_nodes: []const SyntaxNode) Ident {
@@ -243,7 +243,7 @@ pub const DictField = struct {
 
 pub const Grouping = struct {
     node_index: u32,
-    const kind: SyntaxKind = .grouping;
+    pub const kind: SyntaxKind = .grouping;
     pub const node = nodeFn;
 
     pub fn inner(self: Grouping, all_nodes: []const SyntaxNode) Expression {
@@ -253,7 +253,7 @@ pub const Grouping = struct {
 
 pub const FunctionDef = struct {
     node_index: u32,
-    const kind: SyntaxKind = .function_def;
+    pub const kind: SyntaxKind = .function_def;
     pub const node = nodeFn;
 
     pub const FunctionBody = union(enum) {
@@ -276,7 +276,7 @@ pub const FunctionDef = struct {
 
 pub const FunctionParameters = struct {
     node_index: u32,
-    const kind: SyntaxKind = .function_parameters;
+    pub const kind: SyntaxKind = .function_parameters;
     pub const node = nodeFn;
 
     pub fn get(self: FunctionParameters, all_nodes: []const SyntaxNode) ASTIterator(Ident) {
@@ -286,7 +286,7 @@ pub const FunctionParameters = struct {
 
 pub const ReturnStatement = struct {
     node_index: u32,
-    const kind: SyntaxKind = .return_statement;
+    pub const kind: SyntaxKind = .return_statement;
     pub const node = nodeFn;
 
     pub fn returnValue(self: ReturnStatement, all_nodes: []const SyntaxNode) ?Expression {
@@ -296,7 +296,7 @@ pub const ReturnStatement = struct {
 
 pub const LetStatement = struct {
     node_index: u32,
-    const kind: SyntaxKind = .let_statement;
+    pub const kind: SyntaxKind = .let_statement;
     pub const node = nodeFn;
 
     pub fn variableName(self: LetStatement, all_nodes: []const SyntaxNode) Ident {
@@ -312,7 +312,7 @@ pub const LetStatement = struct {
 
 pub const ExportStatement = struct {
     node_index: u32,
-    const kind: SyntaxKind = .export_statement;
+    pub const kind: SyntaxKind = .export_statement;
     pub const node = nodeFn;
 
     const ExportInner = union(enum) {
@@ -327,7 +327,7 @@ pub const ExportStatement = struct {
 
 pub const ForLoop = struct {
     node_index: u32,
-    const kind: SyntaxKind = .for_loop;
+    pub const kind: SyntaxKind = .for_loop;
     pub const node = nodeFn;
 
     // TODO
@@ -335,7 +335,7 @@ pub const ForLoop = struct {
 
 pub const WhileLoop = struct {
     node_index: u32,
-    const kind: SyntaxKind = .while_loop;
+    pub const kind: SyntaxKind = .while_loop;
     pub const node = nodeFn;
 
     pub fn condition(self: WhileLoop, all_nodes: []const SyntaxNode) Expression {
@@ -349,7 +349,7 @@ pub const WhileLoop = struct {
 
 pub const Conditional = struct {
     node_index: u32,
-    const kind: SyntaxKind = .conditional;
+    pub const kind: SyntaxKind = .conditional;
     pub const node = nodeFn;
 
     const BranchIterator = struct {
@@ -419,7 +419,7 @@ pub const UnaryOperator = union(enum) {
 
 pub const Unary = struct {
     node_index: u32,
-    const kind: SyntaxKind = .unary;
+    pub const kind: SyntaxKind = .unary;
     pub const node = nodeFn;
 
     pub fn op(self: Unary, all_nodes: []const SyntaxNode) UnaryOperator {
@@ -488,7 +488,7 @@ pub const BinaryOperator = union(enum) {
 
 pub const Binary = struct {
     node_index: u32,
-    const kind: SyntaxKind = .binary;
+    pub const kind: SyntaxKind = .binary;
     pub const node = nodeFn;
 
     pub fn lhs(self: Binary, all_nodes: []const SyntaxNode) Expression {
@@ -506,7 +506,7 @@ pub const Binary = struct {
 
 pub const FunctionCall = struct {
     node_index: u32,
-    const kind: SyntaxKind = .function_call;
+    pub const kind: SyntaxKind = .function_call;
     pub const node = nodeFn;
 
     pub fn caller(self: FunctionCall, all_nodes: []const SyntaxNode) Expression {
@@ -520,7 +520,7 @@ pub const FunctionCall = struct {
 
 pub const FunctionArgs = struct {
     node_index: u32,
-    const kind: SyntaxKind = .function_args;
+    pub const kind: SyntaxKind = .function_args;
     pub const node = nodeFn;
 
     pub fn get(self: FunctionArgs, all_nodes: []const SyntaxNode) ASTIterator(Expression) {
@@ -530,7 +530,7 @@ pub const FunctionArgs = struct {
 
 pub const DotAccess = struct {
     node_index: u32,
-    const kind: SyntaxKind = .dot_access;
+    pub const kind: SyntaxKind = .dot_access;
     pub const node = nodeFn;
 
     /// What is on the right side of the access, e.g. "foo" in `foo.bar`
@@ -546,7 +546,7 @@ pub const DotAccess = struct {
 
 pub const BracketAccess = struct {
     node_index: u32,
-    const kind: SyntaxKind = .bracket_access;
+    pub const kind: SyntaxKind = .bracket_access;
     pub const node = nodeFn;
 
     /// What is on the right side of the access, e.g. "foo" in `foo["bar"]`
@@ -562,7 +562,7 @@ pub const BracketAccess = struct {
 
 pub const Integer = struct {
     node_index: u32,
-    const kind: SyntaxKind = .integer;
+    pub const kind: SyntaxKind = .integer;
     pub const node = nodeFn;
 
     const Error = error{Overflow};
@@ -581,7 +581,7 @@ pub const Integer = struct {
 
 pub const Number = struct {
     node_index: u32,
-    const kind: SyntaxKind = .number;
+    pub const kind: SyntaxKind = .number;
     pub const node = nodeFn;
 
     pub fn get(self: Number, all_nodes: []const SyntaxNode, src: []const u8) f64 {
@@ -591,7 +591,7 @@ pub const Number = struct {
 
 pub const StaticString = struct {
     node_index: u32,
-    const kind: SyntaxKind = .static_string;
+    pub const kind: SyntaxKind = .static_string;
     pub const node = nodeFn;
 
     pub fn create(
@@ -639,7 +639,7 @@ pub const StaticString = struct {
 
 pub const MultiLineString = struct {
     node_index: u32,
-    const kind: SyntaxKind = .multiline_string;
+    pub const kind: SyntaxKind = .multiline_string;
     pub const node = nodeFn;
 
     pub fn parts(self: MultiLineString, all_nodes: []const SyntaxNode) ASTIterator(MLSPart) {
@@ -661,7 +661,7 @@ pub const MLSPart = union(enum) {
 
 pub const MLSExpression = struct {
     node_index: u32,
-    const kind: SyntaxKind = .mls_expression;
+    pub const kind: SyntaxKind = .mls_expression;
     pub const node = nodeFn;
 
     pub fn get(self: MLSExpression, all_nodes: []const SyntaxNode) Expression {
@@ -671,7 +671,7 @@ pub const MLSExpression = struct {
 
 pub const MLSText = struct {
     node_index: u32,
-    const kind: SyntaxKind = .mls_text;
+    pub const kind: SyntaxKind = .mls_text;
     pub const node = nodeFn;
 
     pub fn get(self: MLSText, all_nodes: []const SyntaxNode, src: []const u8) []const u8 {
@@ -681,7 +681,7 @@ pub const MLSText = struct {
 
 pub const Ident = struct {
     node_index: u32,
-    const kind: SyntaxKind = .ident;
+    pub const kind: SyntaxKind = .ident;
     pub const node = nodeFn;
 
     pub fn get(self: Ident, all_nodes: []const SyntaxNode, src: []const u8) []const u8 {
@@ -692,7 +692,7 @@ pub const Ident = struct {
 fn ASTNode(k: SyntaxKind) type {
     return struct {
         node_index: u32,
-        const kind: SyntaxKind = k;
+        pub const kind: SyntaxKind = k;
         pub const node = nodeFn;
     };
 }
@@ -722,6 +722,62 @@ pub const ContinueStatement = ASTNode(.keyword_continue);
 
 const std = @import("std");
 const assert = std.debug.assert;
+
+comptime {
+    const SyntaxSet = @import("SyntaxSet.zig");
+
+    // Contains all the kinds of nodes covered by the AST.
+    //
+    // Initialized to all the nodes that are not explicitly not in the AST
+    var ast_nodes: SyntaxSet = .init(&.{
+        .at,
+        .eof,
+        .dot,
+        .comma,
+        .l_paren,
+        .r_paren,
+        .l_brace,
+        .r_brace,
+        .backtick,
+        .l_bracket,
+        .r_bracket,
+        .code_begin,
+        .codeblock_delim,
+        .unexpected_character,
+
+        .keyword_do,
+        .keyword_if,
+        .keyword_for,
+        .keyword_end,
+        .keyword_let,
+        .keyword_then,
+        .keyword_else,
+        .keyword_func,
+        .keyword_while,
+        .keyword_break,
+        .keyword_elseif,
+        .keyword_export,
+        .keyword_return,
+        .keyword_continue,
+    });
+
+    const decls = @typeInfo(@This()).@"struct".decls;
+    for (decls) |decl| {
+        const DeclType = @field(@This(), decl.name);
+        if (@TypeOf(DeclType) != type) continue;
+
+        if (@hasDecl(DeclType, "kind")) {
+            ast_nodes.add(DeclType.kind);
+        }
+    }
+
+    const kinds = @typeInfo(SyntaxKind).@"enum".fields;
+    for (kinds) |kind| {
+        if (!ast_nodes.contains(@enumFromInt(kind.value))) {
+            @compileError("No ast node constructed for " ++ kind.name);
+        }
+    }
+}
 
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;
