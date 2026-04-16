@@ -161,50 +161,6 @@ pub const Value = packed union {
         return value != Value.nil and value != false_value;
     }
 
-    pub fn methods(value: Value) std.StaticStringMap(Object.Function.BuiltinFn) {
-        const vtable = comptime vtables: {
-            const tagged_fields = @typeInfo(Value.TaggedValue).@"union".fields;
-            const VTable = std.StaticStringMap(Object.Function.BuiltinFn);
-            var vtables: [tagged_fields.len]VTable = @splat(.initComptime(.{}));
-
-            for (tagged_fields, 0..) |field, i| {
-                const FieldType = if (@typeInfo(field.type) == .pointer)
-                    @typeInfo(field.type).pointer.child
-                else
-                    field.type;
-
-                if (hasDecl(FieldType, "methods")) {
-                    const methods_namespace = @field(FieldType, "methods");
-                    const decls = std.meta.declarations(methods_namespace);
-
-                    const MapField = struct { []const u8, Object.Function.BuiltinFn };
-                    var functions: [decls.len]MapField = undefined;
-                    for (decls, 0..) |decl, j| {
-                        functions[j] = .{ decl.name, &@field(methods_namespace, decl.name) };
-                    }
-
-                    const map: VTable = .initComptime(functions);
-                    vtables[i] = map;
-                }
-            }
-
-            break :vtables vtables;
-        };
-
-        return vtable[@intFromEnum(value.typ())];
-    }
-
-    pub fn getMethod(
-        value: Value,
-        gpa: Allocator,
-        function_name: []const u8,
-    ) !?*Object {
-        return if (value.methods().get(function_name)) |function|
-            try Object.Function.initBuiltin(gpa, function, value)
-        else
-            null;
-    }
-
     pub const operators = struct {
         pub fn equal(a: Value, b: Value) Value {
             return Value.newBoolean(a.bits == b.bits);
@@ -479,25 +435,6 @@ pub const Value = packed union {
                 };
                 return &ret.base;
             }
-
-            pub const methods = struct {
-                pub fn len(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
-                    _ = args;
-                    const self = ctx.self.asObject().asList();
-                    return Value.newNumber(@floatFromInt(self.array.items.len));
-                }
-
-                pub fn append(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
-                    const self = ctx.self.asObject().asList();
-
-                    for (args[0..]) |arg| {
-                        self.array.append(ctx.vm.valueAllocator(), arg) catch
-                            try ctx.vm.setError(ctx.caller_node_index, .value_oom);
-                    }
-
-                    return Value.nil;
-                }
-            };
         };
 
         pub const Dict = struct {
@@ -534,9 +471,9 @@ pub const Value = packed union {
                 },
             },
 
-            const BuiltinFn = *const fn (ctx: CallCtx, args: []const Value) RuntimeError!Value;
+            pub const BuiltinFn = *const fn (ctx: CallCtx, args: []const Value) RuntimeError!Value;
 
-            const CallCtx = struct {
+            pub const CallCtx = struct {
                 vm: *Vm,
                 self: Value,
                 caller_node_index: u32,
@@ -544,13 +481,13 @@ pub const Value = packed union {
 
             pub const max_args = 32;
 
-            pub fn initBuiltin(gpa: Allocator, func: BuiltinFn, this_ptr: Value) !*Object {
+            pub fn initBuiltin(gpa: Allocator, func: BuiltinFn, self: Value) !*Object {
                 const ret = try gpa.create(@This());
                 ret.* = .{
                     .base = .{ .tag = .function },
                     .func = .{ .builtin = .{
                         .func = func,
-                        .self = this_ptr,
+                        .self = self,
                     } },
                 };
                 return &ret.base;
@@ -637,20 +574,6 @@ test "Value object" {
     try std.testing.expect(!value.isBoolean());
     try std.testing.expect(!value.isNil());
     try std.testing.expect(value.isTruthy());
-}
-
-/// @hasDecl is not permissive enough; It needs to return false on invalid types rather than emit a
-/// compiler error.
-fn hasDecl(comptime T: type, name: []const u8) bool {
-    return switch (@typeInfo(T)) {
-        .@"struct",
-        .@"union",
-        .@"enum",
-        .@"opaque",
-        => @hasDecl(T, name),
-        .pointer => |p| hasDecl(p.child, name),
-        else => false,
-    };
 }
 
 const std = @import("std");
