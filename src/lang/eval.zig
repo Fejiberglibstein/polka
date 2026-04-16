@@ -92,8 +92,8 @@ pub fn evalConditional(vm: *Vm, node: ast.Conditional) ControlFlow!void {
 pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
     return switch (node) {
         .nil => Value.nil,
-        .true => Value.boolean(true),
-        .false => Value.boolean(false),
+        .true => Value.newBoolean(true),
+        .false => Value.newBoolean(false),
         .list => |list| evalList(vm, list),
         .dict => |dict| evalDict(vm, dict),
         .unary => |unary| evalUnary(vm, unary),
@@ -105,9 +105,9 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
         .multi_line_string => |str| evalMultiLineString(vm, str),
         .dot_access => |dot_access| evalDotAccess(vm, dot_access),
         .bracket_access => |access| evalBracketAccess(vm, access),
-        .number => |num| Value.number(num.get(vm.all_nodes, vm.src)),
+        .number => |num| Value.newNumber(num.get(vm.all_nodes, vm.src)),
         .grouping => |group| evalExpression(vm, group.inner(vm.all_nodes)),
-        .integer => |num| Value.number(num.getAsFloat(vm.all_nodes, vm.src)),
+        .integer => |num| Value.newNumber(num.getAsFloat(vm.all_nodes, vm.src)),
     };
 }
 
@@ -117,7 +117,7 @@ pub fn evalStaticString(vm: *Vm, node: ast.StaticString) RuntimeError!Value {
     node.create(vm.all_nodes, vm.src, &sb.w.writer) catch
         try vm.setError(node.node_index, .internal_oom);
 
-    return Value.string(sb.finish(m) catch
+    return Value.newString(sb.finish(m) catch
         try vm.setError(node.node_index, .internal_oom));
 }
 
@@ -144,12 +144,12 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
     }
     sb.w.writer.print("\n", .{}) catch try vm.setError(node.node_index, .internal_oom);
 
-    return Value.string(sb.finish(m) catch
+    return Value.newString(sb.finish(m) catch
         try vm.setError(node.node_index, .internal_oom));
 }
 
 pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
-    const object = Object.Dict.init(vm.valueAllocator()) catch
+    const object = Value.Object.Dict.init(vm.valueAllocator()) catch
         try vm.setError(node.node_index, .value_oom);
     const dict = object.asDict();
 
@@ -172,11 +172,11 @@ pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
             try vm.setError(field.node_index, .value_oom);
     }
 
-    return Value.object(object);
+    return Value.newObject(object);
 }
 
 pub fn evalList(vm: *Vm, node: ast.List) RuntimeError!Value {
-    const object = Object.List.init(vm.valueAllocator()) catch
+    const object = Value.Object.List.init(vm.valueAllocator()) catch
         try vm.setError(node.node_index, .value_oom);
     const list = object.asList();
 
@@ -186,7 +186,7 @@ pub fn evalList(vm: *Vm, node: ast.List) RuntimeError!Value {
             try vm.setError(node.node_index, .value_oom);
     }
 
-    return Value.object(object);
+    return Value.newObject(object);
 }
 
 pub fn evalAccess(
@@ -250,9 +250,9 @@ pub fn evalDotAccess(vm: *Vm, node: ast.DotAccess) RuntimeError!Value {
     // This works fine, but I dont really it.
     const method = lhs.getMethod(vm.valueAllocator(), rhs_name) catch
         try vm.setError(rhs_node.node_index, .value_oom);
-    if (method) |m| return Value.object(m);
+    if (method) |m| return Value.newObject(m);
 
-    const rhs = Value.string(blk: {
+    const rhs = Value.newString(blk: {
         const sb = &vm.string_builder;
         const m = sb.begin();
         sb.w.writer.writeAll(rhs_name) catch |err| break :blk err;
@@ -292,7 +292,7 @@ pub fn evalFunctionDef(vm: *Vm, node: ast.FunctionDef) RuntimeError!Value {
     var parameters = node.parameters(vm.all_nodes).get(vm.all_nodes);
     const len = parameters.len(vm.all_nodes);
 
-    const function = Value.object(Object.Function.initRuntime(
+    const function = Value.newObject(Value.Object.Function.initRuntime(
         vm.valueAllocator(),
         node.node_index,
         len,
@@ -324,12 +324,12 @@ pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
 
 pub fn callBuiltinFunction(
     vm: *Vm,
-    function: *Object.Function,
+    function: *Value.Object.Function,
     callsite: ast.FunctionCall,
 ) RuntimeError!Value {
     const builtin = function.func.builtin;
 
-    var arguments: [Object.Function.max_args]Value = @splat(Value.nil);
+    var arguments: [Value.Object.Function.max_args]Value = @splat(Value.nil);
     var args_iter = callsite.arguments(vm.all_nodes).get(vm.all_nodes);
 
     var i: usize = 0;
@@ -340,7 +340,7 @@ pub fn callBuiltinFunction(
         //
         // TODO: there should probably be an error emitted somewhere when you call a function with
         // too many arguments
-        if (i >= Object.Function.max_args)
+        if (i >= Value.Object.Function.max_args)
             continue;
 
         arguments[i] = arg;
@@ -355,7 +355,7 @@ pub fn callBuiltinFunction(
 
 pub fn callRuntimeFunction(
     vm: *Vm,
-    function: *Object.Function,
+    function: *Value.Object.Function,
     callsite: ast.FunctionCall,
 ) RuntimeError!Value {
     const func_node = function.func.runtime;
@@ -399,7 +399,7 @@ pub fn callRuntimeFunction(
     }
 
     if (func.name(vm.all_nodes)) |name| {
-        vm.bindVariable(name.get(vm.all_nodes, vm.src), Value.object(&function.base)) catch
+        vm.bindVariable(name.get(vm.all_nodes, vm.src), Value.newObject(&function.base)) catch
             try vm.setError(name.node_index, .too_many_variables);
     }
 
@@ -416,7 +416,7 @@ pub fn callRuntimeFunction(
             };
 
             const function_text = if (m != vm.string_builder.begin())
-                Value.string(vm.string_builder.finish(m) catch
+                Value.newString(vm.string_builder.finish(m) catch
                     try vm.setError(func.node_index, .internal_oom))
             else
                 null;
@@ -510,7 +510,7 @@ pub fn evalAssignment(vm: *Vm, lvalue: LValue, rvalue: Value) !void {
 
             const rhs_node = dot_access.rhs(vm.all_nodes);
             const rhs_name = rhs_node.get(vm.all_nodes, vm.src);
-            const rhs = Value.string(blk: {
+            const rhs = Value.newString(blk: {
                 const sb = &vm.string_builder;
                 const m = sb.begin();
                 sb.w.writer.writeAll(rhs_name) catch |err| break :blk err;
@@ -599,7 +599,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const ast = @import("ast.zig");
-const Object = @import("value.zig").Object;
 const Value = @import("value.zig").Value;
 const Vm = @import("Vm.zig");
 const RuntimeError = Vm.RuntimeError;

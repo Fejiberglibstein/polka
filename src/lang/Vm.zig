@@ -223,7 +223,6 @@ const Allocator = std.mem.Allocator;
 
 const ast = @import("ast.zig");
 const SyntaxNode = @import("node.zig").SyntaxNode;
-const Object = @import("value.zig").Object;
 const eval = @import("eval.zig");
 const Value = @import("value.zig").Value;
-const String = @import("value.zig").String;
+const String = Value.String;

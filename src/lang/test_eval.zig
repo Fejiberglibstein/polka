@@ -293,7 +293,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
 }
 
 const Vm = @import("Vm.zig");
-const String = @import("value.zig").String;
+const String = @import("value.zig").Value.String;
 const parser = @import("parser.zig");
 
 const std = @import("std");
