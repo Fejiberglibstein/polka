@@ -309,6 +309,22 @@ pub const Value = packed union {
         };
     }
 
+    pub fn debugPrint(
+        self: Value,
+        strings: *String.Pool,
+        w: *std.Io.Writer,
+    ) error{WriteFailed}!void {
+        return switch (self.taggedValue()) {
+            .nil => w.writeAll("<nil>"),
+            .number => |n| w.print("{}", .{n}),
+            .boolean => |b| w.print("{}", .{b}),
+            .list => |list| w.print("<list@{*}>", .{list}),
+            .dict => |dict| w.print("<dict@{*}>", .{dict}),
+            .string => |str| w.print("{s}", .{strings.get(str)}),
+            .function => |function| w.print("<function@{*}>", .{function}),
+        };
+    }
+
     pub const String = enum(u32) {
         _,
 
