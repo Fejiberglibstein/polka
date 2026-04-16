@@ -483,17 +483,17 @@ pub const Value = packed union {
             pub const methods = struct {
                 pub fn append(
                     ctx: Function.CallCtx,
-                    args: *const [Function.max_args]Value,
+                    args: []const Value,
                 ) RuntimeError!Value {
                     assert(args.len > 1);
-                    const self = args[0].asObject().asList();
+                    const self = ctx.self.asObject().asList();
 
                     for (args[1..]) |arg| {
                         self.array.append(ctx.vm.valueAllocator(), arg) catch
                             try ctx.vm.setError(ctx.caller_node_index, .value_oom);
                     }
 
-                    return args[0];
+                    return ctx.self;
                 }
             };
         };
@@ -515,7 +515,7 @@ pub const Value = packed union {
             pub const methods = struct {
                 pub fn get(
                     ctx: Function.CallCtx,
-                    args: *const [Function.max_args]Value,
+                    args: []const Value,
                 ) RuntimeError!Value {
                     assert(args.len > 0);
                     const self = args[0].asObject().asDict();
@@ -538,7 +538,7 @@ pub const Value = packed union {
 
             func: union(enum) {
                 builtin: struct {
-                    this_ptr: Value,
+                    self: Value,
                     func: BuiltinFn,
                 },
                 runtime: struct {
@@ -550,14 +550,11 @@ pub const Value = packed union {
                 },
             },
 
-            const BuiltinFn = *const fn (
-                ctx: CallCtx,
-                args: *const [max_args]Value,
-            ) RuntimeError!Value;
+            const BuiltinFn = *const fn (ctx: CallCtx, args: []const Value) RuntimeError!Value;
 
             const CallCtx = struct {
                 vm: *Vm,
-                this_ptr: Value,
+                self: Value,
                 caller_node_index: u32,
             };
 
@@ -569,7 +566,7 @@ pub const Value = packed union {
                     .base = .{ .tag = .function },
                     .func = .{ .builtin = .{
                         .func = func,
-                        .this_ptr = this_ptr,
+                        .self = this_ptr,
                     } },
                 };
                 return &ret.base;

@@ -349,7 +349,7 @@ pub fn callBuiltinFunction(
     return builtin.func(.{
         .vm = vm,
         .caller_node_index = callsite.node_index,
-        .this_ptr = builtin.this_ptr,
+        .self = builtin.self,
     }, &arguments);
 }
 
