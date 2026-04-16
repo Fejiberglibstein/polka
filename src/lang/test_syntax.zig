@@ -121,6 +121,8 @@ test "Single expressions" {
         \\#* true
         \\#* false
         \\#* (3)
+        \\#* #abcdef
+        \\#* #abcdef00
         \\#*
     , x.root(&.{
         x.tree(.code, &.{
@@ -148,6 +150,12 @@ test "Single expressions" {
                 x.leaf(.integer),
                 x.leaf(.r_paren),
             }),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.leaf(.color),
+            x.leaf(.newline),
+            x.leaf(.code_begin),
+            x.leaf(.color),
             x.leaf(.newline),
             x.leaf(.code_begin),
         }),

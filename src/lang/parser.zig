@@ -166,6 +166,7 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
 
     switch (p.current.node.kind) {
         .ident,
+        .color,
         .number,
         .integer,
         .keyword_nil,
@@ -230,7 +231,7 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
         }
 
         if (m == try p.marker()) {
-            if (p.at(.unexpected_character)) {
+            if (SyntaxSet.errors.contains(p.current.node.kind)) {
                 try p.eat();
             } else {
                 try p.addError(.expected_expression);
@@ -628,7 +629,7 @@ const Parser = struct {
     }
 
     fn eat(parser: *Parser) !void {
-        if (parser.current.node.kind == .unexpected_character) {
+        if (SyntaxSet.errors.contains(parser.current.node.kind)) {
             try parser.addError(.invalid_token);
         }
 

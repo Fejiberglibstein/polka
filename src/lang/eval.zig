@@ -96,6 +96,7 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
         .false => Value.newBoolean(false),
         .list => |list| evalList(vm, list),
         .dict => |dict| evalDict(vm, dict),
+        .color => |color| evalColor(vm, color),
         .unary => |unary| evalUnary(vm, unary),
         .binary => |binary| evalBinary(vm, binary),
         .ident => |variable| evalVariable(vm, variable),
@@ -109,6 +110,16 @@ pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
         .grouping => |group| evalExpression(vm, group.inner(vm.all_nodes)),
         .integer => |num| Value.newNumber(num.getAsFloat(vm.all_nodes, vm.src)),
     };
+}
+
+pub fn evalColor(vm: *Vm, node: ast.Color) RuntimeError!Value {
+    const color = node.get(vm.all_nodes, vm.src);
+    return Value.newColor(.{
+        .r = color.r,
+        .g = color.g,
+        .b = color.b,
+        .alpha = color.alpha orelse 0xFF,
+    });
 }
 
 pub fn evalStaticString(vm: *Vm, node: ast.StaticString) RuntimeError!Value {

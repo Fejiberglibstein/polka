@@ -186,6 +186,7 @@ pub const Expression = union(enum) {
     list: List,
     dict: Dict,
     true: True,
+    color: Color,
     unary: Unary,
     ident: Ident,
     false: False,
@@ -560,6 +561,36 @@ pub const BracketAccess = struct {
     }
 };
 
+pub const Color = struct {
+    node_index: u32,
+    pub const kind: SyntaxKind = .color;
+    pub const node = nodeFn;
+
+    pub const ParsedColor = struct {
+        r: u8,
+        g: u8,
+        b: u8,
+        alpha: ?u8,
+    };
+
+    pub fn get(self: Color, all_nodes: []const SyntaxNode, src: []const u8) ParsedColor {
+        const node_src = self.node(all_nodes).getLeafSource(src);
+        assert(node_src[0] == '#');
+
+        // Parsing the numbers cannot fail; it was verified during lexing.
+        errdefer unreachable;
+        return .{
+            .r = try std.fmt.parseInt(u8, node_src[1..2], 16),
+            .g = try std.fmt.parseInt(u8, node_src[3..4], 16),
+            .b = try std.fmt.parseInt(u8, node_src[5..6], 16),
+            .alpha = if (node_src.len == 9)
+                try std.fmt.parseInt(u8, node_src[7..8], 16)
+            else
+                null,
+        };
+    }
+};
+
 pub const Integer = struct {
     node_index: u32,
     pub const kind: SyntaxKind = .integer;
@@ -742,6 +773,7 @@ comptime {
         .l_bracket,
         .r_bracket,
         .code_begin,
+        .invalid_color,
         .codeblock_delim,
         .unexpected_character,
 
@@ -777,6 +809,7 @@ comptime {
             @compileError("No ast node constructed for " ++ kind.name);
         }
     }
+
 }
 
 const SyntaxKind = @import("node.zig").SyntaxKind;

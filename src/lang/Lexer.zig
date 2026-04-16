@@ -153,30 +153,48 @@ fn code(lexer: *Lexer) SyntaxKind {
         '>' => if (lexer.s.eatIf(.{ .char = '=' })) .gt_eq else .gt,
         '~' => if (lexer.s.eatIf(.{ .char = '=' })) .not_eq else continue :sw 0,
 
-        '"' => string(lexer),
+        '#' => lexer.color(),
+        '"' => lexer.string(),
         '0'...'9' => lexer.number(),
-        'a'...'z', 'A'...'Z', '_' => ident(lexer),
+        'a'...'z', 'A'...'Z', '_' => lexer.ident(),
 
         else => .unexpected_character,
     };
 }
 
-fn isDigit(c: u8) bool {
-    return c >= '0' and c <= '9';
+pub fn isIdentChar(c: u8) bool {
+    return switch (c) {
+        '0'...'9', 'A'...'Z', 'a'...'z', '_' => true,
+        else => false,
+    };
 }
 
-fn isIdentChar(c: u8) bool {
-    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or isDigit(c) or c == '_';
+fn isHex(c: u8) bool {
+    return c >= '0' and c <= '9';
 }
 
 fn number(lexer: *Lexer) SyntaxKind {
     var kind: SyntaxKind = .integer;
-    lexer.s.eatWhile(.{ .func = isDigit });
+    lexer.s.eatWhile(.{ .func = std.ascii.isDigit });
     if (lexer.s.eatIf(.{ .char = '.' })) {
         kind = .number;
-        lexer.s.eatWhile(.{ .func = isDigit });
+        lexer.s.eatWhile(.{ .func = std.ascii.isDigit });
     }
     return kind;
+}
+
+fn color(lexer: *Lexer) SyntaxKind {
+    if (!lexer.s.at(.{ .func = std.ascii.isHex }))
+        return .unexpected_character;
+
+    const start = lexer.s.cursor;
+    lexer.s.eatWhile(.{ .func = std.ascii.isHex });
+    const len = lexer.s.cursor - start;
+
+    return if (len == 6 or len == 8)
+        .color
+    else
+        .invalid_color;
 }
 
 fn ident(lexer: *Lexer) SyntaxKind {

@@ -37,6 +37,7 @@ pub const newline: SyntaxSet = .init(&.{.newline});
 pub const eof: SyntaxSet = .init(&.{.eof});
 pub const any: SyntaxSet = .{ .v = ~@as(BackingInt, 0) }; // Every bit is 1
 pub const none: SyntaxSet = .init(&.{});
+pub const errors: SyntaxSet = .init(&.{ .unexpected_character, .invalid_color });
 
 const std = @import("std");
 

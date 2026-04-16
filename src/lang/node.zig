@@ -5,6 +5,8 @@ pub const SyntaxKind = enum(u7) {
     eof,
     /// Syntax error
     unexpected_character,
+    /// Syntax error when parsing a color
+    invalid_color,
     /// Begins a codeline `#*`
     ///
     /// The symbol doesn't need to begin with a hash, it will use whatever the filetype's comment
@@ -13,7 +15,7 @@ pub const SyntaxKind = enum(u7) {
     /// Begins/ends a codeblock `#**`
     ///
     /// The symbol doesn't need to begin with a hash, it will use whatever the filetype's comment
-    /// is. For example, in .toml it would be `#*`, but in .vimrc it would be `"*`
+    /// is. For example, in .toml it would be `#**`, but in .vimrc it would be `"**`
     codeblock_delim,
     /// Newline
     newline,
@@ -67,6 +69,8 @@ pub const SyntaxKind = enum(u7) {
     gt_eq,
     /// Positive integer literal: `12`, `0`, etc
     integer,
+    /// Color literal: #rrggbb or #rrggbbaa
+    color,
     /// Positive floating point literal: `12.3`, `0.284`, etc.
     number,
     /// String constant `"hello world"`
@@ -152,7 +156,7 @@ pub const SyntaxKind = enum(u7) {
     /// The second does not require a newline after the line with `func`, nor does it require an
     /// `end` keyword to terminate it:
     ///     #* func add(a, b) a + b
-    /// This makes it consise to create simple functions that just return a single expression
+    /// This makes it concise to create simple functions that just return a single expression
     ///
     /// 'func' identifier? function_parameters (newline text 'end' | expression)
     function_def,
@@ -202,84 +206,86 @@ pub const SyntaxKind = enum(u7) {
     pub const SyntaxNodeType = enum { tree, leaf };
     pub fn getType(kind: SyntaxKind) SyntaxNodeType {
         return switch (kind) {
-            .unexpected_character,
+            .eq,
+            .lt,
+            .gt,
+            .at,
             .eof,
-            .code_begin,
-            .codeblock_delim,
-            .newline,
-            .text_line,
             .dot,
             .plus,
             .star,
-            .percent,
+            .color,
             .minus,
             .slash,
             .comma,
+            .eq_eq,
+            .lt_eq,
+            .gt_eq,
+            .ident,
+            .not_eq,
+            .number,
+            .newline,
+            .percent,
             .l_paren,
             .r_paren,
             .l_brace,
             .r_brace,
+            .integer,
+            .backtick,
+            .mls_text,
+            .text_line,
             .l_bracket,
             .r_bracket,
-            .eq,
-            .eq_eq,
-            .not_eq,
-            .lt,
-            .lt_eq,
-            .gt,
-            .gt_eq,
-            .number,
-            .integer,
-            .static_string,
-            .ident,
-            .keyword_nil,
-            .keyword_true,
-            .keyword_false,
+            .code_begin,
             .keyword_in,
             .keyword_or,
+            .keyword_do,
+            .keyword_if,
+            .keyword_nil,
             .keyword_and,
             .keyword_not,
             .keyword_for,
-            .keyword_while,
-            .keyword_do,
-            .keyword_if,
+            .keyword_end,
+            .keyword_let,
+            .keyword_true,
             .keyword_then,
             .keyword_else,
+            .keyword_func,
+            .invalid_color,
+            .static_string,
+            .keyword_false,
+            .keyword_while,
+            .keyword_break,
             .keyword_elseif,
-            .keyword_end,
             .keyword_export,
             .keyword_return,
-            .keyword_let,
-            .keyword_func,
+            .codeblock_delim,
             .keyword_continue,
-            .keyword_break,
-            .backtick,
-            .mls_text,
-            .at,
+            .unexpected_character,
             => .leaf,
 
-            .multiline_string,
-            .mls_expression,
             .list,
             .dict,
-            .dict_field,
             .code,
             .text,
-            .grouping,
-            .function_def,
-            .function_parameters,
-            .return_statement,
-            .let_statement,
-            .export_statement,
-            .for_loop,
-            .while_loop,
-            .conditional,
             .unary,
             .binary,
+            .grouping,
+            .for_loop,
+            .dict_field,
+            .while_loop,
+            .dot_access,
+            .conditional,
+            .function_def,
+            .let_statement,
             .function_call,
             .function_args,
-            .dot_access,
+            .mls_expression,
             .bracket_access,
+            .multiline_string,
+            .return_statement,
+            .export_statement,
+            .function_parameters,
             => .tree,
         };
     }
