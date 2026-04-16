@@ -229,6 +229,29 @@ pub fn evalDotAccess(vm: *Vm, node: ast.DotAccess) RuntimeError!Value {
 
     const rhs_node = node.rhs(vm.all_nodes);
     const rhs_name = rhs_node.get(vm.all_nodes, vm.src);
+
+    // If the rhs is the name of a method, we can just get the function off of it.
+    //
+    // NOTE: this will have weird semantics in this situation:
+    //
+    // #* let list = []
+    // #* list.append(4) -- Append 4 to the list
+    // #* list.append = 3
+    // #* list.append(2) -- This will still append 2 to the list
+    // #* list["append"] -- This results in 3
+    //
+    // NOTE 2: You are also able to create bound functions:
+    //
+    // #* let list = []
+    // #* let fn = list.append
+    // #* fn(3)
+    // #* assert(list[0] == 3)
+    //
+    // This works fine, but I dont really it.
+    const method = lhs.getMethod(vm.valueAllocator(), rhs_name) catch
+        try vm.setError(rhs_node.node_index, .value_oom);
+    if (method) |m| return Value.object(m);
+
     const rhs = Value.string(blk: {
         const sb = &vm.string_builder;
         const m = sb.begin();
@@ -323,7 +346,11 @@ pub fn callBuiltinFunction(
         arguments[i] = arg;
     }
 
-    return builtin.func(.{ .vm = vm, .caller_node_index = callsite.node_index }, &arguments);
+    return builtin.func(.{
+        .vm = vm,
+        .caller_node_index = callsite.node_index,
+        .this_ptr = builtin.this_ptr,
+    }, &arguments);
 }
 
 pub fn callRuntimeFunction(

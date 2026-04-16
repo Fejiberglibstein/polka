@@ -156,12 +156,8 @@ pub const Value = packed union {
         return self.bits != nil_value and self.bits != false_value;
     }
 
-    pub fn getMethod(
-        self: Value,
-        gpa: std.mem.Allocator,
-        function_name: []const u8,
-    ) !?*Object {
-        const vtables = comptime vtables: {
+    pub fn methods(self: Value) std.StaticStringMap(Object.Function.BuiltinFn) {
+        const vtable = comptime vtables: {
             const tagged_fields = @typeInfo(Value.Tagged).@"union".fields;
             const VTable = std.StaticStringMap(Object.Function.BuiltinFn);
             var vtables: [tagged_fields.len]VTable = @splat(.initComptime(.{}));
@@ -190,7 +186,15 @@ pub const Value = packed union {
             break :vtables vtables;
         };
 
-        return if (vtables[@intFromEnum(self.tag())].get(function_name)) |function|
+        return vtable[@intFromEnum(self.tag())];
+    }
+
+    pub fn getMethod(
+        self: Value,
+        gpa: std.mem.Allocator,
+        function_name: []const u8,
+    ) !?*Object {
+        return if (self.methods().get(function_name)) |function|
             try Object.Function.initBuiltin(gpa, function, self)
         else
             null;
@@ -431,6 +435,7 @@ pub const Object = struct {
 
         const CallCtx = struct {
             vm: *Vm,
+            this_ptr: Value,
             caller_node_index: u32,
         };
 
