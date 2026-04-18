@@ -293,10 +293,16 @@ pub fn evalBracketAccess(vm: *Vm, node: ast.BracketAccess) RuntimeError!Value {
 
 pub fn evalVariable(vm: *Vm, node: ast.Ident) RuntimeError!Value {
     const ident = node.get(vm.all_nodes, vm.src);
-    return vm.getVariable(ident, vm.scope) catch {
-        // TODO add builtin function & variables here like sys, range(), etc.
-        try vm.setError(node.node_index, .undeclared_variable);
+
+    const variable = vm.getVariable(ident, vm.scope) catch {
+        if (builtin.functions.get(ident)) |function| {
+            return Value.newObject(function);
+        } else {
+            try vm.setError(node.node_index, .undeclared_variable);
+        }
     };
+
+    return variable.*;
 }
 
 pub fn evalFunctionDef(vm: *Vm, node: ast.FunctionDef) RuntimeError!Value {
@@ -511,15 +517,16 @@ pub fn evalAccessAssignment(
 
 pub fn evalAssignment(vm: *Vm, lvalue: LValue, rvalue: Value) !void {
     switch (lvalue) {
-        .variable => |variable| {
-            vm.setVariable(variable.get(vm.all_nodes, vm.src), rvalue) catch
-                try vm.setError(variable.node_index, .undeclared_variable);
+        .variable => |node| {
+            const variable = vm.getVariable(node.get(vm.all_nodes, vm.src), vm.scope) catch
+                try vm.setError(node.node_index, .undeclared_variable);
+            variable.* = rvalue;
         },
-        .dot_access => |dot_access| {
-            const lhs_node = dot_access.lhs(vm.all_nodes);
+        .dot_access => |node| {
+            const lhs_node = node.lhs(vm.all_nodes);
             const lhs = try evalExpression(vm, lhs_node);
 
-            const rhs_node = dot_access.rhs(vm.all_nodes);
+            const rhs_node = node.rhs(vm.all_nodes);
             const rhs_name = rhs_node.get(vm.all_nodes, vm.src);
             const rhs = Value.newString(blk: {
                 const sb = &vm.string_builder;
@@ -531,12 +538,12 @@ pub fn evalAssignment(vm: *Vm, lvalue: LValue, rvalue: Value) !void {
             try evalAccessAssignment(vm, lhs, rhs, rvalue, .{
                 .rhs = rhs_node.node_index,
                 .lhs = lhs_node.nodeIndex(),
-                .node = dot_access.node_index,
+                .node = node.node_index,
             });
         },
-        .bracket_access => |bracket_access| {
-            const lhs_node = bracket_access.lhs(vm.all_nodes);
-            const rhs_node = bracket_access.rhs(vm.all_nodes);
+        .bracket_access => |node| {
+            const lhs_node = node.lhs(vm.all_nodes);
+            const rhs_node = node.rhs(vm.all_nodes);
 
             const lhs = try evalExpression(vm, lhs_node);
             const rhs = try evalExpression(vm, rhs_node);
@@ -544,7 +551,7 @@ pub fn evalAssignment(vm: *Vm, lvalue: LValue, rvalue: Value) !void {
             return evalAccessAssignment(vm, lhs, rhs, rvalue, .{
                 .rhs = rhs_node.nodeIndex(),
                 .lhs = lhs_node.nodeIndex(),
-                .node = bracket_access.node_index,
+                .node = node.node_index,
             });
         },
     }

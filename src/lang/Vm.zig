@@ -4,9 +4,6 @@ const Variable = struct {
     /// The value bound to the variable
     value: Value,
 
-    /// The scope level of the variable. Starts at 0 for the outermost block, and increases by one
-    /// for every inner block. When a block ends, all scopes are popped.
-    scope_level: u32,
     /// The function depth of the variable. Every function call will increase the depth by one, and
     /// returning from a function will pop all variables off
     function_depth: u32,
@@ -105,42 +102,24 @@ pub fn inFunction(vm: *const Vm) bool {
     return vm.scope.function_depth > 0;
 }
 
-pub fn setVariable(vm: *Vm, ident: []const u8, value: Value) !void {
-    var i: usize = vm.variables.items.len;
+pub fn getVariable(vm: *Vm, ident: []const u8, scope: Scope) !*Value {
+    var i: usize = scope.top;
 
     while (i > 0) {
         i = i - 1;
         const variable = &vm.variables.items[i];
 
-        if (variable.function_depth < vm.scope.function_depth)
+        if (variable.function_depth < vm.scope.function_depth) {
+            @branchHint(.unlikely);
             break;
-
-        assert(variable.function_depth == vm.scope.function_depth);
-        if (std.mem.eql(u8, variable.name, ident)) {
-            variable.value = value;
-            return;
         }
-    }
-
-    return error.UndeclaredVariable;
-}
-
-pub fn getVariable(vm: *Vm, ident: []const u8, scope: Scope) !Value {
-    var i: usize = scope.top;
-
-    while (i > 0) {
-        i = i - 1;
-        const variable = vm.variables.items[i];
-
-        if (variable.function_depth < vm.scope.function_depth)
-            break;
 
         // We can assert this because we started at the top of the scope so no variables have a
         // function depth greater than the scope's.
         assert(variable.function_depth == vm.scope.function_depth);
 
         if (std.mem.eql(u8, variable.name, ident)) {
-            return variable.value;
+            return &variable.value;
         }
     }
 
@@ -152,7 +131,6 @@ pub fn bindVariable(vm: *Vm, ident: []const u8, value: Value) !void {
     try vm.variables.appendBounded(.{
         .name = ident,
         .value = value,
-        .scope_level = vm.scope.level,
         .function_depth = vm.scope.function_depth,
     });
 }
