@@ -19,7 +19,7 @@ pub const Scope = struct {
 };
 
 src: []const u8,
-all_nodes: []const SyntaxNode,
+nodes: []const SyntaxNode,
 err: ?RuntimeErrorPayload,
 
 /// Use Vm.out() to write text to the output file, since that will handle functions as well
@@ -51,7 +51,7 @@ pub fn init(
         .err = null,
         .output_file = output,
         .scope = .init,
-        .all_nodes = all_nodes,
+        .nodes = all_nodes,
         .function_return_value = null,
         .value_allocator = value_arena,
         .variables = try .initCapacity(gpa, 512),
@@ -66,9 +66,9 @@ pub fn deinit(vm: *Vm) void {
 }
 
 pub fn run(vm: *Vm) ?RuntimeErrorPayload {
-    if (vm.all_nodes.len == 0) return null;
+    if (vm.nodes.len == 0) return null;
 
-    const root = ast.toASTNode(ast.Text, @intCast(vm.all_nodes.len - 1), vm.all_nodes) orelse unreachable;
+    const root = ast.toASTNode(ast.Text, @intCast(vm.nodes.len - 1), vm.nodes) orelse unreachable;
     eval.evalText(vm, root) catch |err| {
         (switch (err) {
             ControlFlow.Break => vm.setError(root.node_index, .misplaced_break),
