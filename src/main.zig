@@ -9,8 +9,18 @@ pub fn main() !void {
     var writer = std.Io.Writer.Allocating.init(gpa).writer;
 
     var value_allocator = std.heap.ArenaAllocator.init((std.heap.page_allocator));
-    var vm = try Vm.init(parsed.nodes, "", gpa, &value_allocator, undefined, &writer);
+    var vm = try Vm.init(.{
+        .nodes = parsed.nodes,
+        .src = "",
+        .gpa = gpa,
+        .output = &writer,
+        .value_arena = &value_allocator,
+        .string_pool = undefined,
+    });
     try eval.evalText(&vm, undefined);
+
+    _ = builtin.functions.get("hfk");
+    _ = (ast.Color{ .node_index = undefined }).get(undefined, undefined);
 }
 
 test {
@@ -26,3 +36,5 @@ const parser = @import("lang/parser.zig");
 const ast = @import("lang/ast.zig");
 const Vm = @import("lang/Vm.zig");
 const eval = @import("lang/eval.zig");
+const Value = @import("lang/value.zig").Value;
+const builtin = @import("lang/builtin.zig");

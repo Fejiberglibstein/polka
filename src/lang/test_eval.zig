@@ -268,14 +268,14 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     var pool: String.Pool = .init(gpa.allocator());
     defer pool.deinit();
 
-    var vm = try Vm.init(
-        parsed.nodes,
-        source,
-        gpa.allocator(),
-        &value_arena,
-        &pool,
-        &output.writer,
-    );
+    var vm = try Vm.init(.{
+        .nodes = parsed.nodes,
+        .src = source,
+        .gpa = gpa.allocator(),
+        .value_arena = &value_arena,
+        .string_pool = &pool,
+        .output = &output.writer,
+    });
     defer vm.deinit();
 
     const result = vm.run();

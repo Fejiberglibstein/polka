@@ -34,28 +34,37 @@ variables: std.ArrayList(Variable),
 
 scope: Scope,
 function_return_value: ?Value,
+constants: Constants,
 
 const Vm = @This();
 
-pub fn init(
-    all_nodes: []const SyntaxNode,
+const Constants = std.StaticStringMap(Value);
+
+pub const InitOptions = struct {
+    nodes: []const SyntaxNode,
     src: []const u8,
+
     gpa: Allocator,
-    value_arena: *std.heap.ArenaAllocator,
     string_pool: *String.Pool,
+    value_arena: *std.heap.ArenaAllocator,
+
     output: *std.Io.Writer,
-) !Vm {
+    constants: ?Constants = null,
+};
+
+pub fn init(opts: InitOptions) !Vm {
     return .{
-        .gpa = gpa,
-        .src = src,
         .err = null,
-        .output_file = output,
         .scope = .init,
-        .nodes = all_nodes,
+        .gpa = opts.gpa,
+        .src = opts.src,
+        .nodes = opts.nodes,
+        .output_file = opts.output,
         .function_return_value = null,
-        .value_allocator = value_arena,
-        .variables = try .initCapacity(gpa, 512),
-        .string_builder = try .init(gpa, string_pool),
+        .value_allocator = opts.value_arena,
+        .variables = try .initCapacity(opts.gpa, 512),
+        .string_builder = try .init(opts.gpa, opts.string_pool),
+        .constants = opts.constants orelse .initComptime(.{}),
     };
 }
 
