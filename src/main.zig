@@ -19,7 +19,7 @@ pub fn main() !void {
     });
     try eval.evalText(&vm, undefined);
 
-    _ = builtin.functions.get("hfk");
+    _ = builtins.functions.get("hfk");
     _ = (ast.Color{ .node_index = undefined }).get(undefined, undefined);
 }
 
@@ -37,4 +37,4 @@ const ast = @import("lang/ast.zig");
 const Vm = @import("lang/Vm.zig");
 const eval = @import("lang/eval.zig");
 const Value = @import("lang/value.zig").Value;
-const builtin = @import("lang/builtin.zig");
+const builtins = @import("lang/builtins.zig");

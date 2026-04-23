@@ -75,6 +75,55 @@ pub const methods = struct {
     }
 };
 
+pub const Constants = struct {
+    map: std.StaticStringMap(Value),
+    arena: std.heap.ArenaAllocator,
+
+    pub const empty: Constants = .{
+        .map = .initComptime(.{}),
+        .arena = undefined,
+    };
+
+    pub fn init(io: Io, gpa: Allocator, pool: StringPool) !Constants {
+        _ = io;
+        _ = pool;
+
+        const Entry = struct { []const u8, Value };
+        const initial_capacity = functions.list.len + 1;
+        // TODO this could probably be just a static array since its always going to be a fixed
+        // size.
+        var entries: std.ArrayList(Entry) = try .initCapacity(gpa, initial_capacity);
+        defer entries.deinit(gpa);
+
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        const sys = sys: {
+            const object = try Object.Dict.init(arena.allocator());
+            const dict = object.asDict();
+            _ = dict;
+            break :sys Value.newObject(object);
+        };
+
+        try entries.append(gpa, .{ "sys", sys });
+
+        for (&functions.list) |*func| {
+            try entries.append(gpa, .{ func.@"0", Value.newObject(&func.@"1".base) });
+        }
+
+        return .{
+            .map = try .init(entries.items, gpa),
+            .arena = arena,
+        };
+    }
+
+    pub fn deinit(constants: Constants, gpa: Allocator) void {
+        std.log.debug("{}", .{constants.map.kvs.len});
+        if (constants.map.kvs.len == 0) return;
+
+        constants.map.deinit(gpa);
+        constants.arena.deinit();
+    }
+};
+
 /// `functions` contains all of the builtin functions that may be called at runtime.
 ///
 /// All builtin functions in this namespace have the type
@@ -83,22 +132,33 @@ pub const functions = struct {
     pub fn polka(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
         _ = ctx;
         _ = args;
+
+        std.log.debug("hiii", .{});
         return Value.nil;
     }
 
     pub fn get(function_name: []const u8) ?*const Value.Object {
+        const map: std.StaticStringMap(Function) = .initComptime(list);
         // List has a static lifetime so it's fine to return a pointer here.
-        return if (list.get(function_name)) |f| &f.base else null;
+        return if (map.get(function_name)) |f| &f.base else null;
     }
 
     /// Contains all of the builtin functions. Note that unlike methods.table, this is a string map
     /// of `Functions`, not `BuiltinFn`. These functions are created statically at compile time, so
     /// that `functions.get()` may return a reference to them to avoid heap allocating.
-    pub const list: std.StaticStringMap(Function) = list: {
+    const Entry = struct { []const u8, Function };
+
+    pub const list = list: {
         const decls = std.meta.declarations(functions);
 
-        const Entry = struct { []const u8, Function };
-        var entries: [decls.len]Entry = undefined;
+        var decl_count = 0;
+        for (decls) |decl| {
+            // Skip past this decl to avoid dependency loop since it hasn't been resolved yet.
+            if (std.mem.eql(u8, decl.name, "list")) continue;
+            if (@TypeOf(&@field(functions, decl.name)) == Function.BuiltinFn) decl_count += 1;
+        }
+
+        var entries: [decl_count]Entry = undefined;
         var len = 0;
 
         for (decls) |decl| {
@@ -111,7 +171,7 @@ pub const functions = struct {
                 // not using the Value.initBuiltin here because that requires an allocator and this
                 // should be constructed at compiletime.
                 entries[len] = .{ decl.name, Function{
-                    .base = .{ .tag = .function },
+                    .base = .{ .tag = .function, .constant = true },
                     .func = .{ .builtin = .{
                         .func = field,
                         .self = Value.nil,
@@ -121,21 +181,27 @@ pub const functions = struct {
             }
         }
 
-        break :list std.StaticStringMap(Function).initComptime(entries[0..len]);
+        var shortened_entries: [len]Entry = undefined;
+        @memcpy(&shortened_entries, entries[0..len]);
+
+        break :list shortened_entries;
     };
 
     comptime {
-        assert(list.get("polka") != null);
+        assert(get("polka") != null);
     }
 };
 
 const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;
-const Function = Value.Object.Function;
+const Object = Value.Object;
+const StringPool = Value.String.Pool;
+const Function = Object.Function;
 const Vm = @import("Vm.zig");
 const RuntimeError = Vm.RuntimeError;
 const ControlFlow = Vm.ControlFlow;

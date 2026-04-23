@@ -98,6 +98,14 @@ test "While loop" {
     );
 }
 
+test "builtins" {
+    try testEval(
+        \\#*polka()
+    ,
+        \\
+    );
+}
+
 test "functions" {
     try testEval(
         \\Hello
@@ -241,8 +249,8 @@ test "dict" {
 
 fn testEval(source: []const u8, expected: []const u8) !void {
     var gpa = std.heap.DebugAllocator(.{}).init;
-    const io = std.testing.io;
     defer _ = gpa.deinit();
+    const io = std.testing.io;
 
     const parsed = try parser.parse(source, .text, gpa.allocator());
     defer gpa.allocator().free(parsed.errors);
@@ -263,10 +271,15 @@ fn testEval(source: []const u8, expected: []const u8) !void {
 
     var value_arena: std.heap.ArenaAllocator = .init(gpa.allocator());
     defer value_arena.deinit();
+
     var output: std.Io.Writer.Allocating = .init(gpa.allocator());
     errdefer output.deinit();
+
     var pool: String.Pool = .init(gpa.allocator());
     defer pool.deinit();
+
+    const constants: builtins.Constants = try .init(io, gpa.allocator(), pool);
+    defer constants.deinit(gpa.allocator());
 
     var vm = try Vm.init(.{
         .nodes = parsed.nodes,
@@ -275,12 +288,13 @@ fn testEval(source: []const u8, expected: []const u8) !void {
         .value_arena = &value_arena,
         .string_pool = &pool,
         .output = &output.writer,
+        .constants = constants,
     });
     defer vm.deinit();
 
     const result = vm.run();
     if (result) |err| {
-        std.debug.print("Error: {any}\n", .{err});
+        std.debug.print("Error: {any}\n", .{err.kind});
 
         var buffer: [2048]u8 = undefined;
         var stderr = std.Io.File.stderr().writer(io, &buffer);
@@ -301,3 +315,4 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const String = @import("value.zig").Value.String;
 const Vm = @import("Vm.zig");
+const builtins = @import("builtins.zig");

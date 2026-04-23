@@ -259,7 +259,7 @@ pub fn evalDotAccess(vm: *Vm, node: ast.DotAccess) RuntimeError!Value {
     // #* assert(list[0] == 3)
     //
     // This works fine, but I dont really it.
-    const method = builtin.methods.get(lhs, vm.valueAllocator(), rhs_name) catch
+    const method = builtins.methods.get(lhs, vm.valueAllocator(), rhs_name) catch
         try vm.setError(rhs_node.node_index, .value_oom);
     if (method) |m| return Value.newObject(m);
 
@@ -295,11 +295,12 @@ pub fn evalVariable(vm: *Vm, node: ast.Ident) RuntimeError!Value {
     const ident = node.get(vm.nodes, vm.src);
 
     const variable = vm.getVariable(ident, vm.scope) catch {
-        if (builtin.functions.get(ident)) |function| {
-            return Value.newObject(function);
-        } else {
-            try vm.setError(node.node_index, .undeclared_variable);
+        if (vm.constants.map.get(ident)) |constant| {
+            return constant;
         }
+
+        // If it's neither a variable nor constant, then its an error.
+        try vm.setError(node.node_index, .undeclared_variable);
     };
 
     return variable.*;
@@ -522,9 +523,8 @@ pub fn evalAccessAssignment(
 pub fn evalAssignment(vm: *Vm, lvalue: LValue, rvalue: Value) !void {
     switch (lvalue) {
         .variable => |node| {
-            const variable = vm.getVariable(node.get(vm.nodes, vm.src), vm.scope) catch
+            vm.setVariable(node.get(vm.nodes, vm.src), rvalue, vm.scope) catch
                 try vm.setError(node.node_index, .undeclared_variable);
-            variable.* = rvalue;
         },
         .dot_access => |node| {
             const lhs_node = node.lhs(vm.nodes);
@@ -625,4 +625,4 @@ const Value = @import("value.zig").Value;
 const Vm = @import("Vm.zig");
 const RuntimeError = Vm.RuntimeError;
 const ControlFlow = Vm.ControlFlow;
-const builtin = @import("builtin.zig");
+const builtins = @import("builtins.zig");

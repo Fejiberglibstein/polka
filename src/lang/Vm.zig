@@ -34,11 +34,9 @@ variables: std.ArrayList(Variable),
 
 scope: Scope,
 function_return_value: ?Value,
-constants: Constants,
+constants: builtins.Constants,
 
 const Vm = @This();
-
-const Constants = std.StaticStringMap(Value);
 
 pub const InitOptions = struct {
     nodes: []const SyntaxNode,
@@ -49,7 +47,7 @@ pub const InitOptions = struct {
     value_arena: *std.heap.ArenaAllocator,
 
     output: *std.Io.Writer,
-    constants: ?Constants = null,
+    constants: ?builtins.Constants = null,
 };
 
 pub fn init(opts: InitOptions) !Vm {
@@ -64,7 +62,7 @@ pub fn init(opts: InitOptions) !Vm {
         .value_allocator = opts.value_arena,
         .variables = try .initCapacity(opts.gpa, 512),
         .string_builder = try .init(opts.gpa, opts.string_pool),
-        .constants = opts.constants orelse .initComptime(.{}),
+        .constants = opts.constants orelse .empty,
     };
 }
 
@@ -109,6 +107,11 @@ pub fn setError(vm: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) Runtim
 
 pub fn inFunction(vm: *const Vm) bool {
     return vm.scope.function_depth > 0;
+}
+
+pub fn setVariable(vm: *Vm, ident: []const u8, value: Value, scope: Scope) !void {
+    const variable = try getVariable(vm, ident, scope);
+    variable.* = value;
 }
 
 pub fn getVariable(vm: *Vm, ident: []const u8, scope: Scope) !*Value {
@@ -191,6 +194,7 @@ const RuntimeErrorPayload = struct {
         misplaced_return,
         function_return_and_text,
         array_access_out_of_bounds,
+        cannot_mutate_constant,
     };
 };
 
@@ -213,3 +217,4 @@ const eval = @import("eval.zig");
 const SyntaxNode = @import("node.zig").SyntaxNode;
 const Value = @import("value.zig").Value;
 const String = Value.String;
+const builtins = @import("builtins.zig");
