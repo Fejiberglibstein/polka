@@ -339,12 +339,30 @@ pub const Value = packed union {
                 return std.mem.sliceTo(pool.bytes.items[@intFromEnum(index)..], 0);
             }
 
+            pub fn put(pool: *@This(), str: []const u8) !String {
+                const gop = try pool.map.getOrPutContextAdapted(
+                    pool.gpa,
+                    str,
+                    ContextAdapted{ .pool = pool },
+                    Context{ .pool = pool },
+                );
+
+                if (!gop.found_existing) {
+                    try pool.bytes.ensureUnusedCapacity(pool.gpa, str.len + 1);
+                    const index: String = @enumFromInt(pool.bytes.items.len);
+                    pool.bytes.appendSliceAssumeCapacity(str);
+                    pool.bytes.appendAssumeCapacity(0);
+                    gop.key_ptr.* = index;
+                }
+
+                return gop.key_ptr.*;
+            }
+
             const Context = struct {
                 pool: *const Pool,
                 pub fn hash(ctx: @This(), key: String) u64 {
                     return std.hash_map.hashString(ctx.pool.get(key));
                 }
-
                 pub fn eql(_: @This(), a: String, b: String) bool {
                     return a == b;
                 }
@@ -352,12 +370,10 @@ pub const Value = packed union {
 
             const ContextAdapted = struct {
                 pool: *const Pool,
-
                 pub fn hash(_: @This(), key: []const u8) u64 {
                     assert(std.mem.indexOfScalar(u8, key, 0) == null);
                     return std.hash_map.hashString(key);
                 }
-
                 pub fn eql(ctx: @This(), a: []const u8, b: String) bool {
                     return std.mem.eql(u8, a, ctx.pool.get(b));
                 }
@@ -389,26 +405,10 @@ pub const Value = packed union {
             }
 
             pub fn finish(b: *@This(), m: Marker) !String {
-                var pool = b.pool;
-
                 const str = b.w.written()[@intFromEnum(m)..];
-                const gop = try pool.map.getOrPutContextAdapted(
-                    pool.gpa,
-                    str,
-                    String.Pool.ContextAdapted{ .pool = pool },
-                    String.Pool.Context{ .pool = pool },
-                );
-
-                if (!gop.found_existing) {
-                    try pool.bytes.ensureUnusedCapacity(pool.gpa, str.len + 1);
-                    const index: String = @enumFromInt(pool.bytes.items.len);
-                    pool.bytes.appendSliceAssumeCapacity(str);
-                    pool.bytes.appendAssumeCapacity(0);
-                    gop.key_ptr.* = index;
-                }
+                const result = b.pool.put(str);
                 b.w.shrinkRetainingCapacity(@intFromEnum(m));
-
-                return gop.key_ptr.*;
+                return result;
             }
         };
     };
