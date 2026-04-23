@@ -478,6 +478,10 @@ pub fn evalAccessAssignment(
     rvalue: Value,
     node_indices: struct { lhs: u32, rhs: u32, node: u32 },
 ) RuntimeError!void {
+    if (lvalue.getObject()) |obj| if (obj.constant) {
+        try vm.setError(node_indices.lhs, .cannot_mutate_constant);
+    };
+
     switch (lvalue.taggedValue()) {
         .list => |list| {
             if (!lvalue_field.isNumber()) try vm.setError(node_indices.rhs, .{

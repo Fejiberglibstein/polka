@@ -416,11 +416,19 @@ pub const Value = packed union {
     /// Represents a dynamically allocated value on the heap.
     ///
     /// Can be any one of
-    /// - String
+    /// - List
+    /// - Dict
+    /// - Function
     ///
     /// Each different object will be implemented through struct inheritance.
     pub const Object = struct {
+        /// The type of object this is
         tag: Kind,
+
+        /// If the object may be mutated. This only matters in userspace; Objects that have
+        /// .constant = true may still be modified by the vm, but attempting to mutate a constant
+        /// object in user code will result in a runtime error.
+        constant: bool = false,
 
         const Kind = enum {
             list,
