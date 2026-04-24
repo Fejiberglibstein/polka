@@ -286,6 +286,22 @@ pub const Value = packed union {
         };
     }
 
+    pub fn format(
+        value: @This(),
+        w: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        return switch (value.taggedValue()) {
+            .nil => w.writeAll("<nil>"),
+            .number => |n| w.print("{}", .{n}),
+            .boolean => |b| w.print("{}", .{b}),
+            .list => |list| w.print("<list@{x:0>12}>", .{@intFromPtr(list)}),
+            .dict => |dict| w.print("<dict@{x:0>12}>", .{@intFromPtr(dict)}),
+            .string => |str| w.print("<string@{x:0>12}>", .{str}),
+            .function => |function| w.print("<function@{x:0>12}>", .{@intFromPtr(function)}),
+            .color => |c| w.print("#{x}{x}{x}{x}", .{ c.r, c.g, c.b, c.alpha }),
+        };
+    }
+
     pub fn debugPrint(
         value: Value,
         strings: *String.Pool,

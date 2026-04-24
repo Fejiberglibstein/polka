@@ -165,7 +165,7 @@ pub fn pushFunctionScope(vm: *Vm) Scope {
     return old_scope;
 }
 
-const RuntimeErrorPayload = struct {
+pub const RuntimeErrorPayload = struct {
     /// The index of the node that caused the error
     node_index: u32,
     kind: Kind,

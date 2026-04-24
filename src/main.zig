@@ -1,7 +1,4 @@
 pub fn main() !void {
-    var lexer = Lexer.init("", .text, "#");
-    _ = lexer.next();
-
     const gpa = std.heap.smp_allocator;
 
     const parsed = try parser.parse("", .text, gpa);
@@ -17,7 +14,7 @@ pub fn main() !void {
         .value_arena = &value_allocator,
         .string_pool = undefined,
     });
-    try eval.evalText(&vm, undefined);
+    _ = &vm;
 
     _ = builtins.functions.get("hfk");
     _ = (ast.Color{ .node_index = undefined }).get(undefined, undefined);
@@ -30,11 +27,8 @@ test {
 
 const std = @import("std");
 
-const Lexer = @import("lang/Lexer.zig");
-const SyntaxNode = @import("lang/node.zig").SyntaxNode;
-const parser = @import("lang/parser.zig");
-const ast = @import("lang/ast.zig");
-const Vm = @import("lang/Vm.zig");
-const eval = @import("lang/eval.zig");
-const Value = @import("lang/value.zig").Value;
-const builtins = @import("lang/builtins.zig");
+const parser = @import("lang.zig").parser;
+const ast = @import("lang.zig").ast;
+const Vm = @import("lang.zig").Vm;
+const Value = @import("lang.zig").Value;
+const builtins = @import("lang.zig").builtins;
