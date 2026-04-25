@@ -160,7 +160,7 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
 }
 
 pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
-    const object = Value.Object.Dict.init(vm.valueAllocator()) catch
+    const object = Value.Object.Dict.init(vm.valueAllocator(), vm.string_builder.pool) catch
         try vm.setError(node.node_index, .value_oom);
     const dict = object.asDict();
 
@@ -179,7 +179,7 @@ pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
 
         const value = try evalExpression(vm, field.value(vm.nodes));
 
-        dict.map.putContext(vm.valueAllocator(), key, value, .{ .pool = sb.pool }) catch
+        dict.map.put(vm.valueAllocator(), key, value) catch
             try vm.setError(field.node_index, .value_oom);
     }
 
@@ -224,8 +224,7 @@ pub fn evalAccess(
             });
 
             const field = rhs.asString();
-            const sb = &vm.string_builder;
-            break :ret dict.map.getContext(field, .{ .pool = sb.pool }) orelse Value.nil;
+            break :ret dict.map.get(field) orelse Value.nil;
         },
         else => try vm.setError(
             node_indices.lhs,
@@ -506,13 +505,8 @@ pub fn evalAccessAssignment(
             });
 
             const field = lvalue_field.asString();
-            const gop = dict.map.getOrPutContext(
-                vm.valueAllocator(),
-                field,
-                .{ .pool = vm.string_builder.pool },
-            ) catch try vm.setError(node_indices.node, .value_oom);
-
-            gop.value_ptr.* = rvalue;
+            dict.map.put(vm.valueAllocator(), field, rvalue) catch
+                try vm.setError(node_indices.node, .value_oom);
         },
         else => try vm.setError(node_indices.lhs, .{
             .invalid_type = .{ .exp = .list, .act = lvalue },

@@ -1,7 +1,7 @@
 pub const EvaluateOpts = struct {
     src: []const u8,
 
-    string_pool: Value.String.Pool,
+    string_pool: *Value.String.Pool,
     value_arena: *std.heap.ArenaAllocator,
     output: *std.Io.Writer,
     constants: ?builtins.Constants = null,

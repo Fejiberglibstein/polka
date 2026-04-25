@@ -326,77 +326,7 @@ pub const Value = packed union {
         alpha: u8,
     };
 
-    pub const String = enum(u32) {
-        _,
-
-        /// A global pool of every string across all files.
-        ///
-        /// One instance of this will usually be made at a time, so that all files intern into a
-        /// single pool to increase the likelihood of intern hits.
-        pub const Pool = struct {
-            gpa: Allocator,
-            bytes: std.ArrayList(u8),
-            map: std.HashMapUnmanaged(String, void, Context, max_load_percentage),
-
-            pub fn init(gpa: Allocator) String.Pool {
-                return .{
-                    .bytes = .empty,
-                    .map = .empty,
-                    .gpa = gpa,
-                };
-            }
-
-            pub fn deinit(pool: *@This()) void {
-                pool.bytes.deinit(pool.gpa);
-                pool.map.deinit(pool.gpa);
-            }
-
-            pub fn get(pool: *const @This(), index: String) []const u8 {
-                return std.mem.sliceTo(pool.bytes.items[@intFromEnum(index)..], 0);
-            }
-
-            pub fn put(pool: *@This(), str: []const u8) !String {
-                const gop = try pool.map.getOrPutContextAdapted(
-                    pool.gpa,
-                    str,
-                    ContextAdapted{ .pool = pool },
-                    Context{ .pool = pool },
-                );
-
-                if (!gop.found_existing) {
-                    try pool.bytes.ensureUnusedCapacity(pool.gpa, str.len + 1);
-                    const index: String = @enumFromInt(pool.bytes.items.len);
-                    pool.bytes.appendSliceAssumeCapacity(str);
-                    pool.bytes.appendAssumeCapacity(0);
-                    gop.key_ptr.* = index;
-                }
-
-                return gop.key_ptr.*;
-            }
-
-            const Context = struct {
-                pool: *const Pool,
-                pub fn hash(ctx: @This(), key: String) u64 {
-                    return std.hash_map.hashString(ctx.pool.get(key));
-                }
-                pub fn eql(_: @This(), a: String, b: String) bool {
-                    return a == b;
-                }
-            };
-
-            const ContextAdapted = struct {
-                pool: *const Pool,
-                pub fn hash(_: @This(), key: []const u8) u64 {
-                    assert(std.mem.indexOfScalar(u8, key, 0) == null);
-                    return std.hash_map.hashString(key);
-                }
-                pub fn eql(ctx: @This(), a: []const u8, b: String) bool {
-                    return std.mem.eql(u8, a, ctx.pool.get(b));
-                }
-            };
-        };
-
-    };
+    pub const String = @import("value/string.zig").String;
 
     /// Represents a dynamically allocated value on the heap.
     ///
@@ -461,19 +391,16 @@ pub const Value = packed union {
 
         pub const Dict = struct {
             base: Object,
-            map: std.HashMapUnmanaged(String, Value, String.Pool.Context, max_load_percentage),
+            map: String.HashMap(Value),
 
-            pub fn init(alloc: Allocator) !*Object {
+            pub fn init(alloc: Allocator, pool: *String.Pool) !*Object {
                 var ret = try alloc.create(@This());
                 ret.* = .{
                     .base = .{ .tag = .dict },
-                    .map = .empty,
+                    .map = .init(pool),
                 };
-
                 return &ret.base;
             }
-
-            pub const methods = struct {};
         };
 
         pub const Function = struct {

@@ -84,9 +84,8 @@ pub const Constants = struct {
         .arena = undefined,
     };
 
-    pub fn init(io: Io, gpa: Allocator, pool: StringPool) !Constants {
+    pub fn init(io: Io, gpa: Allocator, pool: *StringPool) !Constants {
         _ = io;
-        _ = pool;
 
         const Entry = struct { []const u8, Value };
         const initial_capacity = functions.list.len + 1;
@@ -97,7 +96,7 @@ pub const Constants = struct {
 
         var arena = std.heap.ArenaAllocator.init(gpa);
         const sys = sys: {
-            const object = try Object.Dict.init(arena.allocator());
+            const object = try Object.Dict.init(arena.allocator(), pool);
             const dict = object.asDict();
             _ = dict;
             break :sys Value.newObject(object);

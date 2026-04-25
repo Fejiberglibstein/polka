@@ -278,7 +278,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     var pool: String.Pool = .init(gpa.allocator());
     defer pool.deinit();
 
-    const constants: builtins.Constants = try .init(io, gpa.allocator(), pool);
+    const constants: builtins.Constants = try .init(io, gpa.allocator(), &pool);
     defer constants.deinit(gpa.allocator());
 
     var vm = try Vm.init(.{
