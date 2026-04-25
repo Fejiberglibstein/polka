@@ -28,13 +28,45 @@ gpa: Allocator,
 /// Allocator specifically used to allocate values. For now it's just an arena, but it may be more
 /// complex in the future.
 value_allocator: *std.heap.ArenaAllocator,
-string_builder: String.Builder,
+string_builder: StringBuilder,
 
 variables: std.ArrayList(Variable),
 
 scope: Scope,
 function_return_value: ?Value,
 constants: builtins.Constants,
+
+/// A file-local string builder, this is used to create strings using .begin() & .finish(). A
+/// finished string may be placed in the String.Pool if it doesn't already exist in the pool.
+pub const StringBuilder = struct {
+    pool: *String.Pool,
+    w: std.Io.Writer.Allocating,
+
+    pub fn init(gpa: Allocator, pool: *String.Pool) !StringBuilder {
+        return .{
+            .pool = pool,
+            .w = .init(gpa),
+        };
+    }
+
+    pub fn deinit(builder: *StringBuilder) void {
+        builder.w.deinit();
+        builder.* = undefined;
+    }
+
+    pub const Marker = enum(u32) { _ };
+
+    pub fn begin(b: *@This()) Marker {
+        return @enumFromInt(b.w.written().len);
+    }
+
+    pub fn finish(b: *@This(), m: Marker) !String {
+        const str = b.w.written()[@intFromEnum(m)..];
+        const result = b.pool.put(str);
+        b.w.shrinkRetainingCapacity(@intFromEnum(m));
+        return result;
+    }
+};
 
 const Vm = @This();
 
