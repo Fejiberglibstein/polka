@@ -146,6 +146,23 @@ pub fn valueAllocator(vm: *Vm) Allocator {
     return vm.value_allocator.allocator();
 }
 
+pub fn setFormattedError(
+    vm: *Vm,
+    node_index: u32,
+    comptime fmt: []const u8,
+    args: anytype,
+) RuntimeError!noreturn {
+    const err_string = blk: {
+        const sb = &vm.string_builder;
+        const m = sb.begin();
+        sb.w.writer.print(fmt, args) catch |err| break :blk err;
+        break :blk sb.finish(m);
+    } catch try vm.setError(node_index, .internal_oom);
+
+    vm.err = .{ .node_index = node_index, .kind = .{ .any = err_string } };
+    return error.RuntimeError;
+}
+
 pub fn setError(vm: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) RuntimeError!noreturn {
     vm.err = .{ .node_index = node_index, .kind = kind };
     return error.RuntimeError;
