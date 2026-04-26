@@ -364,14 +364,11 @@ fn StringHashMap(V: type) type {
 
         /// Creates a copy of this map, using the same allocator
         pub fn clone(self: Self, allocator: Allocator) Allocator.Error!Self {
-            var other = try self.unmanaged.cloneContext(allocator, self.getContext());
-            return other.promoteContext(allocator, self.getContext());
-        }
-
-        /// Creates a copy of this map, using a specified allocator
-        pub fn cloneWithAllocator(self: Self, new_allocator: Allocator) Allocator.Error!Self {
-            var other = try self.unmanaged.cloneContext(new_allocator, self.getContext());
-            return other.promoteContext(new_allocator, self.getContext());
+            const other = try self.unmanaged.cloneContext(allocator, self.getContext());
+            return .{
+                .unmanaged = other,
+                .pool = self.pool,
+            };
         }
 
         /// Set the map to an empty state, making deinitialization a no-op, and
