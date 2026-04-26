@@ -279,7 +279,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     var pool: String.Pool = .init(gpa);
     defer pool.deinit();
 
-    const constants: builtins.Constants = try .init(io, gpa, &pool);
+    const constants: builtin.Constants = try .init(io, gpa, &pool);
     defer constants.deinit(gpa);
 
     var config: polka.Config = .init(gpa, &pool);
@@ -320,5 +320,5 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const String = @import("value.zig").Value.String;
 const Vm = @import("Vm.zig");
-const builtins = @import("builtins.zig");
+const builtin = @import("builtin.zig");
 const polka = @import("../polka.zig");

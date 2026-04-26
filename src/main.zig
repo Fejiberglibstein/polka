@@ -9,7 +9,7 @@ pub fn main() !void {
     var config: polka.Config = .init(gpa, &pool);
     defer config.deinit();
 
-    const constants = try builtins.Constants.init(io, gpa, &pool);
+    const constants = try builtin.Constants.init(io, gpa, &pool);
     defer constants.deinit(gpa);
 
     var value_allocator = std.heap.ArenaAllocator.init((std.heap.page_allocator));
@@ -34,7 +34,7 @@ pub fn main() !void {
     });
     _ = vm.run();
 
-    _ = builtins.functions.get("hfk");
+    _ = builtin.functions.get("hfk");
     _ = (ast.Color{ .node_index = undefined }).get(undefined, undefined);
 }
 
@@ -49,5 +49,5 @@ const parser = @import("lang.zig").parser;
 const ast = @import("lang.zig").ast;
 const Vm = @import("lang.zig").Vm;
 const Value = @import("lang.zig").Value;
-const builtins = @import("lang.zig").builtins;
+const builtin = @import("lang.zig").builtin;
 const polka = @import("polka.zig");

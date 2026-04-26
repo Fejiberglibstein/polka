@@ -31,7 +31,7 @@ value_allocator: *std.heap.ArenaAllocator,
 /// the output file, it is usually better to use Vm.out() to output text.
 output_file: *std.Io.Writer,
 string_builder: StringBuilder,
-constants: builtins.Constants,
+constants: builtin.Constants,
 config: *polka.Config,
 
 variables: std.ArrayList(Variable),
@@ -83,7 +83,7 @@ pub const InitOptions = struct {
 
     config: *polka.Config,
     output: *std.Io.Writer,
-    constants: builtins.Constants,
+    constants: builtin.Constants,
 };
 
 pub fn init(opts: InitOptions) !Vm {
@@ -260,5 +260,5 @@ const eval = @import("eval.zig");
 const SyntaxNode = @import("node.zig").SyntaxNode;
 const Value = @import("value.zig").Value;
 const String = Value.String;
-const builtins = @import("builtins.zig");
+const builtin = @import("builtin.zig");
 const polka = @import("../polka.zig");

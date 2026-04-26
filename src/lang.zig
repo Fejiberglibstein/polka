@@ -4,7 +4,7 @@ pub const EvaluateOpts = struct {
     string_pool: *Value.String.Pool,
     value_arena: *std.heap.ArenaAllocator,
     output: *std.Io.Writer,
-    constants: ?builtins.Constants = null,
+    constants: ?builtin.Constants = null,
 };
 
 pub const EvaluateResult = struct {
@@ -52,7 +52,7 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
 pub const ast = @import("lang/ast.zig");
-pub const builtins = @import("lang/builtins.zig");
+pub const builtin = @import("lang/builtin.zig");
 pub const eval = @import("lang/eval.zig");
 pub const parser = @import("lang/parser.zig");
 pub const Value = @import("lang/value.zig").Value;

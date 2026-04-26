@@ -258,7 +258,7 @@ pub fn evalDotAccess(vm: *Vm, node: ast.DotAccess) RuntimeError!Value {
     // #* assert(list[0] == 3)
     //
     // This works fine, but I dont really it.
-    const method = builtins.methods.get(lhs, vm.valueAllocator(), rhs_name) catch
+    const method = builtin.methods.get(lhs, vm.valueAllocator(), rhs_name) catch
         try vm.setError(rhs_node.node_index, .value_oom);
     if (method) |m| return Value.newObject(m);
 
@@ -619,4 +619,4 @@ const Value = @import("value.zig").Value;
 const Vm = @import("Vm.zig");
 const RuntimeError = Vm.RuntimeError;
 const ControlFlow = Vm.ControlFlow;
-const builtins = @import("builtins.zig");
+const builtin = @import("builtin.zig");
