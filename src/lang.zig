@@ -47,12 +47,6 @@ pub fn evaluate(gpa: Allocator, opts: EvaluateOpts) !EvaluateResult {
     vm.run();
 }
 
-pub fn createDefaults(io: Io, gpa: Allocator) struct { builtins.Constants, Value.String.Pool } {
-    const pool: Value.String.Pool = .init(gpa);
-    const constants: builtins.Constants = .init(io, gpa, pool);
-    return .{ constants, pool };
-}
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;

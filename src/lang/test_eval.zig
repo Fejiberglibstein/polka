@@ -248,13 +248,14 @@ test "dict" {
 }
 
 fn testEval(source: []const u8, expected: []const u8) !void {
-    var gpa = std.heap.DebugAllocator(.{}).init;
-    defer _ = gpa.deinit();
+    var allocator = std.heap.DebugAllocator(.{}).init;
+    const gpa = allocator.allocator();
+    defer _ = allocator.deinit();
     const io = std.testing.io;
 
-    const parsed = try parser.parse(source, .text, gpa.allocator());
-    defer gpa.allocator().free(parsed.errors);
-    defer gpa.allocator().free(parsed.nodes);
+    const parsed = try parser.parse(source, .text, gpa);
+    defer gpa.free(parsed.errors);
+    defer gpa.free(parsed.nodes);
     const root = parsed.nodes[parsed.nodes.len - 1];
     if (parsed.errors.len != 0) {
         var buffer: [2048]u8 = undefined;
@@ -269,26 +270,30 @@ fn testEval(source: []const u8, expected: []const u8) !void {
         try std.testing.expectEqual(0, parsed.errors.len);
     }
 
-    var value_arena: std.heap.ArenaAllocator = .init(gpa.allocator());
+    var value_arena: std.heap.ArenaAllocator = .init(gpa);
     defer value_arena.deinit();
 
-    var output: std.Io.Writer.Allocating = .init(gpa.allocator());
+    var output: std.Io.Writer.Allocating = .init(gpa);
     errdefer output.deinit();
 
-    var pool: String.Pool = .init(gpa.allocator());
+    var pool: String.Pool = .init(gpa);
     defer pool.deinit();
 
-    const constants: builtins.Constants = try .init(io, gpa.allocator(), &pool);
-    defer constants.deinit(gpa.allocator());
+    const constants: builtins.Constants = try .init(io, gpa, &pool);
+    defer constants.deinit(gpa);
+
+    var config: polka.Config = .init(gpa, &pool);
+    defer config.deinit();
 
     var vm = try Vm.init(.{
-        .nodes = parsed.nodes,
+        .gpa = gpa,
         .src = source,
-        .gpa = gpa.allocator(),
-        .value_arena = &value_arena,
+        .config = &config,
         .string_pool = &pool,
-        .output = &output.writer,
+        .nodes = parsed.nodes,
         .constants = constants,
+        .output = &output.writer,
+        .value_arena = &value_arena,
     });
     defer vm.deinit();
 
@@ -306,7 +311,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
         try std.testing.expect(result == null);
     }
     const actual = try output.toOwnedSlice();
-    defer gpa.allocator().free(actual);
+    defer gpa.free(actual);
     try std.testing.expectEqualStrings(expected, actual);
 }
 
@@ -316,3 +321,4 @@ const parser = @import("parser.zig");
 const String = @import("value.zig").Value.String;
 const Vm = @import("Vm.zig");
 const builtins = @import("builtins.zig");
+const polka = @import("../polka.zig");

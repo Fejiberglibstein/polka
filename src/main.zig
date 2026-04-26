@@ -1,20 +1,38 @@
 pub fn main() !void {
     const gpa = std.heap.smp_allocator;
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    const io = threaded.io();
+
+    var pool: Value.String.Pool = .init(gpa);
+    defer pool.deinit();
+
+    var config: polka.Config = .init(gpa, &pool);
+    defer config.deinit();
+
+    const constants = try builtins.Constants.init(io, gpa, &pool);
+    defer constants.deinit(gpa);
+
+    var value_allocator = std.heap.ArenaAllocator.init((std.heap.page_allocator));
+    defer value_allocator.deinit();
 
     const parsed = try parser.parse("", .text, gpa);
     defer parsed.deinit(std.heap.page_allocator);
-    var writer = std.Io.Writer.Allocating.init(gpa).writer;
 
-    var value_allocator = std.heap.ArenaAllocator.init((std.heap.page_allocator));
+    var output: std.Io.Writer.Allocating = .init(gpa);
+    defer output.deinit();
+    const writer = &output.writer;
+
     var vm = try Vm.init(.{
-        .nodes = parsed.nodes,
         .src = "",
         .gpa = gpa,
-        .output = &writer,
+        .output = writer,
+        .config = &config,
+        .string_pool = &pool,
+        .nodes = parsed.nodes,
+        .constants = constants,
         .value_arena = &value_allocator,
-        .string_pool = undefined,
     });
-    _ = &vm;
+    _ = vm.run();
 
     _ = builtins.functions.get("hfk");
     _ = (ast.Color{ .node_index = undefined }).get(undefined, undefined);
@@ -32,3 +50,4 @@ const ast = @import("lang.zig").ast;
 const Vm = @import("lang.zig").Vm;
 const Value = @import("lang.zig").Value;
 const builtins = @import("lang.zig").builtins;
+const polka = @import("polka.zig");

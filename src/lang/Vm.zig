@@ -22,22 +22,25 @@ src: []const u8,
 nodes: []const SyntaxNode,
 err: ?RuntimeErrorPayload,
 
-/// Use Vm.out() to write text to the output file, since that will handle functions as well
-output_file: *std.Io.Writer,
 gpa: Allocator,
 /// Allocator specifically used to allocate values. For now it's just an arena, but it may be more
 /// complex in the future.
 value_allocator: *std.heap.ArenaAllocator,
+
+/// Since emitting text inside functions is legal and will write the text into a string rather than
+/// the output file, it is usually better to use Vm.out() to output text.
+output_file: *std.Io.Writer,
 string_builder: StringBuilder,
+constants: builtins.Constants,
+config: *polka.Config,
 
 variables: std.ArrayList(Variable),
 
 scope: Scope,
 function_return_value: ?Value,
-constants: builtins.Constants,
 
 /// A file-local string builder, this is used to create strings using .begin() & .finish(). A
-/// finished string may be placed in the String.Pool if it doesn't already exist in the pool.
+/// finished string may be placed in the StringPool if it's not already in the pool.
 pub const StringBuilder = struct {
     pool: *String.Pool,
     w: std.Io.Writer.Allocating,
@@ -78,23 +81,31 @@ pub const InitOptions = struct {
     string_pool: *String.Pool,
     value_arena: *std.heap.ArenaAllocator,
 
+    config: *polka.Config,
     output: *std.Io.Writer,
-    constants: ?builtins.Constants = null,
+    constants: builtins.Constants,
 };
 
 pub fn init(opts: InitOptions) !Vm {
+    var string_builder: StringBuilder = try .init(opts.gpa, opts.string_pool);
+    errdefer string_builder.deinit();
+
+    var variables: std.ArrayList(Variable) = try .initCapacity(opts.gpa, 512);
+    errdefer variables.deinit(opts.gpa);
+
     return .{
         .err = null,
         .scope = .init,
         .gpa = opts.gpa,
         .src = opts.src,
         .nodes = opts.nodes,
+        .config = opts.config,
+        .variables = variables,
         .output_file = opts.output,
         .function_return_value = null,
+        .string_builder = string_builder,
         .value_allocator = opts.value_arena,
-        .variables = try .initCapacity(opts.gpa, 512),
-        .string_builder = try .init(opts.gpa, opts.string_pool),
-        .constants = opts.constants orelse .empty,
+        .constants = opts.constants,
     };
 }
 
@@ -250,3 +261,4 @@ const SyntaxNode = @import("node.zig").SyntaxNode;
 const Value = @import("value.zig").Value;
 const String = Value.String;
 const builtins = @import("builtins.zig");
+const polka = @import("../polka.zig");
