@@ -38,6 +38,8 @@ variables: std.ArrayList(Variable),
 
 scope: Scope,
 function_return_value: ?Value,
+/// The index of the node that started a ControlFlow error to be tried.
+control_flow_node_index: ?u32,
 
 /// A file-local string builder, this is used to create strings using .begin() & .finish(). A
 /// finished string may be placed in the StringPool if it's not already in the pool.
@@ -102,10 +104,11 @@ pub fn init(opts: InitOptions) !Vm {
         .config = opts.config,
         .variables = variables,
         .output_file = opts.output,
+        .constants = opts.constants,
         .function_return_value = null,
+        .control_flow_node_index = null,
         .string_builder = string_builder,
         .value_allocator = opts.value_arena,
-        .constants = opts.constants,
     };
 }
 
@@ -121,9 +124,9 @@ pub fn run(vm: *Vm) ?RuntimeErrorPayload {
     const root = ast.toASTNode(ast.Text, @intCast(vm.nodes.len - 1), vm.nodes) orelse unreachable;
     eval.evalText(vm, root) catch |err| {
         (switch (err) {
-            ControlFlow.Break => vm.setError(root.node_index, .misplaced_break),
-            ControlFlow.Return => vm.setError(root.node_index, .misplaced_return),
-            ControlFlow.Continue => vm.setError(root.node_index, .misplaced_continue),
+            ControlFlow.Break => vm.setError(vm.control_flow_node_index.?, .misplaced_break),
+            ControlFlow.Return => vm.setError(vm.control_flow_node_index.?, .misplaced_return),
+            ControlFlow.Continue => vm.setError(vm.control_flow_node_index.?, .misplaced_continue),
             ControlFlow.RuntimeError => error.RuntimeError,
         }) catch return vm.err;
     };
@@ -217,27 +220,40 @@ pub const RuntimeErrorPayload = struct {
         value_oom,
         /// Out of memory for allocating internal interpreter things
         internal_oom,
-        /// Could not write to .output because of a std.Io.Writer.Error
+        /// Could not write to .output_file
         write_failure,
         /// Too many variables bound to a scope
         too_many_variables,
         /// Variable not declared in the current scope
         undeclared_variable,
+        /// Attempted to mutate non-variable
         cannot_assign_to_non_variable,
         /// Invalid operands to binary operator. <lhs> node.op <rhs> is not allowed.
         invalid_binary_operands: struct { lhs: Value, rhs: Value },
         /// Invalid operands to unary operator. node.op <rhs> is not allowed.
         invalid_unary_operands: struct { rhs: Value },
-        invalid_type: struct { exp: Value.Type, act: Value },
+        /// Expected type <exp>, got <act.type()>
+        mismatched_types: struct { exp: Value.Type, act: Value },
+        /// Cannot print value
         cannot_print_value: Value,
+        /// Cannot call value as function
         cannot_call_value: Value,
-        invalid_function_args: struct { expected_num: u32, actual_num: u32 },
+        /// Break statement outside of loop
         misplaced_break,
+        /// Continue statement outside of loop
         misplaced_continue,
+        /// Return statemenout outside of function
         misplaced_return,
+        /// Function returns a value and outputs text.
+        // TODO make name clearer
         function_return_and_text,
+        /// Array access was out of bounds
         array_access_out_of_bounds,
+        /// Cannot mutate constant value
         cannot_mutate_constant,
+
+        /// Owned
+        any: []const u8,
     };
 };
 

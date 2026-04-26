@@ -23,12 +23,12 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
         switch (statement) {
             .for_loop => {},
             .export_statement => {},
-            .break_statement => return ControlFlow.Break,
-            .continue_statement => return ControlFlow.Continue,
             .let_statement => |stmt| try evalLetStatement(vm, stmt),
             .return_statement => |ret| try evalReturnStatement(vm, ret),
             .while_loop => |while_loop| try evalWhileLoop(vm, while_loop),
             .conditional => |conditional| try evalConditional(vm, conditional),
+            .break_statement => |break_node| try evalBreakStatement(vm, break_node),
+            .continue_statement => |continue_node| try evalContinueStatement(vm, continue_node),
             .expression => |expr| {
                 const res = try evalExpression(vm, expr);
                 if (res.getString()) |str| {
@@ -46,9 +46,20 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
     }
 }
 
+pub fn evalContinueStatement(vm: *Vm, node: ast.ContinueStatement) ControlFlow!void {
+    vm.control_flow_node_index = node.node_index;
+    return ControlFlow.Continue;
+}
+
+pub fn evalBreakStatement(vm: *Vm, node: ast.BreakStatement) ControlFlow!void {
+    vm.control_flow_node_index = node.node_index;
+    return ControlFlow.Break;
+}
+
 pub fn evalReturnStatement(vm: *Vm, node: ast.ReturnStatement) ControlFlow!void {
     if (node.returnValue(vm.nodes)) |ret|
         vm.function_return_value = try evalExpression(vm, ret);
+    vm.control_flow_node_index = node.node_index;
     return ControlFlow.Return;
 }
 
@@ -73,6 +84,7 @@ pub fn evalWhileLoop(vm: *Vm, node: ast.WhileLoop) ControlFlow!void {
             ControlFlow.Continue => continue,
             else => return err,
         };
+        vm.control_flow_node_index = null;
     }
 }
 
@@ -209,7 +221,7 @@ pub fn evalAccess(
     return switch (lhs.taggedValue()) {
         .list => |list| ret: {
             if (!rhs.isNumber()) try vm.setError(node_indices.rhs, .{
-                .invalid_type = .{ .exp = .number, .act = rhs },
+                .mismatched_types = .{ .exp = .number, .act = rhs },
             });
 
             if (rhs.asNumber() < 0) break :ret Value.nil;
@@ -220,7 +232,7 @@ pub fn evalAccess(
         },
         .dict => |dict| ret: {
             if (!rhs.isString()) try vm.setError(node_indices.rhs, .{
-                .invalid_type = .{ .exp = .string, .act = rhs },
+                .mismatched_types = .{ .exp = .string, .act = rhs },
             });
 
             const field = rhs.asString();
@@ -228,7 +240,7 @@ pub fn evalAccess(
         },
         else => try vm.setError(
             node_indices.lhs,
-            .{ .invalid_type = .{ .exp = .list, .act = lhs } },
+            .{ .mismatched_types = .{ .exp = .list, .act = lhs } },
         ),
     };
 }
@@ -426,11 +438,12 @@ pub fn callRuntimeFunction(
             const m = vm.string_builder.begin();
 
             evalText(vm, body) catch |err| switch (err) {
+                ControlFlow.Return => {}, // Ignore returns
                 error.RuntimeError => return error.RuntimeError,
-                ControlFlow.Continue => @panic("TODO"),
-                ControlFlow.Break => @panic("TODO"),
-                ControlFlow.Return => {},
+                ControlFlow.Break => try vm.setError(vm.control_flow_node_index.?, .misplaced_break),
+                ControlFlow.Continue => try vm.setError(vm.control_flow_node_index.?, .misplaced_continue),
             };
+            vm.control_flow_node_index = null;
 
             const function_text = if (m != vm.string_builder.begin())
                 Value.newString(vm.string_builder.finish(m) catch
@@ -485,7 +498,7 @@ pub fn evalAccessAssignment(
     switch (lvalue.taggedValue()) {
         .list => |list| {
             if (!lvalue_field.isNumber()) try vm.setError(node_indices.rhs, .{
-                .invalid_type = .{ .exp = .number, .act = lvalue_field },
+                .mismatched_types = .{ .exp = .number, .act = lvalue_field },
             });
 
             const index: usize = index: {
@@ -501,7 +514,7 @@ pub fn evalAccessAssignment(
         },
         .dict => |dict| {
             if (!lvalue_field.isString()) try vm.setError(node_indices.rhs, .{
-                .invalid_type = .{ .exp = .string, .act = lvalue_field },
+                .mismatched_types = .{ .exp = .string, .act = lvalue_field },
             });
 
             const field = lvalue_field.asString();
@@ -509,7 +522,7 @@ pub fn evalAccessAssignment(
                 try vm.setError(node_indices.node, .value_oom);
         },
         else => try vm.setError(node_indices.lhs, .{
-            .invalid_type = .{ .exp = .list, .act = lvalue },
+            .mismatched_types = .{ .exp = .list, .act = lvalue },
         }),
     }
 }
