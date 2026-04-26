@@ -299,7 +299,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
 
     const result = vm.run();
     if (result) |err| {
-        std.debug.print("Error: {any}\n", .{err.kind});
+        std.debug.print("Error: {f}\n", .{err.formatWith(parsed.nodes, source, &pool)});
 
         var buffer: [2048]u8 = undefined;
         var stderr = std.Io.File.stderr().writer(io, &buffer);

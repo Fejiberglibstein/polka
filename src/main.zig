@@ -32,7 +32,9 @@ pub fn main() !void {
         .constants = constants,
         .value_arena = &value_allocator,
     });
-    _ = vm.run();
+    if (vm.run()) |err| {
+        std.debug.print("Error: {f}", .{err.formatWith(parsed.nodes, "", &pool)});
+    }
 
     _ = builtin.functions.get("hfk");
     _ = (ast.Color{ .node_index = undefined }).get(undefined, undefined);

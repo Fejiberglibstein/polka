@@ -137,6 +137,13 @@ pub const Value = packed union {
         list,
         dict,
         function,
+
+        pub fn format(
+            self: @This(),
+            w: *std.Io.Writer,
+        ) std.Io.Writer.Error!void {
+            try w.writeAll(@tagName(self));
+        }
     };
     pub fn typ(value: Value) Type {
         return if (value.isNil())

@@ -342,7 +342,7 @@ pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
         if (caller.getObject()) |obj| {
             if (obj.getFunction()) |func| break :blk func;
         }
-        try vm.setError(node.node_index, .{ .cannot_call_value = caller });
+        try vm.setError(node.node_index, .{ .mismatched_types = .{ .exp = .function, .act = caller } });
     };
 
     return switch (function.func) {
@@ -501,14 +501,17 @@ pub fn evalAccessAssignment(
                 .mismatched_types = .{ .exp = .number, .act = lvalue_field },
             });
 
+            const lvalue_num = lvalue_field.asNumber();
             const index: usize = index: {
-                const index = lvalue_field.asNumber();
-                if (index < 0)
+                if (lvalue_num < 0)
                     break :index error.ValueError;
-                if (@as(usize, @intFromFloat(index)) > list.array.items.len)
+                if (@as(usize, @intFromFloat(lvalue_num)) > list.array.items.len)
                     break :index error.ValueError;
-                break :index @as(usize, @intFromFloat(lvalue_field.asNumber()));
-            } catch try vm.setError(node_indices.rhs, .array_access_out_of_bounds);
+                break :index @as(usize, @intFromFloat(lvalue_num));
+            } catch try vm.setError(node_indices.rhs, .{ .array_index_out_of_bounds = .{
+                .index = Value.newNumber(lvalue_num),
+                .length = Value.newNumber(@floatFromInt(list.array.items.len)),
+            } });
 
             list.array.items[index] = rvalue;
         },

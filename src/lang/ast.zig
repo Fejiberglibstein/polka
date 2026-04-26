@@ -416,6 +416,16 @@ pub const UnaryOperator = union(enum) {
             .negate => 10,
         };
     }
+
+    pub fn format(
+        self: @This(),
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        try writer.writeAll(switch (self) {
+            .not => "not",
+            .negate => "-",
+        });
+    }
 };
 
 pub const Unary = struct {
@@ -484,6 +494,29 @@ pub const BinaryOperator = union(enum) {
             => .left,
             .assign => .right,
         };
+    }
+
+    pub fn format(
+        self: @This(),
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        try writer.writeAll(switch (self) {
+            .add => "+",
+            .in => "in",
+            .@"or" => "or",
+            .equal => "==",
+            .modulo => "%",
+            .divide => "/",
+            .assign => "=",
+            .@"and" => "and",
+            .subtract => "-",
+            .multiply => "*",
+            .less_than => "<",
+            .not_equal => "!=",
+            .greater_than => ">",
+            .less_than_equal => "<=",
+            .greater_than_equal => ">=",
+        });
     }
 };
 
@@ -809,7 +842,6 @@ comptime {
             @compileError("No ast node constructed for " ++ kind.name);
         }
     }
-
 }
 
 const SyntaxKind = @import("node.zig").SyntaxKind;

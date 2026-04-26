@@ -236,8 +236,6 @@ pub const RuntimeErrorPayload = struct {
         mismatched_types: struct { exp: Value.Type, act: Value },
         /// Cannot print value
         cannot_print_value: Value,
-        /// Cannot call value as function
-        cannot_call_value: Value,
         /// Break statement outside of loop
         misplaced_break,
         /// Continue statement outside of loop
@@ -248,13 +246,122 @@ pub const RuntimeErrorPayload = struct {
         // TODO make name clearer
         function_return_and_text,
         /// Array access was out of bounds
-        array_access_out_of_bounds,
+        array_index_out_of_bounds: struct { index: Value, length: Value },
         /// Cannot mutate constant value
         cannot_mutate_constant,
 
-        /// Owned
-        any: []const u8,
+        any: String,
     };
+
+    pub const FormatWrapper = struct {
+        err: RuntimeErrorPayload,
+
+        nodes: []const SyntaxNode,
+        pool: *String.Pool,
+        src: []const u8,
+
+        pub fn format(
+            self: @This(),
+            w: *std.Io.Writer,
+        ) std.Io.Writer.Error!void {
+            try switch (self.err.kind) {
+                .internal_oom => w.writeAll("internal error; oom"),
+                .write_failure => w.writeAll("internal error; write failure"),
+                .value_oom => w.writeAll(
+                    \\Too many values allocated at once.
+                    \\
+                    \\Hint:
+                    \\  Try optimizing your templates memory usage
+                    \\  or rerun with TODO flag to increase memory
+                ),
+                .too_many_variables => w.writeAll(
+                    \\Too many variables in scope
+                    \\
+                    \\Hint:
+                    \\  rerun with TODO flag to increase variable limit
+                ),
+                .undeclared_variable => w.print(
+                    \\Use of undeclared identifier `{s}`
+                , .{
+                    ast.toASTNode(
+                        ast.Ident,
+                        self.err.node_index,
+                        self.nodes,
+                    ).?.get(self.nodes, self.src),
+                }),
+                .cannot_assign_to_non_variable => w.writeAll(
+                    \\Invalid left-hand side to assignment
+                ),
+                .invalid_binary_operands => |v| w.print(
+                    \\Invalid operands to binary operator. {[lhs]f} {[op]f} {[rhs]f} is not allowed
+                , .{
+                    .lhs = v.lhs.typ(),
+                    .op = ast.toASTNode(
+                        ast.BinaryOperator,
+                        self.err.node_index,
+                        self.nodes,
+                    ).?,
+                    .rhs = v.rhs.typ(),
+                }),
+                .invalid_unary_operands => |v| w.print(
+                    \\Invalid operands to unary operator. {[op]f} {[rhs]f} is not allowed
+                , .{
+                    .op = ast.toASTNode(
+                        ast.UnaryOperator,
+                        self.err.node_index,
+                        self.nodes,
+                    ).?,
+                    .rhs = v.rhs.typ(),
+                }),
+                .mismatched_types => |v| w.print(
+                    \\Invalid type. Expected {[exp]f}, got {[act]f}
+                , .{ .exp = v.exp, .act = v.act.typ() }),
+                .cannot_print_value => w.writeAll(
+                    // TODO i dont like the word "print" in this error message
+                    \\Cannot print {}
+                    \\
+                    \\Hint:
+                    \\  Use `debug()` to log an expression
+                ),
+                .misplaced_break => w.writeAll(
+                    \\Break statement outside of loop
+                ),
+                .misplaced_continue => w.writeAll(
+                    \\Continue statement outside of loop
+                ),
+                .misplaced_return => w.writeAll(
+                    \\Return statement outside of function body
+                ),
+                .function_return_and_text => w.writeAll(
+                    // TODO i dont like this error message
+                    \\Functions may not both emit text and return a value.
+                ),
+                .array_index_out_of_bounds => |v| w.print(
+                    \\Array index out of bounds (index: {[index]}, len: {[len]})
+                , .{
+                    .index = v.index.asNumber(),
+                    .len = v.index.asNumber(),
+                }),
+                .cannot_mutate_constant => w.writeAll(
+                    \\Cannot mutate a constant
+                ),
+                .any => |v| w.writeAll(self.pool.get(v)),
+            };
+        }
+    };
+    pub fn formatWith(
+        self: RuntimeErrorPayload,
+        nodes: []const SyntaxNode,
+        src: []const u8,
+        pool: *String.Pool,
+    ) FormatWrapper {
+        return .{
+            .src = src,
+            .err = self,
+            .pool = pool,
+            .nodes = nodes,
+        };
+    }
 };
 
 pub const RuntimeError = error{RuntimeError};
