@@ -4,6 +4,11 @@
 //! `fn(Function.CallCtx, []const Value) RuntimeError!Value`
 const builtin = @This();
 
+comptime {
+    assert(methods.table[@intFromEnum(Value.Type.list)].get("len") != null);
+    assert(functions.get("polka") != null);
+}
+
 /// `methods` is a namespace containing namespaces for all the builtin methods that may be called on
 /// each type at runtime, e.g. list.append()
 ///
@@ -69,10 +74,6 @@ pub const methods = struct {
 
         break :table methods_table;
     };
-
-    comptime {
-        assert(table[@intFromEnum(Value.Type.list)].get("len") != null);
-    }
 };
 
 pub const Constants = struct {
@@ -128,10 +129,73 @@ pub const Constants = struct {
 /// `fn(Function.CallCtx, []const Value) RuntimeError!Value`
 pub const functions = struct {
     pub fn polka(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
-        _ = ctx;
-        _ = args;
 
-        std.log.debug("hiii", .{});
+        // Type safe container for fields of PolkaConfig
+        const Options = struct {
+            pub const destination_path = "destination_path";
+            pub const comment_strings = "comment_strings";
+            pub const ignored_files = "ignored_files";
+
+            comptime {
+                for (std.meta.declarations(@This())) |decl| {
+                    if (!std.mem.eql(u8, decl.name, @field(@This(), decl.name)))
+                        @compileError(std.fmt.comptimePrint(
+                            "`{s}` != `{s}`",
+                            .{ decl.name, @field(@This(), decl.name) },
+                        ));
+                    if (std.meta.fieldIndex(PolkaConfig, decl.name) == null)
+                        @compileError(std.fmt.comptimePrint(
+                            "{s} does not contain a field named `{s}`",
+                            .{ @typeName(PolkaConfig), decl.name },
+                        ));
+                }
+            }
+        };
+
+        assert(ctx.self == Value.nil);
+        const err_idx = ctx.caller_node_index;
+        const vm = ctx.vm;
+        const config = vm.config;
+
+        if (args.len != 1)
+            try vm.setFormattedError(err_idx, "Expected 1 argument to polka builtin", .{});
+        const opts: String.HashMap(Value) = (try expectType(ctx, args[0], .dict)).map;
+
+        if (opts.getPtrAdapted(Options.destination_path)) |file_dest| {
+            // TODO verification of destination path file format
+            config.destination_path = try expectType(ctx, file_dest.*, .string);
+        }
+
+        if (opts.getPtrAdapted(Options.comment_strings)) |ftc| {
+            const ft_comments: String.HashMap(Value) = (try expectType(ctx, ftc.*, .dict)).map;
+
+            config.cloneField(.comment_strings) catch
+                try vm.setError(err_idx, .internal_oom);
+
+            var iter = ft_comments.iterator();
+
+            while (iter.next()) |entry| {
+                const key = entry.key_ptr.*;
+                const value = try expectType(ctx, entry.value_ptr.*, .string);
+                config.comment_strings.put(config.allocator, key, value) catch
+                    try vm.setError(err_idx, .internal_oom);
+            }
+        }
+
+        if (opts.getPtrAdapted(Options.ignored_files)) |v| {
+            const ignored_files: std.ArrayList(Value) = (try expectType(ctx, v.*, .list)).array;
+
+            config.cloneField(.ignored_files) catch
+                try vm.setError(err_idx, .internal_oom);
+
+            // TODO verification of file string format
+            for (ignored_files.items) |file| {
+                const file_str = try expectType(ctx, file, .string);
+                config.ignored_files.append(config.allocator, file_str) catch
+                    try vm.setError(err_idx, .internal_oom);
+            }
+        }
+
         return Value.nil;
     }
 
@@ -174,11 +238,25 @@ pub const functions = struct {
 
         break :list entries;
     };
-
-    comptime {
-        assert(get("polka") != null);
-    }
 };
+
+fn TaggedType(comptime ty: Value.Type) type {
+    return @typeInfo(Value.TaggedValue).@"union".fields[@intFromEnum(ty)].type;
+}
+
+pub fn expectType(
+    ctx: Function.CallCtx,
+    value: Value,
+    comptime expected_type: Value.Type,
+) RuntimeError!TaggedType(expected_type) {
+    if (value.typ() != expected_type)
+        try ctx.vm.setError(
+            ctx.caller_node_index,
+            .{ .mismatched_types = .{ .exp = expected_type, .act = value } },
+        );
+
+    return @field(value.taggedValue(), @tagName(expected_type));
+}
 
 const std = @import("std");
 const Io = std.Io;
@@ -188,8 +266,10 @@ const Allocator = std.mem.Allocator;
 const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;
 const Object = Value.Object;
-const StringPool = Value.String.Pool;
+const String = Value.String;
 const Function = Object.Function;
+const StringPool = String.Pool;
 const Vm = @import("Vm.zig");
 const RuntimeError = Vm.RuntimeError;
 const ControlFlow = Vm.ControlFlow;
+const PolkaConfig = @import("../polka.zig").Config;

@@ -100,7 +100,7 @@ test "While loop" {
 
 test "builtins" {
     try testEval(
-        \\#*polka()
+        \\#*polka({})
     ,
         \\
     );
