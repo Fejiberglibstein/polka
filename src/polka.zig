@@ -28,13 +28,7 @@ pub const Config = struct {
 
     // const BitSet = @Int(.unsigned, @typeInfo(Config).@"struct".fields.len - owned_fields_index);
     const BitSet = u8;
-    const owned_fields_index = blk: {
-        for (@typeInfo(Config).@"struct".fields, 0..) |f, i| {
-            if (std.mem.eql(u8, f.name, "--")) {
-                break :blk i + 1;
-            }
-        }
-    };
+    const owned_fields_index = std.meta.fieldIndex(@This(), "--").? + 1;
 
     pub fn init(gpa: Allocator, pool: *String.Pool) Config {
         return .{
@@ -55,20 +49,22 @@ pub const Config = struct {
         self.* = undefined;
     }
 
-    pub fn cloneField(self: *Config, field: @EnumLiteral()) !void {
+    /// Marks the field as owned, and clone it if it was not already owned.
+    pub fn cloneField(self: *Config, comptime field: std.meta.FieldEnum(Config)) !void {
         const field_name = @tagName(field);
 
         inline for (@typeInfo(Config).@"struct".fields[owned_fields_index..], 0..) |f, i| {
-            if (std.mem.eql(u8, f.name, field_name)) {
+            if (comptime std.mem.eql(u8, f.name, field_name)) {
                 // If it's already owned, do nothing
-                if (self.owned_bitset & (1 << i)) return;
+                if (self.owned_bitset & (1 << i) != 0) return;
 
                 self.owned_bitset |= 1 << i;
                 @field(self, field_name) = try @field(self, field_name).clone(self.allocator);
                 return;
             }
         }
-        @compileError(field_name + " does not need to be cloned");
+
+        @compileError(field_name ++ " does not need to be cloned");
     }
 
     pub fn copy(self: *const Config) Config {
