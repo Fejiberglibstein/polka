@@ -35,11 +35,11 @@ pub const methods = struct {
     /// The returned Object is a Function.
     pub fn get(
         value: Value,
-        gpa: Allocator,
+        value_allocator: Allocator,
         method_name: []const u8,
     ) !?*Value.Object {
         return if (table[@intFromEnum(value.typ())].get(method_name)) |function|
-            try Function.initBuiltin(gpa, function, value)
+            try Function.initBuiltin(value_allocator, function, value)
         else
             null;
     }
@@ -52,14 +52,14 @@ pub const methods = struct {
         var methods_table: [types.len]MethodTable = @splat(.initComptime(.{}));
 
         for (types, 0..) |typ, i| {
-            if (@hasDecl(methods, typ.name)) {
-                const type_namespace = @field(methods, typ.name);
-                const decls = std.meta.declarations(type_namespace);
+            if (@hasDecl(@This(), typ.name)) {
+                const namespace = @field(@This(), typ.name);
+                const decls = std.meta.declarations(namespace);
 
                 const Entry = struct { []const u8, Function.BuiltinFn };
                 var entries: [decls.len]Entry = undefined;
                 for (decls, 0..) |decl, j| {
-                    entries[j] = .{ decl.name, &@field(type_namespace, decl.name) };
+                    entries[j] = .{ decl.name, &@field(namespace, decl.name) };
                 }
 
                 const map: MethodTable = .initComptime(entries);
@@ -104,7 +104,7 @@ pub const Constants = struct {
 
         try entries.append(gpa, .{ "sys", sys });
 
-        for (&functions.list) |*func| {
+        for (functions.list) |*func| {
             try entries.append(gpa, .{ func.@"0", Value.newObject(&func.@"1".base) });
         }
 
@@ -115,7 +115,6 @@ pub const Constants = struct {
     }
 
     pub fn deinit(constants: Constants, gpa: Allocator) void {
-        std.log.debug("{}", .{constants.map.kvs.len});
         if (constants.map.kvs.len == 0) return;
 
         constants.map.deinit(gpa);
@@ -137,7 +136,7 @@ pub const functions = struct {
     }
 
     pub fn get(function_name: []const u8) ?*const Value.Object {
-        const map: std.StaticStringMap(Function) = .initComptime(list);
+        const map: std.StaticStringMap(Function) = comptime .initComptime(list);
         // List has a static lifetime so it's fine to return a pointer here.
         return if (map.get(function_name)) |f| &f.base else null;
     }
@@ -147,43 +146,33 @@ pub const functions = struct {
     /// that `functions.get()` may return a reference to them to avoid heap allocating.
     const Entry = struct { []const u8, Function };
 
-    pub const list = list: {
+    pub const list: []const Entry = list: {
         const decls = std.meta.declarations(functions);
 
-        var decl_count = 0;
-        for (decls) |decl| {
-            // Skip past this decl to avoid dependency loop since it hasn't been resolved yet.
-            if (std.mem.eql(u8, decl.name, "list")) continue;
-            if (@TypeOf(&@field(functions, decl.name)) == Function.BuiltinFn) decl_count += 1;
-        }
-
-        var entries: [decl_count]Entry = undefined;
-        var len = 0;
-
+        var entries: []const Entry = &.{};
         for (decls) |decl| {
             // Skip past this decl to avoid dependency loop since it hasn't been resolved yet.
             if (std.mem.eql(u8, decl.name, "list")) continue;
 
             const field = &@field(functions, decl.name);
             if (@TypeOf(field) == Function.BuiltinFn) {
-
-                // not using the Value.initBuiltin here because that requires an allocator and this
-                // should be constructed at compiletime.
-                entries[len] = .{ decl.name, Function{
-                    .base = .{ .tag = .function, .constant = true },
-                    .func = .{ .builtin = .{
-                        .func = field,
-                        .self = Value.nil,
-                    } },
-                } };
-                len += 1;
+                const entry: Entry = .{
+                    decl.name,
+                    // not using the Value.initBuiltin here because that requires an allocator and
+                    // this should be constructed at compiletime.
+                    .{
+                        .base = .{ .tag = .function, .constant = true },
+                        .func = .{ .builtin = .{
+                            .func = field,
+                            .self = Value.nil,
+                        } },
+                    },
+                };
+                entries = entries ++ .{entry};
             }
         }
 
-        var shortened_entries: [len]Entry = undefined;
-        @memcpy(&shortened_entries, entries[0..len]);
-
-        break :list shortened_entries;
+        break :list entries;
     };
 
     comptime {
