@@ -29,7 +29,7 @@ pub const methods = struct {
             const self = ctx.self.asObject().asList();
             for (args[0..]) |arg| {
                 self.array.append(ctx.vm.valueAllocator(), arg) catch
-                    try ctx.vm.setError(ctx.caller_node_index, .value_oom);
+                    try ctx.vm.setError(ctx.caller_index, .value_oom);
             }
             return Value.nil;
         }
@@ -153,7 +153,7 @@ pub const functions = struct {
         };
 
         assert(ctx.self == Value.nil);
-        const err_idx = ctx.caller_node_index;
+        const err_idx = ctx.caller_index;
         const vm = ctx.vm;
         const config = vm.config;
 
@@ -251,7 +251,7 @@ pub fn expectType(
 ) RuntimeError!TaggedType(expected_type) {
     if (value.typ() != expected_type)
         try ctx.vm.setError(
-            ctx.caller_node_index,
+            ctx.caller_index,
             .{ .mismatched_types = .{ .exp = expected_type, .act = value } },
         );
 

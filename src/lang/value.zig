@@ -419,8 +419,8 @@ pub const Value = packed union {
                     func: BuiltinFn,
                 },
                 runtime: struct {
-                    /// Index into the list of all nodes of this function's definition
-                    definition_index: u32,
+                    /// Function definition node; is an ast.FunctionDef
+                    definition_index: ast.NodeIndex,
 
                     /// Number of parameters this function expects
                     arity: u32,
@@ -432,7 +432,7 @@ pub const Value = packed union {
             pub const CallCtx = struct {
                 vm: *Vm,
                 self: Value,
-                caller_node_index: u32,
+                caller_index: ast.NodeIndex,
             };
 
             pub const max_args = 32;
@@ -449,7 +449,7 @@ pub const Value = packed union {
                 return &ret.base;
             }
 
-            pub fn initRuntime(gpa: Allocator, body_index: u32, arity: u32) !*Object {
+            pub fn initRuntime(gpa: Allocator, body_index: ast.NodeIndex, arity: u32) !*Object {
                 const ret = try gpa.create(@This());
                 ret.* = .{
                     .base = .{ .tag = .function },
@@ -539,3 +539,4 @@ const max_load_percentage = std.hash_map.default_max_load_percentage;
 
 const Vm = @import("Vm.zig");
 const RuntimeError = Vm.RuntimeError;
+const ast = @import("ast.zig");

@@ -39,7 +39,7 @@ variables: std.ArrayList(Variable),
 scope: Scope,
 function_return_value: ?Value,
 /// The index of the node that started a ControlFlow error to be tried.
-control_flow_node_index: ?u32,
+control_flow_node: ?ast.NodeIndex,
 
 /// A file-local string builder, this is used to create strings using .begin() & .finish(). A
 /// finished string may be placed in the StringPool if it's not already in the pool.
@@ -106,7 +106,7 @@ pub fn init(opts: InitOptions) !Vm {
         .output_file = opts.output,
         .constants = opts.constants,
         .function_return_value = null,
-        .control_flow_node_index = null,
+        .control_flow_node = null,
         .string_builder = string_builder,
         .value_allocator = opts.value_arena,
     };
@@ -121,12 +121,12 @@ pub fn deinit(vm: *Vm) void {
 pub fn run(vm: *Vm) ?RuntimeErrorPayload {
     if (vm.nodes.len == 0) return null;
 
-    const root = ast.toASTNode(ast.Text, @intCast(vm.nodes.len - 1), vm.nodes) orelse unreachable;
+    const root = ast.toASTNode(ast.Text, @enumFromInt(vm.nodes.len - 1), vm.nodes) orelse unreachable;
     eval.evalText(vm, root) catch |err| {
         (switch (err) {
-            ControlFlow.Break => vm.setError(vm.control_flow_node_index.?, .misplaced_break),
-            ControlFlow.Return => vm.setError(vm.control_flow_node_index.?, .misplaced_return),
-            ControlFlow.Continue => vm.setError(vm.control_flow_node_index.?, .misplaced_continue),
+            ControlFlow.Break => vm.setError(vm.control_flow_node.?, .misplaced_break),
+            ControlFlow.Return => vm.setError(vm.control_flow_node.?, .misplaced_return),
+            ControlFlow.Continue => vm.setError(vm.control_flow_node.?, .misplaced_continue),
             ControlFlow.RuntimeError => error.RuntimeError,
         }) catch return vm.err;
     };
@@ -148,7 +148,7 @@ pub fn valueAllocator(vm: *Vm) Allocator {
 
 pub fn setFormattedError(
     vm: *Vm,
-    node_index: u32,
+    index: ast.NodeIndex,
     comptime fmt: []const u8,
     args: anytype,
 ) RuntimeError!noreturn {
@@ -157,14 +157,14 @@ pub fn setFormattedError(
         const m = sb.begin();
         sb.w.writer.print(fmt, args) catch |err| break :blk err;
         break :blk sb.finish(m);
-    } catch try vm.setError(node_index, .internal_oom);
+    } catch try vm.setError(index, .internal_oom);
 
-    vm.err = .{ .node_index = node_index, .kind = .{ .any = err_string } };
+    vm.err = .{ .index = index, .kind = .{ .any = err_string } };
     return error.RuntimeError;
 }
 
-pub fn setError(vm: *Vm, node_index: u32, kind: RuntimeErrorPayload.Kind) RuntimeError!noreturn {
-    vm.err = .{ .node_index = node_index, .kind = kind };
+pub fn setError(vm: *Vm, index: ast.NodeIndex, kind: RuntimeErrorPayload.Kind) RuntimeError!noreturn {
+    vm.err = .{ .index = index, .kind = kind };
     return error.RuntimeError;
 }
 
@@ -230,7 +230,7 @@ pub fn pushFunctionScope(vm: *Vm) Scope {
 
 pub const RuntimeErrorPayload = struct {
     /// The index of the node that caused the error
-    node_index: u32,
+    index: ast.NodeIndex,
     kind: Kind,
     const Kind = union(enum) {
         /// Out of memory for allocating values
@@ -302,7 +302,7 @@ pub const RuntimeErrorPayload = struct {
                 , .{
                     ast.toASTNode(
                         ast.Ident,
-                        self.err.node_index,
+                        self.err.index,
                         self.nodes,
                     ).?.get(self.nodes, self.src),
                 }),
@@ -315,7 +315,7 @@ pub const RuntimeErrorPayload = struct {
                     .lhs = v.lhs.typ(),
                     .op = ast.toASTNode(
                         ast.BinaryOperator,
-                        self.err.node_index,
+                        self.err.index,
                         self.nodes,
                     ).?,
                     .rhs = v.rhs.typ(),
@@ -325,7 +325,7 @@ pub const RuntimeErrorPayload = struct {
                 , .{
                     .op = ast.toASTNode(
                         ast.UnaryOperator,
-                        self.err.node_index,
+                        self.err.index,
                         self.nodes,
                     ).?,
                     .rhs = v.rhs.typ(),

@@ -37,7 +37,6 @@ pub fn main() !void {
     }
 
     _ = builtin.functions.get("hfk");
-    _ = (ast.Color{ .node_index = undefined }).get(undefined, undefined);
 }
 
 test {

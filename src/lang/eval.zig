@@ -10,7 +10,7 @@ pub fn evalText(vm: *Vm, node: ast.Text) ControlFlow!void {
             .code => |code| try evalCode(vm, code),
             .text_line => |line| out.writeAll(line.get(vm.src, vm.nodes)),
         }) catch |err| switch (err) {
-            error.WriteFailed => try vm.setError(part.nodeIndex(), .write_failure),
+            error.WriteFailed => try vm.setError(part.index(), .write_failure),
             inline else => |e| return e,
         };
     }
@@ -34,12 +34,12 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
                 if (res.getString()) |str| {
                     const bytes = vm.string_builder.pool.get(str);
                     out.writeAll(bytes) catch
-                        try vm.setError(expr.nodeIndex(), .write_failure);
+                        try vm.setError(expr.index(), .write_failure);
                     continue;
                 }
 
                 if (!res.isNil()) {
-                    try vm.setError(expr.nodeIndex(), .{ .cannot_print_value = res });
+                    try vm.setError(expr.index(), .{ .cannot_print_value = res });
                 }
             },
         }
@@ -47,19 +47,19 @@ pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
 }
 
 pub fn evalContinueStatement(vm: *Vm, node: ast.ContinueStatement) ControlFlow!void {
-    vm.control_flow_node_index = node.node_index;
+    vm.control_flow_node = node.index;
     return ControlFlow.Continue;
 }
 
 pub fn evalBreakStatement(vm: *Vm, node: ast.BreakStatement) ControlFlow!void {
-    vm.control_flow_node_index = node.node_index;
+    vm.control_flow_node = node.index;
     return ControlFlow.Break;
 }
 
 pub fn evalReturnStatement(vm: *Vm, node: ast.ReturnStatement) ControlFlow!void {
     if (node.returnValue(vm.nodes)) |ret|
         vm.function_return_value = try evalExpression(vm, ret);
-    vm.control_flow_node_index = node.node_index;
+    vm.control_flow_node = node.index;
     return ControlFlow.Return;
 }
 
@@ -71,7 +71,7 @@ pub fn evalLetStatement(vm: *Vm, node: ast.LetStatement) RuntimeError!void {
 
     const var_name = node.variableName(vm.nodes).get(vm.nodes, vm.src);
     vm.bindVariable(var_name, initial_value) catch
-        try vm.setError(node.node_index, .too_many_variables);
+        try vm.setError(node.index, .too_many_variables);
 }
 
 pub fn evalWhileLoop(vm: *Vm, node: ast.WhileLoop) ControlFlow!void {
@@ -84,7 +84,7 @@ pub fn evalWhileLoop(vm: *Vm, node: ast.WhileLoop) ControlFlow!void {
             ControlFlow.Continue => continue,
             else => return err,
         };
-        vm.control_flow_node_index = null;
+        vm.control_flow_node = null;
     }
 }
 
@@ -138,10 +138,10 @@ pub fn evalStaticString(vm: *Vm, node: ast.StaticString) RuntimeError!Value {
     var sb = &vm.string_builder;
     const m = sb.begin();
     node.create(vm.nodes, vm.src, &sb.w.writer) catch
-        try vm.setError(node.node_index, .internal_oom);
+        try vm.setError(node.index, .internal_oom);
 
     return Value.newString(sb.finish(m) catch
-        try vm.setError(node.node_index, .internal_oom));
+        try vm.setError(node.index, .internal_oom));
 }
 
 pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Value {
@@ -157,23 +157,23 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
                 const v = try evalExpression(vm, expr.get(vm.nodes));
                 v.print(vm.string_builder.pool, &sb.w.writer) catch |err| switch (err) {
                     error.ValueError => try vm.setError(
-                        part.nodeIndex(),
+                        part.index(),
                         .{ .cannot_print_value = v },
                     ),
                     error.WriteFailed => break :blk error.WriteFailed,
                 };
             },
-        }) catch try vm.setError(part.nodeIndex(), .internal_oom);
+        }) catch try vm.setError(part.index(), .internal_oom);
     }
-    sb.w.writer.print("\n", .{}) catch try vm.setError(node.node_index, .internal_oom);
+    sb.w.writer.print("\n", .{}) catch try vm.setError(node.index, .internal_oom);
 
     return Value.newString(sb.finish(m) catch
-        try vm.setError(node.node_index, .internal_oom));
+        try vm.setError(node.index, .internal_oom));
 }
 
 pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
     const object = Value.Object.Dict.init(vm.valueAllocator(), vm.string_builder.pool) catch
-        try vm.setError(node.node_index, .value_oom);
+        try vm.setError(node.index, .value_oom);
     const dict = object.asDict();
 
     var sb = &vm.string_builder;
@@ -184,15 +184,15 @@ pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
             const m = sb.begin();
             const key_node = field.key(vm.nodes);
             sb.w.writer.print("{s}", .{key_node.get(vm.nodes, vm.src)}) catch
-                try vm.setError(node.node_index, .internal_oom);
+                try vm.setError(node.index, .internal_oom);
             break :key sb.finish(m) catch
-                try vm.setError(key_node.node_index, .internal_oom);
+                try vm.setError(key_node.index, .internal_oom);
         };
 
         const value = try evalExpression(vm, field.value(vm.nodes));
 
         dict.map.put(vm.valueAllocator(), key, value) catch
-            try vm.setError(field.node_index, .value_oom);
+            try vm.setError(field.index, .value_oom);
     }
 
     return Value.newObject(object);
@@ -200,13 +200,13 @@ pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
 
 pub fn evalList(vm: *Vm, node: ast.List) RuntimeError!Value {
     const object = Value.Object.List.init(vm.valueAllocator()) catch
-        try vm.setError(node.node_index, .value_oom);
+        try vm.setError(node.index, .value_oom);
     const list = object.asList();
 
     var items = node.items(vm.nodes);
     while (items.next(vm.nodes)) |item| {
         list.array.append(vm.valueAllocator(), try evalExpression(vm, item)) catch
-            try vm.setError(node.node_index, .value_oom);
+            try vm.setError(node.index, .value_oom);
     }
 
     return Value.newObject(object);
@@ -216,7 +216,7 @@ pub fn evalAccess(
     vm: *Vm,
     lhs: Value,
     rhs: Value,
-    node_indices: struct { lhs: u32, rhs: u32, node: u32 },
+    node_indices: struct { lhs: ast.NodeIndex, rhs: ast.NodeIndex, node: ast.NodeIndex },
 ) RuntimeError!Value {
     return switch (lhs.taggedValue()) {
         .list => |list| ret: {
@@ -271,7 +271,7 @@ pub fn evalDotAccess(vm: *Vm, node: ast.DotAccess) RuntimeError!Value {
     //
     // This works fine, but I dont really it.
     const method = builtin.methods.get(lhs, vm.valueAllocator(), rhs_name) catch
-        try vm.setError(rhs_node.node_index, .value_oom);
+        try vm.setError(rhs_node.index, .value_oom);
     if (method) |m| return Value.newObject(m);
 
     const rhs = Value.newString(blk: {
@@ -279,12 +279,12 @@ pub fn evalDotAccess(vm: *Vm, node: ast.DotAccess) RuntimeError!Value {
         const m = sb.begin();
         sb.w.writer.writeAll(rhs_name) catch |err| break :blk err;
         break :blk sb.finish(m);
-    } catch try vm.setError(rhs_node.node_index, .internal_oom));
+    } catch try vm.setError(rhs_node.index, .internal_oom));
 
     return evalAccess(vm, lhs, rhs, .{
-        .rhs = rhs_node.node_index,
-        .lhs = lhs_node.nodeIndex(),
-        .node = node.node_index,
+        .rhs = rhs_node.index,
+        .lhs = lhs_node.index(),
+        .node = node.index,
     });
 }
 
@@ -296,9 +296,9 @@ pub fn evalBracketAccess(vm: *Vm, node: ast.BracketAccess) RuntimeError!Value {
     const rhs = try evalExpression(vm, rhs_node);
 
     return evalAccess(vm, lhs, rhs, .{
-        .rhs = rhs_node.nodeIndex(),
-        .lhs = lhs_node.nodeIndex(),
-        .node = node.node_index,
+        .rhs = rhs_node.index(),
+        .lhs = lhs_node.index(),
+        .node = node.index,
     });
 }
 
@@ -311,7 +311,7 @@ pub fn evalVariable(vm: *Vm, node: ast.Ident) RuntimeError!Value {
         }
 
         // If it's neither a variable nor constant, then its an error.
-        try vm.setError(node.node_index, .undeclared_variable);
+        try vm.setError(node.index, .undeclared_variable);
     };
 
     return variable.*;
@@ -323,13 +323,13 @@ pub fn evalFunctionDef(vm: *Vm, node: ast.FunctionDef) RuntimeError!Value {
 
     const function = Value.newObject(Value.Object.Function.initRuntime(
         vm.valueAllocator(),
-        node.node_index,
+        node.index,
         len,
-    ) catch try vm.setError(node.node_index, .value_oom));
+    ) catch try vm.setError(node.index, .value_oom));
 
     if (node.name(vm.nodes)) |fn_name| {
         vm.bindVariable(fn_name.get(vm.nodes, vm.src), function) catch
-            try vm.setError(node.node_index, .too_many_variables);
+            try vm.setError(node.index, .too_many_variables);
         return Value.nil;
     }
 
@@ -342,7 +342,7 @@ pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
         if (caller.getObject()) |obj| {
             if (obj.getFunction()) |func| break :blk func;
         }
-        try vm.setError(node.node_index, .{ .mismatched_types = .{ .exp = .function, .act = caller } });
+        try vm.setError(node.index, .{ .mismatched_types = .{ .exp = .function, .act = caller } });
     };
 
     return switch (function.func) {
@@ -377,7 +377,7 @@ pub fn callBuiltinFunction(
 
     return builtin_fn.func(.{
         .vm = vm,
-        .caller_node_index = callsite.node_index,
+        .caller_index = callsite.index,
         .self = builtin_fn.self,
     }, arguments[0..total_args]);
 }
@@ -424,12 +424,12 @@ pub fn callRuntimeFunction(
             continue;
 
         vm.bindVariable(param.?.get(vm.nodes, vm.src), value) catch
-            try vm.setError(arguments.node_index, .too_many_variables);
+            try vm.setError(arguments.index, .too_many_variables);
     }
 
     if (func.name(vm.nodes)) |name| {
         vm.bindVariable(name.get(vm.nodes, vm.src), Value.newObject(&function.base)) catch
-            try vm.setError(name.node_index, .too_many_variables);
+            try vm.setError(name.index, .too_many_variables);
     }
 
     // Call the function
@@ -440,14 +440,14 @@ pub fn callRuntimeFunction(
             evalText(vm, body) catch |err| switch (err) {
                 ControlFlow.Return => {}, // Ignore returns
                 error.RuntimeError => return error.RuntimeError,
-                ControlFlow.Break => try vm.setError(vm.control_flow_node_index.?, .misplaced_break),
-                ControlFlow.Continue => try vm.setError(vm.control_flow_node_index.?, .misplaced_continue),
+                ControlFlow.Break => try vm.setError(vm.control_flow_node.?, .misplaced_break),
+                ControlFlow.Continue => try vm.setError(vm.control_flow_node.?, .misplaced_continue),
             };
-            vm.control_flow_node_index = null;
+            vm.control_flow_node = null;
 
             const function_text = if (m != vm.string_builder.begin())
                 Value.newString(vm.string_builder.finish(m) catch
-                    try vm.setError(func.node_index, .internal_oom))
+                    try vm.setError(func.index, .internal_oom))
             else
                 null;
 
@@ -455,7 +455,7 @@ pub fn callRuntimeFunction(
             vm.function_return_value = null;
 
             if (return_value) |_| if (function_text) |_| {
-                try vm.setError(func.node_index, .function_return_and_text);
+                try vm.setError(func.index, .function_return_and_text);
             };
 
             break :return_value return_value orelse function_text orelse Value.nil;
@@ -473,7 +473,7 @@ pub fn evalUnary(vm: *Vm, node: ast.Unary) RuntimeError!Value {
         .not => Value.operators.not(rhs),
         .negate => Value.operators.negate(rhs),
     } catch try vm.setError(
-        node.node_index,
+        node.index,
         .{ .invalid_unary_operands = .{ .rhs = rhs } },
     );
 }
@@ -489,7 +489,7 @@ pub fn evalAccessAssignment(
     lvalue: Value,
     lvalue_field: Value,
     rvalue: Value,
-    node_indices: struct { lhs: u32, rhs: u32, node: u32 },
+    node_indices: struct { lhs: ast.NodeIndex, rhs: ast.NodeIndex, node: ast.NodeIndex },
 ) RuntimeError!void {
     if (lvalue.getObject()) |obj| if (obj.constant) {
         try vm.setError(node_indices.lhs, .cannot_mutate_constant);
@@ -534,7 +534,7 @@ pub fn evalAssignment(vm: *Vm, lvalue: LValue, rvalue: Value) !void {
     switch (lvalue) {
         .variable => |node| {
             vm.setVariable(node.get(vm.nodes, vm.src), rvalue, vm.scope) catch
-                try vm.setError(node.node_index, .undeclared_variable);
+                try vm.setError(node.index, .undeclared_variable);
         },
         .dot_access => |node| {
             const lhs_node = node.lhs(vm.nodes);
@@ -547,12 +547,12 @@ pub fn evalAssignment(vm: *Vm, lvalue: LValue, rvalue: Value) !void {
                 const m = sb.begin();
                 sb.w.writer.writeAll(rhs_name) catch |err| break :blk err;
                 break :blk sb.finish(m);
-            } catch try vm.setError(rhs_node.node_index, .internal_oom));
+            } catch try vm.setError(rhs_node.index, .internal_oom));
 
             try evalAccessAssignment(vm, lhs, rhs, rvalue, .{
-                .rhs = rhs_node.node_index,
-                .lhs = lhs_node.nodeIndex(),
-                .node = node.node_index,
+                .rhs = rhs_node.index,
+                .lhs = lhs_node.index(),
+                .node = node.index,
             });
         },
         .bracket_access => |node| {
@@ -563,9 +563,9 @@ pub fn evalAssignment(vm: *Vm, lvalue: LValue, rvalue: Value) !void {
             const rhs = try evalExpression(vm, rhs_node);
 
             return evalAccessAssignment(vm, lhs, rhs, rvalue, .{
-                .rhs = rhs_node.nodeIndex(),
-                .lhs = lhs_node.nodeIndex(),
-                .node = node.node_index,
+                .rhs = rhs_node.index(),
+                .lhs = lhs_node.index(),
+                .node = node.index,
             });
         },
     }
@@ -581,7 +581,7 @@ pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
             .ident => |variable| .{ .variable = variable },
             .dot_access => |dot_access| .{ .dot_access = dot_access },
             .bracket_access => |bracket_access| .{ .bracket_access = bracket_access },
-            else => try vm.setError(node.node_index, .cannot_assign_to_non_variable),
+            else => try vm.setError(node.index, .cannot_assign_to_non_variable),
         };
 
         const value = try evalExpression(vm, node.rhs(vm.nodes));
@@ -618,7 +618,7 @@ pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
         .greater_than => Value.operators.greater_than(lhs, rhs),
         .less_than_equal => Value.operators.less_than_equal(lhs, rhs),
         .greater_than_equal => Value.operators.greater_than_equal(lhs, rhs),
-    } catch |err| try vm.setError(node.node_index, switch (err) {
+    } catch |err| try vm.setError(node.index, switch (err) {
         error.WriteFailed => .internal_oom,
         error.OutOfMemory => .value_oom,
         error.ValueError, error.InvalidOperands => .{

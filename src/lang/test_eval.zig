@@ -304,7 +304,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
         var buffer: [2048]u8 = undefined;
         var stderr = std.Io.File.stderr().writer(io, &buffer);
 
-        const err_node = parsed.nodes[err.node_index];
+        const err_node = parsed.nodes[@intFromEnum(err.index)];
         try err_node.print(parsed.nodes, source, 0, &stderr.interface);
         try stderr.interface.flush();
 

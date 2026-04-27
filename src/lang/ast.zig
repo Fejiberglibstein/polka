@@ -22,18 +22,18 @@
 //! #* h.foo // produces "hello\n" from the previous example
 //! ```
 
-pub fn toASTNode(comptime T: type, node_index: u32, all_nodes: []const SyntaxNode) ?T {
-    const node = all_nodes[node_index];
+pub fn toASTNode(comptime T: type, index: NodeIndex, all_nodes: []const SyntaxNode) ?T {
+    const node = all_nodes[@intFromEnum(index)];
     return switch (@typeInfo(T)) {
         .@"struct" => if (node.kind == T.kind)
-            T{ .node_index = node_index }
+            T{ .index = index }
         else
             null,
         .@"union" => |u| blk: {
             @setEvalBranchQuota(5000);
             inline for (u.fields) |field| {
                 switch (node.kind) {
-                    inline else => if (toASTNode(field.type, node_index, all_nodes)) |v|
+                    inline else => if (toASTNode(field.type, index, all_nodes)) |v|
                         break :blk @unionInit(T, field.name, v),
                 }
             }
@@ -52,10 +52,10 @@ fn ASTIterator(T: type) type {
         index: u32,
         stop_index: u32,
 
-        pub fn init(node_index: u32, all_nodes: []const SyntaxNode) @This() {
-            assert(all_nodes[node_index].kind.getType() == .tree);
+        pub fn init(index: NodeIndex, all_nodes: []const SyntaxNode) @This() {
+            assert(all_nodes[@intFromEnum(index)].kind.getType() == .tree);
 
-            const children = all_nodes[node_index].data.tree;
+            const children = all_nodes[@intFromEnum(index)].data.tree;
             const child_index = children.offset;
 
             return .{
@@ -80,7 +80,7 @@ fn ASTIterator(T: type) type {
 
         pub fn next(iter: *@This(), all_nodes: []const SyntaxNode) ?T {
             while (iter.index < iter.stop_index) : (iter.index += 1) {
-                if (toASTNode(T, iter.index, all_nodes)) |child| {
+                if (toASTNode(T, @enumFromInt(iter.index), all_nodes)) |child| {
                     iter.index += 1;
                     return child;
                 }
@@ -91,42 +91,42 @@ fn ASTIterator(T: type) type {
 }
 
 /// Used in the typed AST to get children matching a certain ASTNode type.
-fn getLastChild(T: type, node_index: u32, all_nodes: []const SyntaxNode) ?T {
-    assert(all_nodes[node_index].kind.getType() == .tree);
-    const children = all_nodes[node_index].data.tree;
+fn getLastChild(T: type, index: NodeIndex, all_nodes: []const SyntaxNode) ?T {
+    assert(all_nodes[@intFromEnum(index)].kind.getType() == .tree);
+    const children = all_nodes[@intFromEnum(index)].data.tree;
 
     const child_index = children.offset;
     var i = children.len;
     while (i > 0) {
         i -= 1;
-        if (toASTNode(T, i + child_index, all_nodes)) |c| return c;
+        if (toASTNode(T, @enumFromInt(i + child_index), all_nodes)) |c| return c;
     }
     return null;
 }
 
 /// Used in the typed AST to get children matching a certain ASTNode type.
-fn getFirstChild(T: type, node_index: u32, all_nodes: []const SyntaxNode) ?T {
-    assert(all_nodes[node_index].kind.getType() == .tree);
-    const children = all_nodes[node_index].data.tree;
+fn getFirstChild(T: type, index: NodeIndex, all_nodes: []const SyntaxNode) ?T {
+    assert(all_nodes[@intFromEnum(index)].kind.getType() == .tree);
+    const children = all_nodes[@intFromEnum(index)].data.tree;
 
     const child_index = children.offset;
     for (0..children.len) |i| {
-        if (toASTNode(T, @as(u32, @intCast(i)) + child_index, all_nodes)) |c| return c;
+        if (toASTNode(T, @enumFromInt(i + child_index), all_nodes)) |c| return c;
     }
     return null;
 }
 
 fn nodeFn(ast_node: anytype, all_nodes: []const SyntaxNode) SyntaxNode {
-    return all_nodes[ast_node.node_index];
+    return all_nodes[@intFromEnum(ast_node.index)];
 }
 
 pub const Text = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .text;
     pub const node = nodeFn;
 
     pub fn parts(self: Text, all_nodes: []const SyntaxNode) ASTIterator(TextPart) {
-        return .init(self.node_index, all_nodes);
+        return .init(self.index, all_nodes);
     }
 };
 
@@ -135,15 +135,15 @@ pub const TextPart = union(enum) {
     text_line: TextLine,
     code: Code,
 
-    pub fn nodeIndex(part: TextPart) u32 {
+    pub fn index(part: TextPart) NodeIndex {
         return switch (part) {
-            inline else => |v| v.node_index,
+            inline else => |v| v.index,
         };
     }
 };
 
 pub const TextLine = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .text_line;
     pub const node = nodeFn;
 
@@ -153,12 +153,12 @@ pub const TextLine = struct {
 };
 
 pub const Code = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .code;
     pub const node = nodeFn;
 
     pub fn statements(self: Code, all_nodes: []const SyntaxNode) ASTIterator(Statement) {
-        return .init(self.node_index, all_nodes);
+        return .init(self.index, all_nodes);
     }
 };
 
@@ -173,10 +173,10 @@ pub const Statement = union(enum) {
     export_statement: ExportStatement,
     continue_statement: ContinueStatement,
 
-    pub fn nodeIndex(stmt: Statement) u32 {
+    pub fn index(stmt: Statement) NodeIndex {
         return switch (stmt) {
-            .expression => |expr| expr.nodeIndex(),
-            inline else => |v| v.node_index,
+            .expression => |expr| expr.index(),
+            inline else => |v| v.index,
         };
     }
 };
@@ -201,59 +201,59 @@ pub const Expression = union(enum) {
     bracket_access: BracketAccess,
     multi_line_string: MultiLineString,
 
-    pub fn nodeIndex(expr: Expression) u32 {
+    pub fn index(expr: Expression) NodeIndex {
         return switch (expr) {
-            inline else => |v| v.node_index,
+            inline else => |v| v.index,
         };
     }
 };
 
 pub const List = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .list;
     pub const node = nodeFn;
 
     pub fn items(self: List, all_nodes: []const SyntaxNode) ASTIterator(Expression) {
-        return .init(self.node_index, all_nodes);
+        return .init(self.index, all_nodes);
     }
 };
 
 pub const Dict = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .dict;
     pub const node = nodeFn;
 
     pub fn fields(self: Dict, all_nodes: []const SyntaxNode) ASTIterator(DictField) {
-        return .init(self.node_index, all_nodes);
+        return .init(self.index, all_nodes);
     }
 };
 
 pub const DictField = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .dict_field;
     pub const node = nodeFn;
 
     pub fn key(self: DictField, all_nodes: []const SyntaxNode) Ident {
-        return getFirstChild(Ident, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(Ident, self.index, all_nodes) orelse unreachable;
     }
 
     pub fn value(self: DictField, all_nodes: []const SyntaxNode) Expression {
-        return getLastChild(Expression, self.node_index, all_nodes) orelse unreachable;
+        return getLastChild(Expression, self.index, all_nodes) orelse unreachable;
     }
 };
 
 pub const Grouping = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .grouping;
     pub const node = nodeFn;
 
     pub fn inner(self: Grouping, all_nodes: []const SyntaxNode) Expression {
-        return getFirstChild(Expression, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(Expression, self.index, all_nodes) orelse unreachable;
     }
 };
 
 pub const FunctionDef = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .function_def;
     pub const node = nodeFn;
 
@@ -263,56 +263,56 @@ pub const FunctionDef = struct {
     };
 
     pub fn name(self: FunctionDef, all_nodes: []const SyntaxNode) ?Ident {
-        return getFirstChild(Ident, self.node_index, all_nodes);
+        return getFirstChild(Ident, self.index, all_nodes);
     }
 
     pub fn parameters(self: FunctionDef, all_nodes: []const SyntaxNode) FunctionParameters {
-        return getFirstChild(FunctionParameters, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(FunctionParameters, self.index, all_nodes) orelse unreachable;
     }
 
     pub fn body(self: FunctionDef, all_nodes: []const SyntaxNode) FunctionBody {
-        return getLastChild(FunctionBody, self.node_index, all_nodes) orelse unreachable;
+        return getLastChild(FunctionBody, self.index, all_nodes) orelse unreachable;
     }
 };
 
 pub const FunctionParameters = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .function_parameters;
     pub const node = nodeFn;
 
     pub fn get(self: FunctionParameters, all_nodes: []const SyntaxNode) ASTIterator(Ident) {
-        return .init(self.node_index, all_nodes);
+        return .init(self.index, all_nodes);
     }
 };
 
 pub const ReturnStatement = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .return_statement;
     pub const node = nodeFn;
 
     pub fn returnValue(self: ReturnStatement, all_nodes: []const SyntaxNode) ?Expression {
-        return getFirstChild(Expression, self.node_index, all_nodes);
+        return getFirstChild(Expression, self.index, all_nodes);
     }
 };
 
 pub const LetStatement = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .let_statement;
     pub const node = nodeFn;
 
     pub fn variableName(self: LetStatement, all_nodes: []const SyntaxNode) Ident {
-        return getFirstChild(Ident, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(Ident, self.index, all_nodes) orelse unreachable;
     }
 
     pub fn initialValue(self: LetStatement, all_nodes: []const SyntaxNode) ?Expression {
-        var iter: ASTIterator(Expression) = .init(self.node_index, all_nodes);
+        var iter: ASTIterator(Expression) = .init(self.index, all_nodes);
         iter.skip(1, all_nodes); // Skip past var name
         return iter.next(all_nodes);
     }
 };
 
 pub const ExportStatement = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .export_statement;
     pub const node = nodeFn;
 
@@ -322,12 +322,12 @@ pub const ExportStatement = struct {
     };
 
     pub fn inner(self: ExportStatement, all_nodes: []const SyntaxNode) ExportInner {
-        return getFirstChild(ExportInner, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(ExportInner, self.index, all_nodes) orelse unreachable;
     }
 };
 
 pub const ForLoop = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .for_loop;
     pub const node = nodeFn;
 
@@ -335,21 +335,21 @@ pub const ForLoop = struct {
 };
 
 pub const WhileLoop = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .while_loop;
     pub const node = nodeFn;
 
     pub fn condition(self: WhileLoop, all_nodes: []const SyntaxNode) Expression {
-        return getFirstChild(Expression, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(Expression, self.index, all_nodes) orelse unreachable;
     }
 
     pub fn body(self: WhileLoop, all_nodes: []const SyntaxNode) Text {
-        return getLastChild(Text, self.node_index, all_nodes) orelse unreachable;
+        return getLastChild(Text, self.index, all_nodes) orelse unreachable;
     }
 };
 
 pub const Conditional = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .conditional;
     pub const node = nodeFn;
 
@@ -357,10 +357,10 @@ pub const Conditional = struct {
         index: u32,
         stop_index: u32,
 
-        pub fn init(node_index: u32, all_nodes: []const SyntaxNode) @This() {
-            assert(all_nodes[node_index].kind.getType() == .tree);
+        pub fn init(index: NodeIndex, all_nodes: []const SyntaxNode) @This() {
+            assert(all_nodes[@intFromEnum(index)].kind.getType() == .tree);
 
-            const children = all_nodes[node_index].data.tree;
+            const children = all_nodes[@intFromEnum(index)].data.tree;
             const child_index = children.offset;
 
             return .{
@@ -375,8 +375,8 @@ pub const Conditional = struct {
             body: Text,
         };
 
-        pub fn len(iter: *BranchIterator, all_nodes: []const SyntaxNode) u32 {
-            var count: u32 = 0;
+        pub fn len(iter: *BranchIterator, all_nodes: []const SyntaxNode) NodeIndex {
+            var count: NodeIndex = 0;
             while (iter.next(all_nodes)) |_| {
                 count += 1;
             }
@@ -390,10 +390,10 @@ pub const Conditional = struct {
             while (iter.index < iter.stop_index) {
                 defer iter.index += 1;
 
-                if (toASTNode(Expression, iter.index, all_nodes)) |child|
+                if (toASTNode(Expression, @enumFromInt(iter.index), all_nodes)) |child|
                     condition = child;
 
-                if (toASTNode(Text, iter.index, all_nodes)) |body|
+                if (toASTNode(Text, @enumFromInt(iter.index), all_nodes)) |body|
                     return .{ .condition = condition, .body = body };
             }
             return null;
@@ -401,7 +401,7 @@ pub const Conditional = struct {
     };
 
     pub fn branches(self: Conditional, all_nodes: []const SyntaxNode) BranchIterator {
-        return .init(self.node_index, all_nodes);
+        return .init(self.index, all_nodes);
     }
 };
 
@@ -429,16 +429,16 @@ pub const UnaryOperator = union(enum) {
 };
 
 pub const Unary = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .unary;
     pub const node = nodeFn;
 
     pub fn op(self: Unary, all_nodes: []const SyntaxNode) UnaryOperator {
-        return getFirstChild(UnaryOperator, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(UnaryOperator, self.index, all_nodes) orelse unreachable;
     }
 
     pub fn rhs(self: Unary, all_nodes: []const SyntaxNode) Expression {
-        return getLastChild(Expression, self.node_index, all_nodes) orelse unreachable;
+        return getLastChild(Expression, self.index, all_nodes) orelse unreachable;
     }
 };
 
@@ -521,81 +521,81 @@ pub const BinaryOperator = union(enum) {
 };
 
 pub const Binary = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .binary;
     pub const node = nodeFn;
 
     pub fn lhs(self: Binary, all_nodes: []const SyntaxNode) Expression {
-        return getFirstChild(Expression, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(Expression, self.index, all_nodes) orelse unreachable;
     }
 
     pub fn op(self: Binary, all_nodes: []const SyntaxNode) BinaryOperator {
-        return getFirstChild(BinaryOperator, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(BinaryOperator, self.index, all_nodes) orelse unreachable;
     }
 
     pub fn rhs(self: Binary, all_nodes: []const SyntaxNode) Expression {
-        return getLastChild(Expression, self.node_index, all_nodes) orelse unreachable;
+        return getLastChild(Expression, self.index, all_nodes) orelse unreachable;
     }
 };
 
 pub const FunctionCall = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .function_call;
     pub const node = nodeFn;
 
     pub fn caller(self: FunctionCall, all_nodes: []const SyntaxNode) Expression {
-        return getFirstChild(Expression, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(Expression, self.index, all_nodes) orelse unreachable;
     }
 
     pub fn arguments(self: FunctionCall, all_nodes: []const SyntaxNode) FunctionArgs {
-        return getFirstChild(FunctionArgs, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(FunctionArgs, self.index, all_nodes) orelse unreachable;
     }
 };
 
 pub const FunctionArgs = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .function_args;
     pub const node = nodeFn;
 
     pub fn get(self: FunctionArgs, all_nodes: []const SyntaxNode) ASTIterator(Expression) {
-        return .init(self.node_index, all_nodes);
+        return .init(self.index, all_nodes);
     }
 };
 
 pub const DotAccess = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .dot_access;
     pub const node = nodeFn;
 
     /// What is on the right side of the access, e.g. "foo" in `foo.bar`
     pub fn lhs(self: DotAccess, all_nodes: []const SyntaxNode) Expression {
-        return getFirstChild(Expression, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(Expression, self.index, all_nodes) orelse unreachable;
     }
 
     /// What is on the right side of the access, e.g. "bar" in `foo.bar`
     pub fn rhs(self: DotAccess, all_nodes: []const SyntaxNode) Ident {
-        return getLastChild(Ident, self.node_index, all_nodes) orelse unreachable;
+        return getLastChild(Ident, self.index, all_nodes) orelse unreachable;
     }
 };
 
 pub const BracketAccess = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .bracket_access;
     pub const node = nodeFn;
 
     /// What is on the right side of the access, e.g. "foo" in `foo["bar"]`
     pub fn lhs(self: BracketAccess, all_nodes: []const SyntaxNode) Expression {
-        return getFirstChild(Expression, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(Expression, self.index, all_nodes) orelse unreachable;
     }
 
     /// What is on the right side of the access, e.g. "bar" in `foo["bar"]`
     pub fn rhs(self: BracketAccess, all_nodes: []const SyntaxNode) Expression {
-        return getLastChild(Expression, self.node_index, all_nodes) orelse unreachable;
+        return getLastChild(Expression, self.index, all_nodes) orelse unreachable;
     }
 };
 
 pub const Color = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .color;
     pub const node = nodeFn;
 
@@ -625,14 +625,14 @@ pub const Color = struct {
 };
 
 pub const Integer = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .integer;
     pub const node = nodeFn;
 
     const Error = error{Overflow};
-    pub fn getAsInt(self: Integer, all_nodes: []const SyntaxNode, src: []const u8) Error!u32 {
+    pub fn getAsInt(self: Integer, all_nodes: []const SyntaxNode, src: []const u8) Error!NodeIndex {
         return std.fmt.parseInt(
-            u32,
+            NodeIndex,
             self.node(all_nodes).getLeafSource(src),
             10,
         ) catch error.Overflow;
@@ -644,7 +644,7 @@ pub const Integer = struct {
 };
 
 pub const Number = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .number;
     pub const node = nodeFn;
 
@@ -654,7 +654,7 @@ pub const Number = struct {
 };
 
 pub const StaticString = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .static_string;
     pub const node = nodeFn;
 
@@ -702,12 +702,12 @@ pub const StaticString = struct {
 };
 
 pub const MultiLineString = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .multiline_string;
     pub const node = nodeFn;
 
     pub fn parts(self: MultiLineString, all_nodes: []const SyntaxNode) ASTIterator(MLSPart) {
-        return ASTIterator(MLSPart).init(self.node_index, all_nodes);
+        return ASTIterator(MLSPart).init(self.index, all_nodes);
     }
 };
 
@@ -716,25 +716,25 @@ pub const MLSPart = union(enum) {
     text: MLSText,
     expression: MLSExpression,
 
-    pub fn nodeIndex(self: MLSPart) u32 {
+    pub fn index(self: MLSPart) NodeIndex {
         return switch (self) {
-            inline else => |v| v.node_index,
+            inline else => |v| v.index,
         };
     }
 };
 
 pub const MLSExpression = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .mls_expression;
     pub const node = nodeFn;
 
     pub fn get(self: MLSExpression, all_nodes: []const SyntaxNode) Expression {
-        return getFirstChild(Expression, self.node_index, all_nodes) orelse unreachable;
+        return getFirstChild(Expression, self.index, all_nodes) orelse unreachable;
     }
 };
 
 pub const MLSText = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .mls_text;
     pub const node = nodeFn;
 
@@ -744,7 +744,7 @@ pub const MLSText = struct {
 };
 
 pub const Ident = struct {
-    node_index: u32,
+    index: NodeIndex,
     pub const kind: SyntaxKind = .ident;
     pub const node = nodeFn;
 
@@ -755,7 +755,7 @@ pub const Ident = struct {
 
 fn ASTNode(k: SyntaxKind) type {
     return struct {
-        node_index: u32,
+        index: NodeIndex,
         pub const kind: SyntaxKind = k;
         pub const node = nodeFn;
     };
@@ -830,6 +830,7 @@ comptime {
     for (decls) |decl| {
         const DeclType = @field(@This(), decl.name);
         if (@TypeOf(DeclType) != type) continue;
+        if (@typeInfo(DeclType) != .@"struct") continue;
 
         if (@hasDecl(DeclType, "kind")) {
             ast_nodes.add(DeclType.kind);
@@ -843,6 +844,8 @@ comptime {
         }
     }
 }
+
+pub const NodeIndex = enum(u32) { _ };
 
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;

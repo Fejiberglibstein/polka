@@ -158,7 +158,7 @@ fn parseStatement(p: *Parser) Allocator.Error!void {
 fn parseExpression(p: *Parser, precedence: usize) Error!void {
     const m = try p.marker();
 
-    if (ast.toASTNode(ast.UnaryOperator, 0, &.{p.current.node})) |op| {
+    if (ast.toASTNode(ast.UnaryOperator, @enumFromInt(0), &.{p.current.node})) |op| {
         defer p.wrap(m, .unary);
         try p.eat();
         try parseExpression(p, op.precedence()); // Plus 1 since unary ops are right associative
@@ -217,7 +217,7 @@ fn parseExpression(p: *Parser, precedence: usize) Error!void {
             continue;
         }
 
-        if (ast.toASTNode(ast.BinaryOperator, 0, &.{p.current.node})) |op| {
+        if (ast.toASTNode(ast.BinaryOperator, @enumFromInt(0), &.{p.current.node})) |op| {
             if (op.precedence() >= precedence) {
                 defer p.wrap(m, .binary);
                 const new_precedence = switch (op.associativity()) {
