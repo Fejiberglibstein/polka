@@ -34,7 +34,7 @@ string_builder: StringBuilder,
 constants: builtin.Constants,
 config: *polka.Config,
 
-variables: std.ArrayList(Variable),
+variables: std.MultiArrayList(Variable),
 
 scope: Scope,
 function_return_value: ?Value,
@@ -92,7 +92,7 @@ pub fn init(opts: InitOptions) !Vm {
     var string_builder: StringBuilder = .init(opts.gpa, opts.string_pool);
     errdefer string_builder.deinit();
 
-    var variables: std.ArrayList(Variable) = try .initCapacity(opts.gpa, 512);
+    var variables: std.MultiArrayList(Variable) = try .initCapacity(opts.gpa, 512);
     errdefer variables.deinit(opts.gpa);
 
     return .{
@@ -131,7 +131,7 @@ pub fn run(vm: *Vm) ?RuntimeErrorPayload {
         }) catch return vm.err;
     };
 
-    assert(vm.variables.items.len == 0);
+    assert(vm.variables.len == 0);
     return null;
 }
 
@@ -197,19 +197,20 @@ pub fn getVariable(vm: *Vm, ident: []const u8, scope: Scope) !*Value {
 
     while (i > 0) {
         i -= 1;
-        const variable = &vm.variables.items[i];
+        const function_depth = vm.variables.items(.function_depth)[i];
+        const variable_name = vm.variables.items(.name)[i];
 
-        if (variable.function_depth < vm.scope.function_depth) {
+        if (function_depth < vm.scope.function_depth) {
             @branchHint(.unlikely);
             break;
         }
 
         // We can assert this because we started at the top of the scope so no variables have a
         // function depth greater than the scope's.
-        assert(variable.function_depth == vm.scope.function_depth);
+        assert(function_depth == vm.scope.function_depth);
 
-        if (std.mem.eql(u8, variable.name, ident)) {
-            return &variable.value;
+        if (std.mem.eql(u8, variable_name, ident)) {
+            return &vm.variables.items(.value)[i];
         }
     }
 
@@ -226,13 +227,14 @@ pub fn bindVariable(vm: *Vm, ident: []const u8, value: Value) !void {
 }
 
 pub fn pushScope(vm: *Vm) Scope {
-    defer vm.scope.level += 1;
-    return vm.scope;
+    const old_scope = vm.scope;
+    vm.scope.level += 1;
+    return old_scope;
 }
 
 pub fn popScope(vm: *Vm, old_scope: Scope) void {
     vm.scope = old_scope;
-    vm.variables.items.len = @intCast(old_scope.top);
+    vm.variables.shrinkRetainingCapacity(@intCast(old_scope.top));
 }
 
 pub fn pushFunctionScope(vm: *Vm) Scope {
