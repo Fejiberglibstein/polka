@@ -153,46 +153,45 @@ pub const functions = struct {
         };
 
         assert(ctx.self == Value.nil);
-        const err_idx = ctx.caller_index;
+        const caller = ctx.caller_index;
         const vm = ctx.vm;
         const config = vm.config;
 
         if (args.len != 1)
-            try vm.setFormattedError(err_idx, "Expected 1 argument to polka builtin", .{});
-        const opts: String.HashMap(Value) = (try expectType(ctx, args[0], .dict)).map;
+            try vm.setFormattedError(caller, "Expected 1 argument to polka builtin", .{});
+        const opts: String.HashMap(Value) = (try vm.expectType(caller, args[0], .dict)).map;
 
         if (opts.getPtrAdapted(Options.destination_path)) |file_dest| {
             // TODO verification of destination path file format
-            config.destination_path = try expectType(ctx, file_dest.*, .string);
+            config.destination_path = try vm.expectType(caller, file_dest.*, .string);
         }
 
-        if (opts.getPtrAdapted(Options.comment_strings)) |ftc| {
-            const ft_comments: String.HashMap(Value) = (try expectType(ctx, ftc.*, .dict)).map;
+        if (opts.getPtrAdapted(Options.comment_strings)) |v| {
+            const comment_strs: String.HashMap(Value) = (try vm.expectType(caller, v.*, .dict)).map;
 
             config.cloneField(.comment_strings) catch
-                try vm.setError(err_idx, .internal_oom);
+                try vm.setError(caller, .internal_oom);
 
-            var iter = ft_comments.iterator();
-
+            var iter = comment_strs.iterator();
             while (iter.next()) |entry| {
                 const key = entry.key_ptr.*;
-                const value = try expectType(ctx, entry.value_ptr.*, .string);
+                const value = try vm.expectType(caller, entry.value_ptr.*, .string);
                 config.comment_strings.put(config.allocator, key, value) catch
-                    try vm.setError(err_idx, .internal_oom);
+                    try vm.setError(caller, .internal_oom);
             }
         }
 
         if (opts.getPtrAdapted(Options.ignored_files)) |v| {
-            const ignored_files: std.ArrayList(Value) = (try expectType(ctx, v.*, .list)).array;
+            const ignored: std.ArrayList(Value) = (try vm.expectType(caller, v.*, .list)).array;
 
             config.cloneField(.ignored_files) catch
-                try vm.setError(err_idx, .internal_oom);
+                try vm.setError(caller, .internal_oom);
 
             // TODO verification of file string format
-            for (ignored_files.items) |file| {
-                const file_str = try expectType(ctx, file, .string);
+            for (ignored.items) |file| {
+                const file_str = try vm.expectType(caller, file, .string);
                 config.ignored_files.append(config.allocator, file_str) catch
-                    try vm.setError(err_idx, .internal_oom);
+                    try vm.setError(caller, .internal_oom);
             }
         }
 
@@ -239,24 +238,6 @@ pub const functions = struct {
         break :list entries;
     };
 };
-
-fn TaggedType(comptime ty: Value.Type) type {
-    return @typeInfo(Value.TaggedValue).@"union".fields[@intFromEnum(ty)].type;
-}
-
-pub fn expectType(
-    ctx: Function.CallCtx,
-    value: Value,
-    comptime expected_type: Value.Type,
-) RuntimeError!TaggedType(expected_type) {
-    if (value.typ() != expected_type)
-        try ctx.vm.setError(
-            ctx.caller_index,
-            .{ .mismatched_types = .{ .exp = expected_type, .act = value } },
-        );
-
-    return @field(value.taggedValue(), @tagName(expected_type));
-}
 
 const std = @import("std");
 const Io = std.Io;

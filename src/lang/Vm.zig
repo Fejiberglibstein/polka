@@ -168,6 +168,21 @@ pub fn setError(vm: *Vm, index: ast.NodeIndex, kind: RuntimeErrorPayload.Kind) R
     return error.RuntimeError;
 }
 
+fn TaggedType(comptime ty: Value.Type) type {
+    return @typeInfo(Value.TaggedValue).@"union".fields[@intFromEnum(ty)].type;
+}
+
+pub fn expectType(
+    vm: *Vm,
+    index: ast.NodeIndex,
+    value: Value,
+    comptime expected_type: Value.Type,
+) RuntimeError!TaggedType(expected_type) {
+    if (value.typ() != expected_type)
+        try vm.setError(index, .{ .mismatched_types = .{ .exp = expected_type, .act = value } });
+    return @field(value.taggedValue(), @tagName(expected_type));
+}
+
 pub fn inFunction(vm: *const Vm) bool {
     return vm.scope.function_depth > 0;
 }
