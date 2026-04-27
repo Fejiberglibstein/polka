@@ -76,53 +76,6 @@ pub const methods = struct {
     };
 };
 
-pub const Constants = struct {
-    map: std.StaticStringMap(Value),
-    arena: std.heap.ArenaAllocator,
-
-    pub const empty: Constants = .{
-        .map = .initComptime(.{}),
-        .arena = undefined,
-    };
-
-    pub fn init(io: Io, gpa: Allocator, pool: *StringPool) !Constants {
-        _ = io;
-
-        const Entry = struct { []const u8, Value };
-        const initial_capacity = functions.list.len + 1;
-        // TODO this could probably be just a static array since its always going to be a fixed
-        // size.
-        var entries: std.ArrayList(Entry) = try .initCapacity(gpa, initial_capacity);
-        defer entries.deinit(gpa);
-
-        var arena = std.heap.ArenaAllocator.init(gpa);
-        const sys = sys: {
-            const object = try Object.Dict.init(arena.allocator(), pool);
-            const dict = object.asDict();
-            _ = dict;
-            break :sys Value.newObject(object);
-        };
-
-        try entries.append(gpa, .{ "sys", sys });
-
-        for (functions.list) |*func| {
-            try entries.append(gpa, .{ func.@"0", Value.newObject(&func.@"1".base) });
-        }
-
-        return .{
-            .map = try .init(entries.items, gpa),
-            .arena = arena,
-        };
-    }
-
-    pub fn deinit(constants: Constants, gpa: Allocator) void {
-        if (constants.map.kvs.len == 0) return;
-
-        constants.map.deinit(gpa);
-        constants.arena.deinit();
-    }
-};
-
 /// `functions` contains all of the builtin functions that may be called at runtime.
 ///
 /// All builtin functions in this namespace have the type
@@ -169,8 +122,7 @@ pub const functions = struct {
         if (opts.getPtrAdapted(Options.comment_strings)) |v| {
             const comment_strs: String.HashMap(Value) = (try vm.expectType(caller, v.*, .dict)).map;
 
-            config.cloneField(.comment_strings) catch
-                try vm.setError(caller, .internal_oom);
+            config.cloneField(.comment_strings) catch try vm.setError(caller, .internal_oom);
 
             var iter = comment_strs.iterator();
             while (iter.next()) |entry| {
@@ -184,8 +136,7 @@ pub const functions = struct {
         if (opts.getPtrAdapted(Options.ignored_files)) |v| {
             const ignored: std.ArrayList(Value) = (try vm.expectType(caller, v.*, .list)).array;
 
-            config.cloneField(.ignored_files) catch
-                try vm.setError(caller, .internal_oom);
+            config.cloneField(.ignored_files) catch try vm.setError(caller, .internal_oom);
 
             // TODO verification of file string format
             for (ignored.items) |file| {
@@ -237,6 +188,58 @@ pub const functions = struct {
 
         break :list entries;
     };
+};
+
+pub const Constants = struct {
+    map: std.StaticStringMap(Value),
+    arena: std.heap.ArenaAllocator,
+
+    pub const empty: Constants = .{
+        .map = .initComptime(.{}),
+        .arena = undefined,
+    };
+
+    pub fn init(io: Io, gpa: Allocator, pool: *StringPool) !Constants {
+        _ = io;
+
+        // Arena for all the constants to go in.
+        var arena = std.heap.ArenaAllocator.init(gpa);
+
+        const initial_capacity = blk: {
+            comptime var initial_capacity = 0;
+            initial_capacity += functions.list.len; // Each function is a constant
+            initial_capacity += 1; // sys
+            break :blk initial_capacity;
+        };
+        const Entry = struct { []const u8, Value };
+        var buf: [initial_capacity]Entry = undefined;
+        var entries: std.ArrayList(Entry) = .initBuffer(&buf);
+
+        const sys = sys: {
+            const object = try Object.Dict.init(arena.allocator(), pool);
+            const dict = object.asDict();
+            _ = dict;
+            break :sys Value.newObject(object);
+        };
+        entries.appendAssumeCapacity(.{ "sys", sys });
+
+        for (functions.list) |*func| {
+            entries.appendAssumeCapacity(.{ func.@"0", Value.newObject(&func.@"1".base) });
+        }
+
+        assert(entries.items.len == initial_capacity);
+        return .{
+            .map = try .init(entries.items, gpa),
+            .arena = arena,
+        };
+    }
+
+    pub fn deinit(constants: Constants, gpa: Allocator) void {
+        if (constants.map.kvs.len == 0) return;
+
+        constants.map.deinit(gpa);
+        constants.arena.deinit();
+    }
 };
 
 const std = @import("std");

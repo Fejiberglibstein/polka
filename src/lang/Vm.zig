@@ -47,7 +47,7 @@ pub const StringBuilder = struct {
     pool: *String.Pool,
     w: std.Io.Writer.Allocating,
 
-    pub fn init(gpa: Allocator, pool: *String.Pool) !StringBuilder {
+    pub fn init(gpa: Allocator, pool: *String.Pool) StringBuilder {
         return .{
             .pool = pool,
             .w = .init(gpa),
@@ -89,7 +89,7 @@ pub const InitOptions = struct {
 };
 
 pub fn init(opts: InitOptions) !Vm {
-    var string_builder: StringBuilder = try .init(opts.gpa, opts.string_pool);
+    var string_builder: StringBuilder = .init(opts.gpa, opts.string_pool);
     errdefer string_builder.deinit();
 
     var variables: std.ArrayList(Variable) = try .initCapacity(opts.gpa, 512);
@@ -196,7 +196,7 @@ pub fn getVariable(vm: *Vm, ident: []const u8, scope: Scope) !*Value {
     var i: usize = scope.top;
 
     while (i > 0) {
-        i = i - 1;
+        i -= 1;
         const variable = &vm.variables.items[i];
 
         if (variable.function_depth < vm.scope.function_depth) {
@@ -226,9 +226,8 @@ pub fn bindVariable(vm: *Vm, ident: []const u8, value: Value) !void {
 }
 
 pub fn pushScope(vm: *Vm) Scope {
-    const old_scope = vm.scope;
-    vm.scope.level += 1;
-    return old_scope;
+    defer vm.scope.level += 1;
+    return vm.scope;
 }
 
 pub fn popScope(vm: *Vm, old_scope: Scope) void {

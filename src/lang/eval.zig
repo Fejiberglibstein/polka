@@ -1,9 +1,9 @@
 pub fn evalText(vm: *Vm, node: ast.Text) ControlFlow!void {
-    var parts = node.parts(vm.nodes);
     const old_scope = vm.pushScope();
     defer vm.popScope(old_scope);
 
     const out = vm.out();
+    var parts = node.parts(vm.nodes);
     while (parts.next(vm.nodes)) |part| {
         (switch (part) {
             .newline => out.writeAll("\n"),
@@ -16,33 +16,20 @@ pub fn evalText(vm: *Vm, node: ast.Text) ControlFlow!void {
     }
 }
 
-pub fn evalCode(vm: *Vm, node: ast.Code) ControlFlow!void {
-    var statements = node.statements(vm.nodes);
-    const out = vm.out();
+pub fn evalCode(vm: *Vm, code: ast.Code) ControlFlow!void {
+    var statements = code.statements(vm.nodes);
     while (statements.next(vm.nodes)) |statement| {
-        switch (statement) {
-            .for_loop => {},
-            .export_statement => {},
-            .let_statement => |stmt| try evalLetStatement(vm, stmt),
-            .return_statement => |ret| try evalReturnStatement(vm, ret),
-            .while_loop => |while_loop| try evalWhileLoop(vm, while_loop),
-            .conditional => |conditional| try evalConditional(vm, conditional),
-            .break_statement => |break_node| try evalBreakStatement(vm, break_node),
-            .continue_statement => |continue_node| try evalContinueStatement(vm, continue_node),
-            .expression => |expr| {
-                const res = try evalExpression(vm, expr);
-                if (res.getString()) |str| {
-                    const bytes = vm.string_builder.pool.get(str);
-                    out.writeAll(bytes) catch
-                        try vm.setError(expr.index(), .write_failure);
-                    continue;
-                }
-
-                if (!res.isNil()) {
-                    try vm.setError(expr.index(), .{ .cannot_print_value = res });
-                }
-            },
-        }
+        try switch (statement) {
+            .for_loop => @panic("TODO"),
+            .export_statement => @panic("TODO"),
+            .while_loop => |node| evalWhileLoop(vm, node),
+            .conditional => |node| evalConditional(vm, node),
+            .let_statement => |node| evalLetStatement(vm, node),
+            .expression => |node| evalExpressionStatement(vm, node),
+            .break_statement => |node| evalBreakStatement(vm, node),
+            .return_statement => |node| evalReturnStatement(vm, node),
+            .continue_statement => |node| evalContinueStatement(vm, node),
+        };
     }
 }
 
@@ -101,26 +88,39 @@ pub fn evalConditional(vm: *Vm, node: ast.Conditional) ControlFlow!void {
     }
 }
 
-pub fn evalExpression(vm: *Vm, node: ast.Expression) RuntimeError!Value {
-    return switch (node) {
+pub fn evalExpressionStatement(vm: *Vm, node: ast.Expression) RuntimeError!void {
+    const out = vm.out();
+    const res = try evalExpression(vm, node);
+    switch (res.taggedValue()) {
+        .nil => {},
+        .string => |str| {
+            out.writeAll(vm.string_builder.pool.get(str)) catch
+                try vm.setError(node.index(), .write_failure);
+        },
+        else => try vm.setError(node.index(), .{ .cannot_print_value = res }),
+    }
+}
+
+pub fn evalExpression(vm: *Vm, expr: ast.Expression) RuntimeError!Value {
+    return switch (expr) {
         .nil => Value.nil,
         .true => Value.newBoolean(true),
         .false => Value.newBoolean(false),
-        .list => |list| evalList(vm, list),
-        .dict => |dict| evalDict(vm, dict),
-        .color => |color| evalColor(vm, color),
-        .unary => |unary| evalUnary(vm, unary),
-        .binary => |binary| evalBinary(vm, binary),
-        .ident => |variable| evalVariable(vm, variable),
-        .function_def => |def| evalFunctionDef(vm, def),
-        .static_string => |str| evalStaticString(vm, str),
-        .function_call => |call| evalFunctionCall(vm, call),
-        .multi_line_string => |str| evalMultiLineString(vm, str),
-        .dot_access => |dot_access| evalDotAccess(vm, dot_access),
-        .bracket_access => |access| evalBracketAccess(vm, access),
-        .number => |num| Value.newNumber(num.get(vm.nodes, vm.src)),
-        .grouping => |group| evalExpression(vm, group.inner(vm.nodes)),
-        .integer => |num| Value.newNumber(num.getAsFloat(vm.nodes, vm.src)),
+        .list => |node| evalList(vm, node),
+        .dict => |node| evalDict(vm, node),
+        .color => |node| evalColor(vm, node),
+        .unary => |node| evalUnary(vm, node),
+        .binary => |node| evalBinary(vm, node),
+        .ident => |node| evalVariable(vm, node),
+        .dot_access => |node| evalDotAccess(vm, node),
+        .function_def => |node| evalFunctionDef(vm, node),
+        .static_string => |node| evalStaticString(vm, node),
+        .function_call => |node| evalFunctionCall(vm, node),
+        .bracket_access => |node| evalBracketAccess(vm, node),
+        .multi_line_string => |node| evalMultiLineString(vm, node),
+        .grouping => |node| evalExpression(vm, node.inner(vm.nodes)),
+        .number => |node| Value.newNumber(node.get(vm.nodes, vm.src)),
+        .integer => |node| Value.newNumber(node.getAsFloat(vm.nodes, vm.src)),
     };
 }
 
@@ -137,6 +137,7 @@ pub fn evalColor(vm: *Vm, node: ast.Color) RuntimeError!Value {
 pub fn evalStaticString(vm: *Vm, node: ast.StaticString) RuntimeError!Value {
     var sb = &vm.string_builder;
     const m = sb.begin();
+
     node.create(vm.nodes, vm.src, &sb.w.writer) catch
         try vm.setError(node.index, .internal_oom);
 
@@ -151,24 +152,20 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
     var parts = node.parts(vm.nodes);
     while (parts.next(vm.nodes)) |part| {
         (switch (part) {
-            .newline => sb.w.writer.print("\n", .{}),
-            .text => |text| sb.w.writer.print("{s}", .{text.get(vm.nodes, vm.src)}),
+            .newline => sb.w.writer.writeByte('\n'),
+            .text => |text| sb.w.writer.writeAll(text.get(vm.nodes, vm.src)),
             .expression => |expr| blk: {
                 const v = try evalExpression(vm, expr.get(vm.nodes));
                 v.print(vm.string_builder.pool, &sb.w.writer) catch |err| switch (err) {
-                    error.ValueError => try vm.setError(
-                        part.index(),
-                        .{ .cannot_print_value = v },
-                    ),
+                    error.ValueError => try vm.setError(part.index(), .{ .cannot_print_value = v }),
                     error.WriteFailed => break :blk error.WriteFailed,
                 };
             },
         }) catch try vm.setError(part.index(), .internal_oom);
     }
-    sb.w.writer.print("\n", .{}) catch try vm.setError(node.index, .internal_oom);
+    sb.w.writer.writeByte('\n') catch try vm.setError(node.index, .internal_oom);
 
-    return Value.newString(sb.finish(m) catch
-        try vm.setError(node.index, .internal_oom));
+    return Value.newString(sb.finish(m) catch try vm.setError(node.index, .internal_oom));
 }
 
 pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
@@ -176,17 +173,13 @@ pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
         try vm.setError(node.index, .value_oom);
     const dict = object.asDict();
 
-    var sb = &vm.string_builder;
+    var string_pool = vm.string_builder.pool;
 
     var fields = node.fields(vm.nodes);
     while (fields.next(vm.nodes)) |field| {
         const key = key: {
-            const m = sb.begin();
-            const key_node = field.key(vm.nodes);
-            sb.w.writer.print("{s}", .{key_node.get(vm.nodes, vm.src)}) catch
-                try vm.setError(node.index, .internal_oom);
-            break :key sb.finish(m) catch
-                try vm.setError(key_node.index, .internal_oom);
+            const key = field.key(vm.nodes).get(vm.nodes, vm.src);
+            break :key string_pool.put(key) catch try vm.setError(node.index, .internal_oom);
         };
 
         const value = try evalExpression(vm, field.value(vm.nodes));
@@ -220,22 +213,15 @@ pub fn evalAccess(
 ) RuntimeError!Value {
     return switch (lhs.taggedValue()) {
         .list => |list| ret: {
-            if (!rhs.isNumber()) try vm.setError(node_indices.rhs, .{
-                .mismatched_types = .{ .exp = .number, .act = rhs },
-            });
+            const index: f64 = try vm.expectType(node_indices.rhs, rhs, .number);
 
-            if (rhs.asNumber() < 0) break :ret Value.nil;
-            const index: usize = @intFromFloat(rhs.asNumber());
-            if (index > list.array.items.len) break :ret Value.nil;
+            if (index < 0) break :ret Value.nil;
+            if (@as(usize, @intFromFloat(index)) >= list.array.items.len) break :ret Value.nil;
 
-            break :ret list.array.items[index];
+            break :ret list.array.items[@intFromFloat(index)];
         },
         .dict => |dict| ret: {
-            if (!rhs.isString()) try vm.setError(node_indices.rhs, .{
-                .mismatched_types = .{ .exp = .string, .act = rhs },
-            });
-
-            const field = rhs.asString();
+            const field: Value.String = try vm.expectType(node_indices.rhs, rhs, .string);
             break :ret dict.map.get(field) orelse Value.nil;
         },
         else => try vm.setError(
@@ -337,14 +323,8 @@ pub fn evalFunctionDef(vm: *Vm, node: ast.FunctionDef) RuntimeError!Value {
 }
 
 pub fn evalFunctionCall(vm: *Vm, node: ast.FunctionCall) RuntimeError!Value {
-    const function = blk: {
-        const caller = try evalExpression(vm, node.caller(vm.nodes));
-        if (caller.getObject()) |obj| {
-            if (obj.getFunction()) |func| break :blk func;
-        }
-        try vm.setError(node.index, .{ .mismatched_types = .{ .exp = .function, .act = caller } });
-    };
-
+    const caller = try evalExpression(vm, node.caller(vm.nodes));
+    const function: *Value.Object.Function = try vm.expectType(node.index, caller, .function);
     return switch (function.func) {
         .runtime => callRuntimeFunction(vm, function, node),
         .builtin => callBuiltinFunction(vm, function, node),
@@ -390,19 +370,15 @@ pub fn callRuntimeFunction(
     const func_node = function.func.runtime;
 
     const func = ast.toASTNode(ast.FunctionDef, func_node.definition_index, vm.nodes).?;
+    var param_iter = func.parameters(vm.nodes).get(vm.nodes);
 
     const arguments = callsite.arguments(vm.nodes);
-
     var arg_iter = arguments.get(vm.nodes);
-    var param_iter = func.parameters(vm.nodes).get(vm.nodes);
-    var i: u32 = 0;
 
     const caller_scope = vm.pushFunctionScope();
     defer vm.popScope(caller_scope);
 
     while (true) {
-        defer i += 1;
-
         const arg = arg_iter.next(vm.nodes);
         const param = param_iter.next(vm.nodes);
         if (arg == null and param == null)
@@ -497,15 +473,11 @@ pub fn evalAccessAssignment(
 
     switch (lvalue.taggedValue()) {
         .list => |list| {
-            if (!lvalue_field.isNumber()) try vm.setError(node_indices.rhs, .{
-                .mismatched_types = .{ .exp = .number, .act = lvalue_field },
-            });
-
-            const lvalue_num = lvalue_field.asNumber();
+            const lvalue_num: f64 = try vm.expectType(node_indices.rhs, lvalue_field, .number);
             const index: usize = index: {
                 if (lvalue_num < 0)
                     break :index error.ValueError;
-                if (@as(usize, @intFromFloat(lvalue_num)) > list.array.items.len)
+                if (@as(usize, @intFromFloat(lvalue_num)) >= list.array.items.len)
                     break :index error.ValueError;
                 break :index @as(usize, @intFromFloat(lvalue_num));
             } catch try vm.setError(node_indices.rhs, .{ .array_index_out_of_bounds = .{
@@ -516,11 +488,7 @@ pub fn evalAccessAssignment(
             list.array.items[index] = rvalue;
         },
         .dict => |dict| {
-            if (!lvalue_field.isString()) try vm.setError(node_indices.rhs, .{
-                .mismatched_types = .{ .exp = .string, .act = lvalue_field },
-            });
-
-            const field = lvalue_field.asString();
+            const field: Value.String = try vm.expectType(node_indices.rhs, lvalue_field, .string);
             dict.map.put(vm.valueAllocator(), field, rvalue) catch
                 try vm.setError(node_indices.node, .value_oom);
         },
@@ -581,7 +549,7 @@ pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
             .ident => |variable| .{ .variable = variable },
             .dot_access => |dot_access| .{ .dot_access = dot_access },
             .bracket_access => |bracket_access| .{ .bracket_access = bracket_access },
-            else => try vm.setError(node.index, .cannot_assign_to_non_variable),
+            else => try vm.setError(lhs.index(), .cannot_assign_to_non_variable),
         };
 
         const value = try evalExpression(vm, node.rhs(vm.nodes));
@@ -621,9 +589,10 @@ pub fn evalBinary(vm: *Vm, node: ast.Binary) RuntimeError!Value {
     } catch |err| try vm.setError(node.index, switch (err) {
         error.WriteFailed => .internal_oom,
         error.OutOfMemory => .value_oom,
-        error.ValueError, error.InvalidOperands => .{
-            .invalid_binary_operands = .{ .lhs = lhs, .rhs = rhs },
-        },
+
+        error.ValueError,
+        error.InvalidOperands,
+        => .{ .invalid_binary_operands = .{ .lhs = lhs, .rhs = rhs } },
     });
 }
 

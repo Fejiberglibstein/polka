@@ -1,26 +1,28 @@
-//! Attribution: The way the ast is set up is very heavily based on Typst's ast.
-//! Source: https://github.com/typst/typst/blob/main/crates/typst-syntax/src/ast.rs
-//!
-//! ---
-//!
-//! Provides a typed interface to access the CST (Concrete syntax tree) that `parser.zig` produces.
-//!
-//! Usually this would be implemented by having struct data inside each variant of the SyntaxKind.
-//! However, we want the CST to remain concrete (meaning that the source code can be entirely
-//! recreated by doing a traversal on the tree) so that the LSP can be better.
-//!
-//! The tree is rooted in a `text_node`, and each block of code, such as the inside of an if
-//! statement, is also a `text_node`, even when inside a #** ... #**.
-//!
-//! Each ASTNode will eventually produce a text of some kind, either "" in the case of just an
-//! assignment:
-//! ```
-//! #* let h = { foo = "hello\n" }
-//! ```
-//! or some actual text:
-//! ```
-//! #* h.foo // produces "hello\n" from the previous example
-//! ```
+/// Attribution: The way the ast is set up is very heavily based on Typst's and Rust Analyzer's ast.
+///
+/// ---
+///
+/// Provides a typed interface to access the untyped CST (Concrete syntax tree) that `parser.zig`
+/// produces.
+///
+/// The untyped CST is simply a `[]const SyntaxNode`. The topmost node in that is _always_ a .text
+/// node. Each SyntaxNode with children contains a offset index into the CST and the length of its
+/// children nodes; more information is in the doc comment for SyntaxNode.
+///
+/// In order to provide typed-ergonomics, most SyntaxKinds have respective structs with methods like
+/// .op(), .rhs(), .lhs() for a Binary Expression. These nodes may be one of 
+/// - A struct containing a `kind: SyntaxKind` decl and a 32 bit index into the CST where its node
+///   lives
+/// - A tagged union made up of other node types
+///
+/// These nodes can be constructed in a few ways:
+/// - ASTIterator() iterates over the children of a node and returns all child nodes that match a
+///   particular type
+/// - get{First,Last}Child() gets the first/last child of a node that coerce to a certain type, if
+///   any.
+/// - `ast.toASTNode()` takes in the index of a node in the CST and returns a typed value if the
+///   types match, though this needn't be used very often.
+const ast = @This();
 
 pub fn toASTNode(comptime T: type, index: NodeIndex, all_nodes: []const SyntaxNode) ?T {
     const node = all_nodes[@intFromEnum(index)];
@@ -29,9 +31,11 @@ pub fn toASTNode(comptime T: type, index: NodeIndex, all_nodes: []const SyntaxNo
             T{ .index = index }
         else
             null,
-        .@"union" => |u| blk: {
-            @setEvalBranchQuota(5000);
-            inline for (u.fields) |field| {
+        .@"union" => |info| blk: {
+            // The amount of inlining done here is to help the compiler do its best to optimize this
+            // into a jump table
+            @setEvalBranchQuota(@typeInfo(SyntaxKind).@"enum".fields.len * info.fields.len);
+            inline for (info.fields) |field| {
                 switch (node.kind) {
                     inline else => if (toASTNode(field.type, index, all_nodes)) |v|
                         break :blk @unionInit(T, field.name, v),
@@ -39,10 +43,7 @@ pub fn toASTNode(comptime T: type, index: NodeIndex, all_nodes: []const SyntaxNo
             }
             break :blk null;
         },
-        else => @compileError(std.fmt.comptimePrint(
-            "Cannot convert {s} to ASTNode",
-            .{@typeName(T)},
-        )),
+        else => @compileError("Cannot convert " ++ @typeName(T) ++ " to ASTNode"),
     };
 }
 
@@ -66,24 +67,19 @@ fn ASTIterator(T: type) type {
 
         pub fn len(iter: *@This(), all_nodes: []const SyntaxNode) u32 {
             var count: u32 = 0;
-            while (iter.next(all_nodes)) |_| {
-                count += 1;
-            }
+            while (iter.next(all_nodes)) |_| count += 1;
             return count;
         }
 
-        pub fn skip(iter: *@This(), n: usize, all_nodes: []const SyntaxNode) void {
-            for (0..n) |_| {
+        pub fn skip(iter: *@This(), all_nodes: []const SyntaxNode, n: usize) void {
+            for (0..n) |_|
                 _ = iter.next(all_nodes);
-            }
         }
 
         pub fn next(iter: *@This(), all_nodes: []const SyntaxNode) ?T {
-            while (iter.index < iter.stop_index) : (iter.index += 1) {
-                if (toASTNode(T, @enumFromInt(iter.index), all_nodes)) |child| {
-                    iter.index += 1;
-                    return child;
-                }
+            while (iter.index < iter.stop_index) {
+                defer iter.index += 1;
+                if (toASTNode(T, @enumFromInt(iter.index), all_nodes)) |child| return child;
             }
             return null;
         }
@@ -94,12 +90,11 @@ fn ASTIterator(T: type) type {
 fn getLastChild(T: type, index: NodeIndex, all_nodes: []const SyntaxNode) ?T {
     assert(all_nodes[@intFromEnum(index)].kind.getType() == .tree);
     const children = all_nodes[@intFromEnum(index)].data.tree;
-
     const child_index = children.offset;
     var i = children.len;
     while (i > 0) {
         i -= 1;
-        if (toASTNode(T, @enumFromInt(i + child_index), all_nodes)) |c| return c;
+        if (toASTNode(T, @enumFromInt(i + child_index), all_nodes)) |child| return child;
     }
     return null;
 }
@@ -108,10 +103,9 @@ fn getLastChild(T: type, index: NodeIndex, all_nodes: []const SyntaxNode) ?T {
 fn getFirstChild(T: type, index: NodeIndex, all_nodes: []const SyntaxNode) ?T {
     assert(all_nodes[@intFromEnum(index)].kind.getType() == .tree);
     const children = all_nodes[@intFromEnum(index)].data.tree;
-
     const child_index = children.offset;
     for (0..children.len) |i| {
-        if (toASTNode(T, @enumFromInt(i + child_index), all_nodes)) |c| return c;
+        if (toASTNode(T, @enumFromInt(i + child_index), all_nodes)) |child| return child;
     }
     return null;
 }
@@ -306,7 +300,7 @@ pub const LetStatement = struct {
 
     pub fn initialValue(self: LetStatement, all_nodes: []const SyntaxNode) ?Expression {
         var iter: ASTIterator(Expression) = .init(self.index, all_nodes);
-        iter.skip(1, all_nodes); // Skip past var name
+        iter.skip(all_nodes, 1); // Skip past var name
         return iter.next(all_nodes);
     }
 };
@@ -358,7 +352,7 @@ pub const Conditional = struct {
         stop_index: u32,
 
         pub fn init(index: NodeIndex, all_nodes: []const SyntaxNode) @This() {
-            assert(all_nodes[@intFromEnum(index)].kind.getType() == .tree);
+            assert(all_nodes[@intFromEnum(index)].kind == .conditional);
 
             const children = all_nodes[@intFromEnum(index)].data.tree;
             const child_index = children.offset;
@@ -375,14 +369,6 @@ pub const Conditional = struct {
             body: Text,
         };
 
-        pub fn len(iter: *BranchIterator, all_nodes: []const SyntaxNode) NodeIndex {
-            var count: NodeIndex = 0;
-            while (iter.next(all_nodes)) |_| {
-                count += 1;
-            }
-            return count;
-        }
-
         pub fn next(iter: *BranchIterator, all_nodes: []const SyntaxNode) ?Branch {
             // Will be null for an else branch
             var condition: ?Expression = null;
@@ -390,8 +376,8 @@ pub const Conditional = struct {
             while (iter.index < iter.stop_index) {
                 defer iter.index += 1;
 
-                if (toASTNode(Expression, @enumFromInt(iter.index), all_nodes)) |child|
-                    condition = child;
+                if (toASTNode(Expression, @enumFromInt(iter.index), all_nodes)) |cond|
+                    condition = cond;
 
                 if (toASTNode(Text, @enumFromInt(iter.index), all_nodes)) |body|
                     return .{ .condition = condition, .body = body };
@@ -675,12 +661,6 @@ pub const StaticString = struct {
         while (i < inner.len) : (i += 1) {
             const char = inner[i];
 
-            if (std.mem.startsWith(u8, inner[i..], "@\\(")) {
-                i += "@\\(".len;
-                _ = try w.writeAll("@(");
-                continue;
-            }
-
             if (is_backslashed) {
                 if (char == quote) try w.writeByte(quote);
                 switch (char) {
@@ -707,7 +687,7 @@ pub const MultiLineString = struct {
     pub const node = nodeFn;
 
     pub fn parts(self: MultiLineString, all_nodes: []const SyntaxNode) ASTIterator(MLSPart) {
-        return ASTIterator(MLSPart).init(self.index, all_nodes);
+        return .init(self.index, all_nodes);
     }
 };
 
