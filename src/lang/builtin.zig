@@ -116,6 +116,7 @@ pub const functions = struct {
 
         if (opts.getPtrAdapted(Options.destination_path)) |file_dest| {
             // TODO verification of destination path file format
+            config.markModified(.destination_path);
             config.destination_path = try vm.expectType(caller, file_dest.*, .string);
         }
 

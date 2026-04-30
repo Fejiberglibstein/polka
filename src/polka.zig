@@ -5,13 +5,10 @@
 // TODO there is probably a more clever data structure to use for this that won't require
 // copying it for every directory that gets walked
 pub const Config = struct {
-    owned_bitset: BitSet,
+    modified_bitset: BitSet,
     allocator: Allocator,
 
-    /// The path where this file/directory should be placed.
-    destination_path: ?String,
-
-    /// Marker to denote that every field after this is `clone()`able
+    /// Marker to denote that every field after this is modifiable.
     @"--": void = undefined,
 
     /// Comment strings for each filetype
@@ -26,8 +23,14 @@ pub const Config = struct {
     /// with '!', like in .gitignore
     ignored_files: std.ArrayList(String),
 
+    /// The path where this file/directory should be placed.
+    destination_path: ?String,
+
     // const BitSet = @Int(.unsigned, @typeInfo(Config).@"struct".fields.len - owned_fields_index);
-    const BitSet = u8;
+    comptime {
+        assert(@typeInfo(Config).@"struct".fields.len - owned_fields_index == @typeInfo(BitSet).int.bits);
+    }
+    const BitSet = u3;
     const owned_fields_index = std.meta.fieldIndex(@This(), "--").? + 1;
 
     pub fn init(gpa: Allocator, pool: *String.Pool) Config {
@@ -36,29 +39,64 @@ pub const Config = struct {
             .ignored_files = .empty,
             .destination_path = null,
             .comment_strings = .init(pool),
-            .owned_bitset = std.math.maxInt(BitSet),
+            .modified_bitset = 0,
         };
     }
 
+    const FieldEnum = std.meta.FieldEnum(Config);
+    fn fieldBit(comptime field: FieldEnum) BitSet {
+        const field_index = std.meta.fieldIndex(Config, @tagName(field)).?;
+        if (comptime field_index < owned_fields_index)
+            @compileError(@tagName(field) ++ " is not modifiable");
+
+        const index = field_index - owned_fields_index;
+        comptime assert(index <= @typeInfo(BitSet).int.bits);
+        return 1 << index;
+    }
+    pub fn isModified(self: *Config, comptime field: FieldEnum) bool {
+        return self.modified_bitset & fieldBit(field) != 0;
+    }
+    pub fn markModified(self: *Config, comptime field: FieldEnum) void {
+        self.modified_bitset |= fieldBit(field);
+    }
+
     pub fn deinit(self: *Config) void {
-        inline for (@typeInfo(Config).@"struct".fields[owned_fields_index..], 0..) |f, i| {
-            if (self.owned_bitset & (1 << i) != 0) {
-                @field(self, f.name).deinit(self.allocator);
+        // break @"continue" is used since you can't continue inside an inline for
+        inline for (@typeInfo(Config).@"struct".fields[owned_fields_index..]) |f| @"continue": {
+            if (!self.isModified(std.meta.stringToEnum(FieldEnum, f.name).?)) break :@"continue";
+
+            const FieldType, const field = blk: {
+                const FieldType = @FieldType(Config, f.name);
+                switch (@typeInfo(FieldType)) {
+                    .optional => {
+                        const ChildType = @typeInfo(FieldType).optional.child;
+                        // No need to deinit the field if it's null.
+                        const field = &(@field(self, f.name) orelse break :@"continue");
+                        break :blk .{ ChildType, field };
+                    },
+                    else => break :blk .{ FieldType, &@field(self, f.name) },
+                }
+            };
+
+            comptime assert(@TypeOf(field) == *FieldType);
+            switch (@typeInfo(FieldType)) {
+                .@"enum", .@"struct", .@"union" => {
+                    if (@hasDecl(FieldType, "deinit")) field.deinit(self.allocator);
+                },
+                else => {},
             }
         }
         self.* = undefined;
     }
 
     /// Marks the field as owned, and clone it if it was not already owned.
-    pub fn cloneField(self: *Config, comptime field: std.meta.FieldEnum(Config)) !void {
+    pub fn cloneField(self: *Config, comptime field: FieldEnum) !void {
         const field_name = @tagName(field);
-
-        inline for (@typeInfo(Config).@"struct".fields[owned_fields_index..], 0..) |f, i| {
+        inline for (@typeInfo(Config).@"struct".fields[owned_fields_index..]) |f| {
             if (comptime std.mem.eql(u8, f.name, field_name)) {
-                // If it's already owned, do nothing
-                if (self.owned_bitset & (1 << i) != 0) return;
+                if (!self.isModified(field)) return;
+                self.markModified(field);
 
-                self.owned_bitset |= 1 << i;
                 @field(self, field_name) = try @field(self, field_name).clone(self.allocator);
                 return;
             }
@@ -69,7 +107,7 @@ pub const Config = struct {
 
     pub fn copy(self: *const Config) Config {
         var new = self.*;
-        new.owned_bitset = 0; // Mark all flags as unowned
+        new.modified_bitset = 0; // Mark all flags as unmodified
         return new;
     }
 };
