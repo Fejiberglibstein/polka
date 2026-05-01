@@ -23,7 +23,8 @@ pub const SyntaxError = struct {
     kind: SyntaxErrorKind,
 };
 
-pub fn parse(src: []const u8, mode: Lexer.Mode, gpa: Allocator) Allocator.Error!ParseResult {
+pub const ParseMode = Lexer.Mode;
+pub fn parse(src: []const u8, mode: ParseMode, gpa: Allocator) Allocator.Error!ParseResult {
     var p: Parser = try .init(src, mode, gpa);
 
     if (p.at(.eof)) {
@@ -579,7 +580,7 @@ const Parser = struct {
     /// The number of markers that haven't been wrapped yet.
     active_markers: usize,
 
-    fn init(src: []const u8, m: Lexer.Mode, gpa: Allocator) !Parser {
+    fn init(src: []const u8, m: ParseMode, gpa: Allocator) !Parser {
         const lexer = Lexer.init(src, m, "#");
 
         var parser: Parser = .{
@@ -599,15 +600,15 @@ const Parser = struct {
         return parser;
     }
 
-    fn mode(parser: *Parser) Lexer.Mode {
+    fn mode(parser: *Parser) ParseMode {
         return parser.l.mode;
     }
 
-    fn setMode(parser: *Parser, m: Lexer.Mode) void {
+    fn setMode(parser: *Parser, m: ParseMode) void {
         parser.l.mode = m;
     }
 
-    fn switchToTextMode(parser: *Parser) Lexer.Mode {
+    fn switchToTextMode(parser: *Parser) ParseMode {
         const ret = parser.mode();
         switch (parser.mode()) {
             .code_file,
