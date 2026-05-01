@@ -41,6 +41,12 @@ pub fn build(b: *std.Build) void {
     //     .target = target,
     // });
 
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/c.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
     // to the module defined above, it's sometimes preferable to split business
@@ -65,13 +71,14 @@ pub fn build(b: *std.Build) void {
             // this package, which is why in this case we don't have to give it a name.
             .root_source_file = b.path("src/main.zig"),
             // Target and optimization levels must be explicitly wired in when
-            // defining an executable or library (in the root module), and you
+           // defining an executable or library (in the root module), and you
             // can also hardcode a specific target for an executable or library
             // definition if desireable (e.g. firmware for embedded devices).
             .target = target,
             .optimize = optimize,
             // List of modules available for import in source files part of the
             // root module.
+            .link_libc = true,
             .imports = &.{
                 // // Here "polka" is the name you will use in your source code to
                 // // import this module (e.g. `@import("polka")`). The name is
@@ -79,6 +86,7 @@ pub fn build(b: *std.Build) void {
                 // // can be extremely useful in case of collisions (which can happen
                 // // importing modules from different packages).
                 // .{ .name = "polka", .module = mod },
+                .{ .name = "c", .module = translate_c.createModule() },
             },
         }),
     });
