@@ -27,6 +27,10 @@ const StringPool = struct {
         pool.map.deinit(pool.gpa);
     }
 
+    pub fn getZ(pool: *const @This(), index: String) [*:0]const u8 {
+        return @ptrCast(@alignCast(&pool.bytes.items[@intFromEnum(index)]));
+    }
+
     pub fn get(pool: *const @This(), index: String) []const u8 {
         return std.mem.sliceTo(pool.bytes.items[@intFromEnum(index)..], 0);
     }
