@@ -22,13 +22,11 @@ src: []const u8,
 nodes: []const SyntaxNode,
 err: ?RuntimeErrorPayload,
 
-gpa: Allocator,
-/// Allocator specifically used to allocate values. For now it's just an arena, but it may be more
-/// complex in the future.
-value_allocator: *std.heap.ArenaAllocator,
+/// Allocator specifically used to allocate values.
+value_allocator: Allocator,
 
 /// Since emitting text inside functions is legal and will write the text into a string rather than
-/// the output file, it is usually better to use Vm.out() to output text.
+/// the output file, you should always use Vm.out() to output text
 output_file: *std.Io.Writer,
 string_builder: StringBuilder,
 constants: builtin.Constants,
@@ -79,42 +77,39 @@ pub const InitOptions = struct {
     nodes: []const SyntaxNode,
     src: []const u8,
 
-    gpa: Allocator,
     string_pool: *String.Pool,
-    value_arena: *std.heap.ArenaAllocator,
+    value_allocator: Allocator,
 
     config: *polka.Config,
     output: *std.Io.Writer,
     constants: builtin.Constants,
 };
 
-pub fn init(opts: InitOptions) !Vm {
-    var string_builder: StringBuilder = .init(opts.gpa, opts.string_pool);
+pub fn init(gpa: Allocator, opts: InitOptions) !Vm {
+    var string_builder: StringBuilder = .init(gpa, opts.string_pool);
     errdefer string_builder.deinit();
 
-    var variables: std.MultiArrayList(Variable) = try .initCapacity(opts.gpa, 512);
+    var variables: std.MultiArrayList(Variable) = try .initCapacity(gpa, 512);
     errdefer variables.deinit(opts.gpa);
 
     return .{
         .err = null,
         .scope = .init,
-        .gpa = opts.gpa,
         .src = opts.src,
         .nodes = opts.nodes,
         .config = opts.config,
         .variables = variables,
+        .control_flow_node = null,
         .output_file = opts.output,
         .constants = opts.constants,
         .function_return_value = null,
-        .control_flow_node = null,
         .string_builder = string_builder,
-        .value_allocator = opts.value_arena,
+        .value_allocator = opts.value_allocator,
     };
 }
 
-pub fn deinit(vm: *Vm) void {
-    _ = vm.value_allocator.reset(.retain_capacity);
-    vm.variables.deinit(vm.gpa);
+pub fn deinit(vm: *Vm, gpa: Allocator) void {
+    vm.variables.deinit(gpa);
     vm.string_builder.deinit();
 }
 
@@ -143,7 +138,7 @@ pub fn out(vm: *Vm) *std.Io.Writer {
 }
 
 pub fn valueAllocator(vm: *Vm) Allocator {
-    return vm.value_allocator.allocator();
+    return vm.value_allocator;
 }
 
 pub fn setFormattedError(

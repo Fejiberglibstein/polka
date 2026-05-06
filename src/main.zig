@@ -22,15 +22,14 @@ pub fn main() !void {
     defer output.deinit();
     const writer = &output.writer;
 
-    var vm = try Vm.init(.{
+    var vm = try Vm.init(gpa, .{
         .src = "",
-        .gpa = gpa,
         .output = writer,
         .config = &config,
         .string_pool = &pool,
         .nodes = parsed.nodes,
         .constants = constants,
-        .value_arena = &value_allocator,
+        .value_allocator = value_allocator.allocator(),
     });
     if (vm.run()) |err| {
         std.debug.print("Error: {f}", .{err.formatWith(parsed.nodes, "", &pool)});

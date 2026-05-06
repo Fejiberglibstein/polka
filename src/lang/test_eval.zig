@@ -285,17 +285,16 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     var config: polka.Config = .init(gpa, &pool);
     defer config.deinit();
 
-    var vm = try Vm.init(.{
-        .gpa = gpa,
+    var vm = try Vm.init(gpa, .{
         .src = source,
         .config = &config,
         .string_pool = &pool,
         .nodes = parsed.nodes,
         .constants = constants,
         .output = &output.writer,
-        .value_arena = &value_arena,
+        .value_allocator = value_arena.allocator(),
     });
-    defer vm.deinit();
+    defer vm.deinit(gpa);
 
     const result = vm.run();
     if (result) |err| {
