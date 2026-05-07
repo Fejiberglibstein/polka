@@ -57,6 +57,36 @@ pub const Value = packed union {
     const false_value: Value = .{ .tagged = .{ .bits = 0, .tag = .false } };
     pub const nil: Value = .{ .tagged = .{ .bits = 0, .tag = .nil } };
 
+    pub const Type = @typeInfo(TaggedValue).@"union".tag_type.?;
+    /// TaggedValue is a combination of all the types that an object can be, plus the types listed
+    /// below in Base
+    pub const TaggedValue = ty: {
+        const Base = union(enum) {
+            nil: void,
+            number: f64,
+            color: Color,
+            boolean: bool,
+            string: String,
+            object: *Object,
+        };
+
+        var field_names: []const []const u8 = &.{};
+        var field_types: []const type = &.{};
+
+        for (@typeInfo(Base).@"union".fields) |field| {
+            field_names = field_names ++ .{field.name};
+            field_types = field_types ++ .{field.type};
+        }
+
+        for (@typeInfo(Object.TaggedKind).@"union".fields) |field| {
+            field_names = field_names ++ .{field.name};
+            field_types = field_types ++ .{field.type};
+        }
+
+        const Enum = @Enum(u8, .exhaustive, field_names, &std.simd.iota(u8, field_names.len));
+        break :ty @Union(.auto, Enum, field_names, @ptrCast(field_types), &@splat(.{}));
+    };
+
     pub fn TypeOf(comptime ty: Type) type {
         return @typeInfo(TaggedValue).@"union".fields[@intFromEnum(ty)].type;
     }
@@ -134,43 +164,6 @@ pub const Value = packed union {
             .color
         else switch (value.toObject().kind) {
             inline else => |t| std.meta.stringToEnum(Type, @tagName(t)) orelse unreachable,
-        };
-    }
-
-    /// TaggedType is a combination of all the types that an object can be, plus the types listed
-    /// below in Base
-    pub const TaggedValue = genType().TaggedValue;
-    /// Type is a combination of all the types that an object can be, plus the types listed
-    /// below in Base
-    pub const Type = genType().Type;
-
-    inline fn genType() struct { TaggedValue: type, Type: type } {
-        const Base = union(enum) {
-            nil: void,
-            number: f64,
-            color: Color,
-            boolean: bool,
-            string: String,
-            object: *Object,
-        };
-
-        var field_names: []const []const u8 = &.{};
-        var field_types: []const type = &.{};
-
-        for (@typeInfo(Base).@"union".fields) |field| {
-            field_names = field_names ++ .{field.name};
-            field_types = field_types ++ .{field.type};
-        }
-
-        for (@typeInfo(Object.TaggedKind).@"union".fields) |field| {
-            field_names = field_names ++ .{field.name};
-            field_types = field_types ++ .{field.type};
-        }
-
-        const Enum = @Enum(u8, .exhaustive, field_names, &std.simd.iota(u8, field_names.len));
-        return .{
-            .TaggedValue = @Union(.auto, Enum, field_names, @ptrCast(field_types), &@splat(.{})),
-            .Type = Enum,
         };
     }
 
