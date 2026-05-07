@@ -57,10 +57,10 @@ pub const Value = packed union {
     const false_value: Value = .{ .tagged = .{ .bits = 0, .tag = .false } };
     pub const nil: Value = .{ .tagged = .{ .bits = 0, .tag = .nil } };
 
-    fn ValueType(comptime ty: Type) type {
+    pub fn TypeOf(comptime ty: Type) type {
         return @typeInfo(TaggedValue).@"union".fields[@intFromEnum(ty)].type;
     }
-    pub fn is(value: Value, comptime ty: Type) ?ValueType(ty) {
+    pub fn is(value: Value, comptime ty: Type) ?TypeOf(ty) {
         const is_number = value.tagged.nan_mask != 0b0_11111111111_1 or value.isNan();
         const is_ty = switch (ty) {
             .number => is_number,
@@ -80,7 +80,7 @@ pub const Value = packed union {
 
         return if (is_ty) value.as(ty) else null;
     }
-    pub fn as(value: Value, comptime ty: Type) ValueType(ty) {
+    pub fn as(value: Value, comptime ty: Type) TypeOf(ty) {
         return switch (ty) {
             .nil => void{},
             .number => value.float,
