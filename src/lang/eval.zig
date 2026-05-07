@@ -171,7 +171,7 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
 pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
     const object = Value.Object.Dict.init(vm.valueAllocator(), vm.string_builder.pool) catch
         try vm.setError(node.index, .value_oom);
-    const dict = object.asDict();
+    const dict = object.as(.dict);
 
     var string_pool = vm.string_builder.pool;
 
@@ -194,7 +194,7 @@ pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
 pub fn evalList(vm: *Vm, node: ast.List) RuntimeError!Value {
     const object = Value.Object.List.init(vm.valueAllocator()) catch
         try vm.setError(node.index, .value_oom);
-    const list = object.asList();
+    const list = object.as(.list);
 
     var items = node.items(vm.nodes);
     while (items.next(vm.nodes)) |item| {
@@ -467,7 +467,7 @@ pub fn evalAccessAssignment(
     rvalue: Value,
     node_indices: struct { lhs: ast.NodeIndex, rhs: ast.NodeIndex, node: ast.NodeIndex },
 ) RuntimeError!void {
-    if (lvalue.getObject()) |obj| if (obj.constant) {
+    if (lvalue.is(.object)) |obj| if (obj.constant) {
         try vm.setError(node_indices.lhs, .cannot_mutate_constant);
     };
 

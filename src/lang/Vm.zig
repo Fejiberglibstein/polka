@@ -321,7 +321,7 @@ pub const RuntimeErrorPayload = struct {
                     \\Invalid left-hand side to assignment
                 ),
                 .invalid_binary_operands => |v| w.print(
-                    \\Invalid operands to binary operator. {[lhs]f} {[op]f} {[rhs]f} is not allowed
+                    \\Invalid operands to binary operator. {[lhs]} {[op]f} {[rhs]} is not allowed
                 , .{
                     .lhs = v.lhs.typ(),
                     .op = ast.toASTNode(
@@ -332,7 +332,7 @@ pub const RuntimeErrorPayload = struct {
                     .rhs = v.rhs.typ(),
                 }),
                 .invalid_unary_operands => |v| w.print(
-                    \\Invalid operands to unary operator. {[op]f} {[rhs]f} is not allowed
+                    \\Invalid operands to unary operator. {[op]f} {[rhs]} is not allowed
                 , .{
                     .op = ast.toASTNode(
                         ast.UnaryOperator,
@@ -342,7 +342,7 @@ pub const RuntimeErrorPayload = struct {
                     .rhs = v.rhs.typ(),
                 }),
                 .mismatched_types => |v| w.print(
-                    \\Invalid type. Expected {[exp]f}, got {[act]f}
+                    \\Invalid type. Expected {[exp]}, got {[act]}
                 , .{ .exp = v.exp, .act = v.act.typ() }),
                 .cannot_print_value => w.writeAll(
                     // TODO i dont like the word "print" in this error message
@@ -367,8 +367,8 @@ pub const RuntimeErrorPayload = struct {
                 .array_index_out_of_bounds => |v| w.print(
                     \\Array index out of bounds (index: {[index]}, len: {[len]})
                 , .{
-                    .index = v.index.asNumber(),
-                    .len = v.index.asNumber(),
+                    .index = v.index.as(.number),
+                    .len = v.index.as(.number),
                 }),
                 .cannot_mutate_constant => w.writeAll(
                     \\Cannot mutate a constant

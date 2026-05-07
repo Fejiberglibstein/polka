@@ -45,62 +45,55 @@ pub const Value = packed union {
         };
     },
 
+    fn isNan(value: Value) bool {
+        return value.bits & ~sign_mask == nan_mask;
+    }
+    fn toObject(value: Value) *Object {
+        assert(value.tagged.tag == .object);
+        return @ptrFromInt(value.tagged.bits);
+    }
+
     const true_value: Value = .{ .tagged = .{ .bits = 0, .tag = .true } };
     const false_value: Value = .{ .tagged = .{ .bits = 0, .tag = .false } };
     pub const nil: Value = .{ .tagged = .{ .bits = 0, .tag = .nil } };
 
-    pub fn isNan(value: Value) bool {
-        return value.bits & ~sign_mask == nan_mask;
+    fn ValueType(comptime ty: Type) type {
+        return @typeInfo(TaggedValue).@"union".fields[@intFromEnum(ty)].type;
     }
-    pub fn isNumber(value: Value) bool {
-        return value.tagged.nan_mask != 0b0_11111111111_1 or value.isNan();
-    }
-    pub fn isBoolean(value: Value) bool {
-        return value == true_value or value == false_value;
-    }
-    pub fn isNil(value: Value) bool {
-        return value == Value.nil;
-    }
-    pub fn isString(value: Value) bool {
-        return !value.isNumber() and value.tagged.tag == .string;
-    }
-    pub fn isObject(value: Value) bool {
-        return !value.isNumber() and value.tagged.tag == .object;
-    }
-    pub fn isColor(value: Value) bool {
-        return !value.isNumber() and value.tagged.tag == .color;
-    }
+    pub fn is(value: Value, comptime ty: Type) ?ValueType(ty) {
+        const is_number = value.tagged.nan_mask != 0b0_11111111111_1 or value.isNan();
+        const is_ty = switch (ty) {
+            .number => is_number,
+            .nil => value == Value.nil,
+            .boolean => value == true_value or value == false_value,
 
-    pub fn getNumber(value: Value) ?f64 {
-        return if (value.isNumber()) value.asNumber() else null;
-    }
-    pub fn getBoolean(value: Value) ?bool {
-        return if (value.isBoolean()) value.asBoolean() else null;
-    }
-    pub fn getString(value: Value) ?String {
-        return if (value.isString()) value.asString() else null;
-    }
-    pub fn getObject(value: Value) ?*Object {
-        return if (value.isObject()) value.asObject() else null;
-    }
-    pub fn getColor(value: Value) ?Color {
-        return if (value.isObject()) value.asColor() else null;
-    }
+            .color => !is_number and value.tagged.tag == .color,
+            .string => !is_number and value.tagged.tag == .string,
+            .object => !is_number and value.tagged.tag == .object,
 
-    pub fn asNumber(value: Value) f64 {
-        return value.float;
+            inline else => {
+                const kind = comptime std.meta.stringToEnum(Object.Kind, @tagName(ty)).?;
+                if (value.is(.object)) |obj| return obj.is(kind);
+                return null;
+            },
+        };
+
+        return if (is_ty) value.as(ty) else null;
     }
-    pub fn asBoolean(value: Value) bool {
-        return value == true_value;
-    }
-    pub fn asString(value: Value) String {
-        return @enumFromInt(value.tagged.bits);
-    }
-    pub fn asColor(value: Value) Color {
-        return @bitCast(@as(u32, @truncate(value.tagged.bits)));
-    }
-    pub fn asObject(value: Value) *Object {
-        return @ptrFromInt(value.tagged.bits);
+    pub fn as(value: Value, comptime ty: Type) ValueType(ty) {
+        return switch (ty) {
+            .nil => void{},
+            .number => value.float,
+            .boolean => value == true_value,
+            .color => @bitCast(@as(u32, @truncate(value.tagged.bits))),
+            .string => @enumFromInt(value.tagged.bits),
+            .object => @ptrFromInt(value.tagged.bits),
+            inline else => {
+                assert(value.tagged.tag == .object);
+                const object: *Object = @ptrFromInt(value.tagged.bits);
+                return object.as(std.meta.stringToEnum(Object.Kind, @tagName(ty)).?);
+            },
+        };
     }
 
     pub fn newObject(o: *const Object) Value {
@@ -111,7 +104,7 @@ pub const Value = packed union {
     }
     pub fn newColor(c: Color) Value {
         return .{ .tagged = .{
-            .bits = @as(u32, @bitCast(c)),
+            .bits = @as(@typeInfo(Color).@"struct".backing_integer.?, @bitCast(c)),
             .tag = .string,
         } };
     }
@@ -128,61 +121,67 @@ pub const Value = packed union {
         return .{ .float = n };
     }
 
-    pub const Type = enum(u8) {
-        nil,
-        number,
-        color,
-        boolean,
-        string,
-        list,
-        dict,
-        function,
-
-        pub fn format(
-            self: @This(),
-            w: *std.Io.Writer,
-        ) std.Io.Writer.Error!void {
-            try w.writeAll(@tagName(self));
-        }
-    };
     pub fn typ(value: Value) Type {
-        return if (value.isNil())
+        return if (value.is(.nil)) |_|
             .nil
-        else if (value.isNumber())
+        else if (value.is(.number)) |_|
             .number
-        else if (value.isBoolean())
+        else if (value.is(.boolean)) |_|
             .boolean
-        else if (value.isString())
+        else if (value.is(.string)) |_|
             .string
-        else if (value.isColor())
+        else if (value.is(.color)) |_|
             .color
-        else if (value.getObject()) |obj| switch (obj.tag) {
+        else switch (value.toObject().kind) {
             inline else => |t| std.meta.stringToEnum(Type, @tagName(t)) orelse unreachable,
-        } else unreachable;
+        };
+    }
+
+    /// TaggedType is a combination of all the types that an object can be, plus the types listed
+    /// below in Base
+    pub const TaggedValue = genType().TaggedValue;
+    /// Type is a combination of all the types that an object can be, plus the types listed
+    /// below in Base
+    pub const Type = genType().Type;
+
+    inline fn genType() struct { TaggedValue: type, Type: type } {
+        const Base = union(enum) {
+            nil: void,
+            number: f64,
+            color: Color,
+            boolean: bool,
+            string: String,
+            object: *Object,
+        };
+
+        var field_names: []const []const u8 = &.{};
+        var field_types: []const type = &.{};
+
+        for (@typeInfo(Base).@"union".fields) |field| {
+            field_names = field_names ++ .{field.name};
+            field_types = field_types ++ .{field.type};
+        }
+
+        for (@typeInfo(Object.TaggedKind).@"union".fields) |field| {
+            field_names = field_names ++ .{field.name};
+            field_types = field_types ++ .{field.type};
+        }
+
+        const Enum = @Enum(u8, .exhaustive, field_names, &std.simd.iota(u8, field_names.len));
+        return .{
+            .TaggedValue = @Union(.auto, Enum, field_names, @ptrCast(field_types), &@splat(.{})),
+            .Type = Enum,
+        };
     }
 
     /// Type-aware wrapper around `Value` to make it easy to switch on and access its fields
-    pub const TaggedValue = union(Type) {
-        nil: void,
-        number: f64,
-        color: Color,
-        boolean: bool,
-        string: String,
-        list: *Object.List,
-        dict: *Object.Dict,
-        function: *Object.Function,
-    };
     pub fn taggedValue(value: Value) TaggedValue {
-        return switch (value.typ()) {
-            .nil => .nil,
-            .color => .{ .color = value.asColor() },
-            .number => .{ .number = value.asNumber() },
-            .string => .{ .string = value.asString() },
-            .boolean => .{ .boolean = value.asBoolean() },
-            .list => .{ .list = value.asObject().asList() },
-            .dict => .{ .dict = value.asObject().asDict() },
-            .function => .{ .function = value.asObject().asFunction() },
-        };
+        switch (value.typ()) {
+            inline else => |ty| {
+                const field = @typeInfo(TaggedValue).@"union".fields[@intFromEnum(ty)];
+                return @unionInit(TaggedValue, field.name, value.as(ty));
+            },
+        }
     }
 
     pub fn isTruthy(value: Value) bool {
@@ -194,14 +193,14 @@ pub const Value = packed union {
             return Value.newBoolean(a.bits == b.bits);
         }
         pub fn not_equal(a: Value, b: Value) Value {
-            return Value.newBoolean(!operators.equal(a, b).asBoolean());
+            return Value.newBoolean(!operators.equal(a, b).as(.boolean));
         }
         pub fn add(vm: *Vm, a: Value, b: Value) !Value {
-            if (a.isNumber() and b.isNumber()) {
-                return Value.newNumber(a.asNumber() + b.asNumber());
-            }
+            if (a.is(.number)) |n1| if (b.is(.number)) |n2| {
+                return Value.newNumber(n1 + n2);
+            };
 
-            if (a.isString()) {
+            if (a.is(.string)) |_| {
                 const pool = vm.string_builder.pool;
                 var builder = vm.string_builder;
                 const m = builder.begin();
@@ -214,51 +213,51 @@ pub const Value = packed union {
             return error.InvalidOperands;
         }
         pub fn subtract(a: Value, b: Value) !Value {
-            if (a.isNumber() and b.isNumber()) {
-                return Value.newNumber(a.asNumber() - b.asNumber());
-            }
+            if (a.is(.number)) |n1| if (b.is(.number)) |n2| {
+                return Value.newNumber(n1 - n2);
+            };
             return error.InvalidOperands;
         }
         pub fn modulo(a: Value, b: Value) !Value {
-            if (a.isNumber() and b.isNumber()) {
-                return Value.newNumber(@mod(a.asNumber(), b.asNumber()));
-            }
+            if (a.is(.number)) |n1| if (b.is(.number)) |n2| {
+                return Value.newNumber(@mod(n1, n2));
+            };
             return error.InvalidOperands;
         }
         pub fn multiply(a: Value, b: Value) !Value {
-            if (a.isNumber() and b.isNumber()) {
-                return Value.newNumber(a.asNumber() * b.asNumber());
-            }
+            if (a.is(.number)) |n1| if (b.is(.number)) |n2| {
+                return Value.newNumber(n1 * n2);
+            };
             return error.InvalidOperands;
         }
         pub fn divide(a: Value, b: Value) !Value {
-            if (a.isNumber() and b.isNumber()) {
-                return Value.newNumber(a.asNumber() / b.asNumber());
-            }
+            if (a.is(.number)) |n1| if (b.is(.number)) |n2| {
+                return Value.newNumber(n1 / n2);
+            };
             return error.InvalidOperands;
         }
         pub fn less_than(a: Value, b: Value) !Value {
-            if (a.isNumber() and b.isNumber()) {
-                return Value.newBoolean(a.asNumber() < b.asNumber());
-            }
+            if (a.is(.number)) |n1| if (b.is(.number)) |n2| {
+                return Value.newBoolean(n1 < n2);
+            };
             return error.InvalidOperands;
         }
         pub fn less_than_equal(a: Value, b: Value) !Value {
-            if (a.isNumber() and b.isNumber()) {
-                return Value.newBoolean(a.asNumber() <= b.asNumber());
-            }
+            if (a.is(.number)) |n1| if (b.is(.number)) |n2| {
+                return Value.newBoolean(n1 <= n2);
+            };
             return error.InvalidOperands;
         }
         pub fn greater_than(a: Value, b: Value) !Value {
-            if (a.isNumber() and b.isNumber()) {
-                return Value.newBoolean(a.asNumber() > b.asNumber());
-            }
+            if (a.is(.number)) |n1| if (b.is(.number)) |n2| {
+                return Value.newBoolean(n1 > n2);
+            };
             return error.InvalidOperands;
         }
         pub fn greater_than_equal(a: Value, b: Value) !Value {
-            if (a.isNumber() and b.isNumber()) {
-                return Value.newBoolean(a.asNumber() >= b.asNumber());
-            }
+            if (a.is(.number)) |n1| if (b.is(.number)) |n2| {
+                return Value.newBoolean(n1 >= n2);
+            };
             return error.InvalidOperands;
         }
         pub fn in(a: Value, b: Value) !Value {
@@ -269,11 +268,11 @@ pub const Value = packed union {
         }
 
         pub fn negate(a: Value) !Value {
-            if (a.getNumber()) |num| return Value.newNumber(-num);
+            if (a.is(.number)) |num| return Value.newNumber(-num);
             return error.InvalidOperand;
         }
         pub fn not(a: Value) !Value {
-            if (a.getBoolean()) |b| return Value.newBoolean(!b);
+            if (a.is(.boolean)) |b| return Value.newBoolean(!b);
             return error.InvalidOperand;
         }
     };
@@ -345,41 +344,31 @@ pub const Value = packed union {
     /// Each different object will be implemented through struct inheritance.
     pub const Object = struct {
         /// The type of object this is
-        tag: Kind,
+        kind: Kind,
 
         /// If the object may be mutated. This only matters in userspace; Objects that have
         /// .constant = true may still be modified by the vm, but attempting to mutate a constant
         /// object in user code will result in a runtime error.
         constant: bool = false,
 
-        const Kind = enum {
-            list,
-            dict,
-            function,
+        pub const Kind = std.meta.Tag(TaggedKind);
+        const TaggedKind = union(enum) {
+            list: *List,
+            dict: *Dict,
+            function: *Function,
         };
-
-        pub fn asList(obj: *Object) *List {
-            assert(obj.tag == .list);
-            return @alignCast(@fieldParentPtr("base", obj));
-        }
-        pub fn getList(obj: *Object) ?*List {
-            return if (obj.tag == .list) obj.asList() else null;
+        fn KindType(comptime kind: Kind) type {
+            return @typeInfo(TaggedKind).@"union".fields[@intFromEnum(kind)].type;
         }
 
-        pub fn asDict(obj: *Object) *Dict {
-            assert(obj.tag == .dict);
+        pub fn as(obj: *Object, comptime kind: Kind) KindType(kind) {
+            assert(obj.kind == kind);
             return @alignCast(@fieldParentPtr("base", obj));
-        }
-        pub fn getDict(obj: *Object) ?*Dict {
-            return if (obj.tag == .dict) obj.asDict() else null;
         }
 
-        pub fn asFunction(obj: *Object) *Function {
-            assert(obj.tag == .function);
-            return @alignCast(@fieldParentPtr("base", obj));
-        }
-        pub fn getFunction(obj: *Object) ?*Function {
-            return if (obj.tag == .function) obj.asFunction() else null;
+        pub fn is(obj: *Object, comptime kind: Kind) ?KindType(kind) {
+            if (obj.kind == kind) return obj.as(kind);
+            return null;
         }
 
         pub const List = struct {
@@ -389,7 +378,7 @@ pub const Value = packed union {
             pub fn init(alloc: Allocator) !*Object {
                 var ret = try alloc.create(@This());
                 ret.* = .{
-                    .base = .{ .tag = .list },
+                    .base = .{ .kind = .list },
                     .array = .empty,
                 };
                 return &ret.base;
@@ -403,7 +392,7 @@ pub const Value = packed union {
             pub fn init(alloc: Allocator, pool: *String.Pool) !*Object {
                 var ret = try alloc.create(@This());
                 ret.* = .{
-                    .base = .{ .tag = .dict },
+                    .base = .{ .kind = .dict },
                     .map = .init(pool),
                 };
                 return &ret.base;
@@ -440,7 +429,7 @@ pub const Value = packed union {
             pub fn initBuiltin(gpa: Allocator, func: BuiltinFn, self: Value) !*Object {
                 const ret = try gpa.create(@This());
                 ret.* = .{
-                    .base = .{ .tag = .function },
+                    .base = .{ .kind = .function },
                     .func = .{ .builtin = .{
                         .func = func,
                         .self = self,
@@ -452,7 +441,7 @@ pub const Value = packed union {
             pub fn initRuntime(gpa: Allocator, body_index: ast.NodeIndex, arity: u32) !*Object {
                 const ret = try gpa.create(@This());
                 ret.* = .{
-                    .base = .{ .tag = .function },
+                    .base = .{ .kind = .function },
                     .func = .{ .runtime = .{
                         .definition_index = body_index,
                         .arity = arity,
@@ -477,16 +466,20 @@ test "Value numbers" {
         const value = Value.newNumber(num);
 
         try std.testing.expect(value.typ() == .number);
-        try std.testing.expect(value.isNumber());
-        try std.testing.expect(!value.isObject());
-        try std.testing.expect(!value.isBoolean());
-        try std.testing.expect(!value.isNil());
+        try std.testing.expect(value.is(.number) != null);
+
+        try std.testing.expect(value.is(.nil) == null);
+        try std.testing.expect(value.is(.list) == null);
+        try std.testing.expect(value.is(.dict) == null);
+        try std.testing.expect(value.is(.object) == null);
+        try std.testing.expect(value.is(.boolean) == null);
+        try std.testing.expect(value.is(.function) == null);
         try std.testing.expect(value.isTruthy());
 
         try std.testing.expectEqual(std.math.isNan(num), value.isNan());
         if (!value.isNan()) {
             // IEEE 754 says nans can't be compared
-            try std.testing.expectEqual(value.asNumber(), num);
+            try std.testing.expectEqual(value.as(.number), num);
         }
     }
 }
@@ -498,37 +491,47 @@ test "Value booleans" {
         const value = Value.newBoolean(boolean);
 
         try std.testing.expect(value.typ() == .boolean);
-        try std.testing.expect(value.isBoolean());
-        try std.testing.expect(!value.isObject());
-        try std.testing.expect(!value.isNumber());
-        try std.testing.expect(!value.isNil());
-        try std.testing.expect(value.isTruthy() == boolean);
+        try std.testing.expect(value.is(.boolean) == boolean);
 
-        try std.testing.expectEqual(value.asBoolean(), boolean);
+        try std.testing.expect(value.is(.nil) == null);
+        try std.testing.expect(value.is(.list) == null);
+        try std.testing.expect(value.is(.dict) == null);
+        try std.testing.expect(value.is(.object) == null);
+        try std.testing.expect(value.is(.number) == null);
+        try std.testing.expect(value.is(.function) == null);
+        try std.testing.expect(value.isTruthy() == boolean);
     }
 }
 
 test "Value nil" {
     const value = Value.nil;
 
-    try std.testing.expect(value.isNil());
-    try std.testing.expect(!value.isObject());
-    try std.testing.expect(!value.isNumber());
-    try std.testing.expect(!value.isBoolean());
+    try std.testing.expect(value.typ() == .nil);
+    try std.testing.expect(value.is(.nil) != null);
+
+    try std.testing.expect(value.is(.list) == null);
+    try std.testing.expect(value.is(.dict) == null);
+    try std.testing.expect(value.is(.object) == null);
+    try std.testing.expect(value.is(.number) == null);
+    try std.testing.expect(value.is(.boolean) == null);
+    try std.testing.expect(value.is(.function) == null);
     try std.testing.expect(!value.isTruthy());
 }
 
 test "Value object" {
-    const object: Value.Object = .{ .tag = .list };
-    const value = Value.newObject(&object);
-
-    try std.testing.expectEqual(@intFromPtr(&object), @intFromPtr(value.asObject()));
+    const list: Value.Object.List = .{ .base = .{ .kind = .list }, .array = undefined };
+    const value = Value.newObject(&list.base);
 
     try std.testing.expect(value.typ() == .list);
-    try std.testing.expect(value.isObject());
-    try std.testing.expect(!value.isNumber());
-    try std.testing.expect(!value.isBoolean());
-    try std.testing.expect(!value.isNil());
+    try std.testing.expect(value.is(.list) == &list);
+    try std.testing.expect(value.is(.object) != null);
+    try std.testing.expect(value.is(.object) == &list.base);
+
+    try std.testing.expect(value.is(.nil) == null);
+    try std.testing.expect(value.is(.dict) == null);
+    try std.testing.expect(value.is(.number) == null);
+    try std.testing.expect(value.is(.boolean) == null);
+    try std.testing.expect(value.is(.function) == null);
     try std.testing.expect(value.isTruthy());
 }
 
