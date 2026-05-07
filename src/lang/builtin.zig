@@ -21,12 +21,12 @@ pub const methods = struct {
     const list = struct {
         pub fn len(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
             _ = args;
-            const self = ctx.self.asObject().asList();
+            const self = ctx.self.as(.list);
             return Value.newNumber(@floatFromInt(self.array.items.len));
         }
 
         pub fn append(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
-            const self = ctx.self.asObject().asList();
+            const self = ctx.self.as(.list);
             for (args[0..]) |arg| {
                 self.array.append(ctx.vm.valueAllocator(), arg) catch
                     try ctx.vm.setError(ctx.caller_index, .value_oom);
@@ -176,7 +176,7 @@ pub const functions = struct {
                     // not using the Value.initBuiltin here because that requires an allocator and
                     // this should be constructed at compiletime.
                     .{
-                        .base = .{ .tag = .function, .constant = true },
+                        .base = .{ .kind = .function, .constant = true },
                         .func = .{ .builtin = .{
                             .func = field,
                             .self = Value.nil,
@@ -218,7 +218,7 @@ pub const Constants = struct {
 
         const sys = sys: {
             const object = try Object.Dict.init(arena.allocator(), pool);
-            const dict = object.asDict();
+            const dict = object.as(.dict);
             _ = dict;
             break :sys Value.newObject(object);
         };
