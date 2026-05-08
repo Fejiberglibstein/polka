@@ -104,8 +104,11 @@ pub fn evalExpressionStatement(vm: *Vm, node: ast.Expression) RuntimeError!void 
 pub fn evalExpression(vm: *Vm, expr: ast.Expression) RuntimeError!Value {
     return switch (expr) {
         .nil => Value.nil,
-        .true => Value.newBoolean(true),
-        .false => Value.newBoolean(false),
+        .true => Value.new(.boolean, true),
+        .false => Value.new(.boolean, false),
+        .number => |node| Value.new(.number, node.get(vm.nodes, vm.src)),
+        .integer => |node| Value.new(.number, node.getAsFloat(vm.nodes, vm.src)),
+
         .list => |node| evalList(vm, node),
         .dict => |node| evalDict(vm, node),
         .color => |node| evalColor(vm, node),
@@ -119,14 +122,12 @@ pub fn evalExpression(vm: *Vm, expr: ast.Expression) RuntimeError!Value {
         .bracket_access => |node| evalBracketAccess(vm, node),
         .multi_line_string => |node| evalMultiLineString(vm, node),
         .grouping => |node| evalExpression(vm, node.inner(vm.nodes)),
-        .number => |node| Value.newNumber(node.get(vm.nodes, vm.src)),
-        .integer => |node| Value.newNumber(node.getAsFloat(vm.nodes, vm.src)),
     };
 }
 
 pub fn evalColor(vm: *Vm, node: ast.Color) RuntimeError!Value {
     const color = node.get(vm.nodes, vm.src);
-    return Value.newColor(.{
+    return Value.new(.color, .{
         .r = color.r,
         .g = color.g,
         .b = color.b,
@@ -141,7 +142,7 @@ pub fn evalStaticString(vm: *Vm, node: ast.StaticString) RuntimeError!Value {
     node.create(vm.nodes, vm.src, &sb.w.writer) catch
         try vm.setError(node.index, .internal_oom);
 
-    return Value.newString(sb.finish(m) catch
+    return Value.new(.string, sb.finish(m) catch
         try vm.setError(node.index, .internal_oom));
 }
 
@@ -165,7 +166,7 @@ pub fn evalMultiLineString(vm: *Vm, node: ast.MultiLineString) RuntimeError!Valu
     }
     sb.w.writer.writeByte('\n') catch try vm.setError(node.index, .internal_oom);
 
-    return Value.newString(sb.finish(m) catch try vm.setError(node.index, .internal_oom));
+    return Value.new(.string, sb.finish(m) catch try vm.setError(node.index, .internal_oom));
 }
 
 pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
@@ -188,7 +189,7 @@ pub fn evalDict(vm: *Vm, node: ast.Dict) RuntimeError!Value {
             try vm.setError(field.index, .value_oom);
     }
 
-    return Value.newObject(object);
+    return Value.new(.object, object);
 }
 
 pub fn evalList(vm: *Vm, node: ast.List) RuntimeError!Value {
@@ -202,7 +203,7 @@ pub fn evalList(vm: *Vm, node: ast.List) RuntimeError!Value {
             try vm.setError(node.index, .value_oom);
     }
 
-    return Value.newObject(object);
+    return Value.new(.object, object);
 }
 
 pub fn evalAccess(
@@ -258,9 +259,9 @@ pub fn evalDotAccess(vm: *Vm, node: ast.DotAccess) RuntimeError!Value {
     // This works fine, but I dont really it.
     const method = builtin.methods.get(lhs, vm.valueAllocator(), rhs_name) catch
         try vm.setError(rhs_node.index, .value_oom);
-    if (method) |m| return Value.newObject(m);
+    if (method) |m| return Value.new(.object, m);
 
-    const rhs = Value.newString(blk: {
+    const rhs = Value.new(.string, blk: {
         const sb = &vm.string_builder;
         const m = sb.begin();
         sb.w.writer.writeAll(rhs_name) catch |err| break :blk err;
@@ -307,7 +308,7 @@ pub fn evalFunctionDef(vm: *Vm, node: ast.FunctionDef) RuntimeError!Value {
     var parameters = node.parameters(vm.nodes).get(vm.nodes);
     const len = parameters.len(vm.nodes);
 
-    const function = Value.newObject(Value.Object.Function.initRuntime(
+    const function = Value.new(.object, Value.Object.Function.initRuntime(
         vm.valueAllocator(),
         node.index,
         len,
@@ -404,7 +405,7 @@ pub fn callRuntimeFunction(
     }
 
     if (func.name(vm.nodes)) |name| {
-        vm.bindVariable(name.get(vm.nodes, vm.src), Value.newObject(&function.base)) catch
+        vm.bindVariable(name.get(vm.nodes, vm.src), Value.new(.object, &function.base)) catch
             try vm.setError(name.index, .too_many_variables);
     }
 
@@ -422,7 +423,7 @@ pub fn callRuntimeFunction(
             vm.control_flow_node = null;
 
             const function_text = if (m != vm.string_builder.begin())
-                Value.newString(vm.string_builder.finish(m) catch
+                Value.new(.string, vm.string_builder.finish(m) catch
                     try vm.setError(func.index, .internal_oom))
             else
                 null;
@@ -481,8 +482,8 @@ pub fn evalAccessAssignment(
                     break :index error.ValueError;
                 break :index @as(usize, @intFromFloat(lvalue_num));
             } catch try vm.setError(node_indices.rhs, .{ .array_index_out_of_bounds = .{
-                .index = Value.newNumber(lvalue_num),
-                .length = Value.newNumber(@floatFromInt(list.array.items.len)),
+                .index = Value.new(.number, lvalue_num),
+                .length = Value.new(.number, @floatFromInt(list.array.items.len)),
             } });
 
             list.array.items[index] = rvalue;
@@ -510,7 +511,7 @@ pub fn evalAssignment(vm: *Vm, lvalue: LValue, rvalue: Value) !void {
 
             const rhs_node = node.rhs(vm.nodes);
             const rhs_name = rhs_node.get(vm.nodes, vm.src);
-            const rhs = Value.newString(blk: {
+            const rhs = Value.new(.string, blk: {
                 const sb = &vm.string_builder;
                 const m = sb.begin();
                 sb.w.writer.writeAll(rhs_name) catch |err| break :blk err;
