@@ -22,7 +22,7 @@ pub const methods = struct {
         pub fn len(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
             _ = args;
             const self = ctx.self.as(.list);
-            return Value.newNumber(@floatFromInt(self.array.items.len));
+            return Value.new(.number, @floatFromInt(self.array.items.len));
         }
 
         pub fn append(ctx: Function.CallCtx, args: []const Value) RuntimeError!Value {
@@ -220,12 +220,17 @@ pub const Constants = struct {
             const object = try Object.Dict.init(arena.allocator(), pool);
             const dict = object.as(.dict);
             _ = dict;
-            break :sys Value.newObject(object);
+            break :sys Value.new(.object, object);
         };
         entries.appendAssumeCapacity(.{ "sys", sys });
 
         for (functions.list) |*func| {
-            entries.appendAssumeCapacity(.{ func.@"0", Value.newObject(&func.@"1".base) });
+            entries.appendAssumeCapacity(.{
+                func.@"0",
+                // constCast is necessary to get it to compile. 
+                // Value.new() uses @intFromPtr so the constness is getting cast away anyway.
+                Value.new(.object, @constCast(&func.@"1".base)),
+            });
         }
 
         assert(entries.items.len == initial_capacity);
