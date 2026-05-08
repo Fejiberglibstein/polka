@@ -45,47 +45,14 @@ pub const Value = packed union {
         };
     },
 
-    fn isNan(value: Value) bool {
-        return value.bits & ~sign_mask == nan_mask;
-    }
-
     const true_value: Value = .{ .tagged = .{ .bits = 0, .tag = .true } };
     const false_value: Value = .{ .tagged = .{ .bits = 0, .tag = .false } };
     pub const nil: Value = .{ .tagged = .{ .bits = 0, .tag = .nil } };
 
-    pub const Type = std.meta.Tag(TaggedValue);
-    /// TaggedValue is a combination of all the types that an object can be, plus the types listed
-    /// below in Base
-    pub const TaggedValue = ty: {
-        const Base = union(enum) {
-            nil: void,
-            number: f64,
-            color: Color,
-            boolean: bool,
-            string: String,
-            object: *Object,
-        };
-
-        var field_names: []const []const u8 = &.{};
-        var field_types: []const type = &.{};
-
-        for (@typeInfo(Base).@"union".fields) |field| {
-            field_names = field_names ++ .{field.name};
-            field_types = field_types ++ .{field.type};
-        }
-
-        for (@typeInfo(Object.TaggedKind).@"union".fields) |field| {
-            field_names = field_names ++ .{field.name};
-            field_types = field_types ++ .{field.type};
-        }
-
-        const Enum = @Enum(u8, .exhaustive, field_names, &std.simd.iota(u8, field_names.len));
-        break :ty @Union(.auto, Enum, field_names, @ptrCast(field_types), &@splat(.{}));
-    };
-
-    pub fn TypeOf(comptime ty: Type) type {
-        return @FieldType(TaggedValue, @tagName(ty));
+    fn isNan(value: Value) bool {
+        return value.bits & ~sign_mask == nan_mask;
     }
+
     pub fn is(value: Value, comptime ty: Type) ?TypeOf(ty) {
         const is_number = value.tagged.nan_mask != 0b0_11111111111_1 or value.isNan();
         const is_ty = switch (ty) {
@@ -117,7 +84,8 @@ pub const Value = packed union {
             inline else => {
                 assert(value.tagged.tag == .object);
                 const object: *Object = @ptrFromInt(value.tagged.bits);
-                return object.as(std.meta.stringToEnum(Object.Kind, @tagName(ty)).?);
+                const kind = comptime std.meta.stringToEnum(Object.Kind, @tagName(ty)).?;
+                return object.as(kind);
             },
         };
     }
@@ -168,6 +136,38 @@ pub const Value = packed union {
             inline else => |ty| @unionInit(TaggedValue, @tagName(ty), value.as(ty)),
         };
     }
+
+    pub fn TypeOf(comptime ty: Type) type {
+        return @FieldType(TaggedValue, @tagName(ty));
+    }
+    pub const Type = std.meta.Tag(TaggedValue);
+    /// TaggedValue is a combination of all the types that an object can be, plus the types listed
+    /// below in Base
+    pub const TaggedValue = ty: {
+        const Base = union(enum) {
+            nil: void,
+            number: f64,
+            color: Color,
+            boolean: bool,
+            string: String,
+            object: *Object,
+        };
+
+        const base_info = @typeInfo(Base).@"union";
+        const kind_info = @typeInfo(Object.TaggedKind).@"union";
+
+        const fields = base_info.fields ++ kind_info.fields;
+        var field_names: [fields.len][]const u8 = undefined;
+        var field_types: [fields.len]type = undefined;
+
+        for (fields, &field_names, &field_types) |field, *field_name, *field_type| {
+            field_name.* = field.name;
+            field_type.* = field.type;
+        }
+
+        const Enum = @Enum(u8, .exhaustive, &field_names, &std.simd.iota(u8, field_names.len));
+        break :ty @Union(.auto, Enum, &field_names, &field_types, &@splat(.{}));
+    };
 
     pub fn isTruthy(value: Value) bool {
         return value != Value.nil and value != false_value;
@@ -343,16 +343,16 @@ pub const Value = packed union {
             function: *Function,
         };
 
-        fn KindType(comptime kind: Kind) type {
+        fn KindOf(comptime kind: Kind) type {
             return @typeInfo(TaggedKind).@"union".fields[@intFromEnum(kind)].type;
         }
 
-        pub fn as(obj: *Object, comptime kind: Kind) KindType(kind) {
+        pub fn as(obj: *Object, comptime kind: Kind) KindOf(kind) {
             assert(obj.kind == kind);
             return @alignCast(@fieldParentPtr("base", obj));
         }
 
-        pub fn is(obj: *Object, comptime kind: Kind) ?KindType(kind) {
+        pub fn is(obj: *Object, comptime kind: Kind) ?KindOf(kind) {
             if (obj.kind == kind) return obj.as(kind);
             return null;
         }
