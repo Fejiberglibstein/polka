@@ -227,7 +227,7 @@ pub const Constants = struct {
         for (functions.list) |*func| {
             entries.appendAssumeCapacity(.{
                 func.@"0",
-                // constCast is necessary to get it to compile. 
+                // constCast is necessary to get it to compile.
                 // Value.new() uses @intFromPtr so the constness is getting cast away anyway.
                 Value.new(.object, @constCast(&func.@"1".base)),
             });
@@ -240,11 +240,11 @@ pub const Constants = struct {
         };
     }
 
-    pub fn deinit(constants: Constants, gpa: Allocator) void {
-        if (constants.map.kvs.len == 0) return;
-
+    pub fn deinit(constants: *Constants, gpa: Allocator) void {
         constants.map.deinit(gpa);
+
         constants.arena.deinit();
+        constants.* = undefined;
     }
 };
 
