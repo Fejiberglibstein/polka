@@ -3,6 +3,7 @@ pub const ParseResult = struct {
     nodes: []const SyntaxNode,
     /// List of all syntax errors.
     errors: []const SyntaxError,
+    all_text: bool,
 
     pub fn deinit(res: ParseResult, gpa: Allocator) void {
         gpa.free(res.nodes);
@@ -49,6 +50,7 @@ pub fn parse(src: []const u8, mode: ParseMode, gpa: Allocator) Allocator.Error!P
     p.nodes.items[0] = root_node;
 
     return .{
+        .all_text = !p.visited_code,
         .nodes = try p.nodes.toOwnedSlice(gpa),
         .errors = try p.errors.toOwnedSlice(gpa),
     };
@@ -105,6 +107,7 @@ fn parseText(p: *Parser) Allocator.Error!void {
 }
 
 fn parseCode(p: *Parser) Allocator.Error!void {
+    p.visited_code = true;
     while (true) {
         if (p.isEndingKind(p.current.node.kind)) break;
         try parseStatement(p);
@@ -579,6 +582,7 @@ const Parser = struct {
     /// List of all SyntaxKinds that will cause the parser to break out of parsing code. This always
     /// include EOF, and may include `end`, `codeblock_delim`, and others.
     ending_kind: SyntaxSet,
+    visited_code: bool,
 
     /// The number of markers that haven't been wrapped yet.
     active_markers: usize,
@@ -587,15 +591,16 @@ const Parser = struct {
         const lexer = Lexer.init(src, m, "#");
 
         var parser: Parser = .{
-            .text = src,
             .l = lexer,
+            .gpa = gpa,
+            .text = src,
             .nodes = .empty,
             .stack = .empty,
             .errors = .empty,
-            .current = undefined,
-            .gpa = gpa,
-            .ending_kind = .init(&.{.eof}),
             .active_markers = 0,
+            .current = undefined,
+            .visited_code = false,
+            .ending_kind = .init(&.{.eof}),
         };
 
         parser.current = parser.l.next();

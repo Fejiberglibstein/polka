@@ -12,12 +12,12 @@ pub fn init(source: []const u8) Scanner {
 /// Returns null if at the end of the string
 pub fn eat(scanner: *Scanner) ?u8 {
     if (scanner.isDone()) {
+        @branchHint(.unlikely);
         return null;
     }
 
-    const old = scanner.cursor;
-    scanner.cursor += 1;
-    return scanner.source[old];
+    defer scanner.cursor += 1;
+    return scanner.source[scanner.cursor];
 }
 
 pub fn moveTo(scanner: *Scanner, m: usize) void {
