@@ -1,5 +1,6 @@
 gpa: Allocator,
 pool: *StringPool,
+home_path_string: Value.String,
 errors: Io.Writer.Allocating,
 constants: builtin.Constants,
 
@@ -50,7 +51,7 @@ const path_sep = Io.Dir.path.sep;
 pub const config_file_name = "config.polka";
 pub const polka_dir_name = ".polka" ++ .{path_sep};
 
-pub fn init(io: Io, gpa: Allocator, pool: *StringPool) !Runner {
+pub fn init(io: Io, gpa: Allocator, environ_map: *std.process.Environ.Map, pool: *StringPool) !Runner {
     const cwd = try Io.Dir.cwd().openDir(io, ".", .{});
     defer cwd.close(io);
 
@@ -63,9 +64,9 @@ pub fn init(io: Io, gpa: Allocator, pool: *StringPool) !Runner {
     const polka_dir = try root_dir.openDir(io, polka_dir_name, .{});
     errdefer polka_dir.close(io);
     const polka_dir_path = path: {
-        const h = try path_buf.visitDir(polka_dir_name);
-        defer path_buf.exit(h);
-        break :path try path_buf.dupePath(gpa);
+        const m = try path_buf.visitDir(polka_dir_name);
+        defer path_buf.exit(m);
+        break :path try gpa.dupe(u8, path_buf.path());
     };
     errdefer gpa.free(polka_dir_path);
 
@@ -74,19 +75,23 @@ pub fn init(io: Io, gpa: Allocator, pool: *StringPool) !Runner {
     var output_dir: TmpDir = try .init(io, polka_dir, .{});
     errdefer output_dir.cleanup(io, polka_dir);
 
-    const constants: builtin.Constants = try .init(io, gpa, pool);
+    var constants: builtin.Constants = try .init(io, gpa, pool);
     errdefer constants.deinit(gpa);
+
+    const home_path = environ_map.get("HOME") orelse return error.HomeDirectoryNotFound;
+    const home_path_string = try pool.put(home_path);
 
     return .{
         .gpa = gpa,
         .pool = pool,
         .errors = .init(gpa),
         .root_dir = root_dir,
+        .path_buf = path_buf,
         .polka_dir = polka_dir,
         .constants = constants,
         .output_dir = output_dir,
-        .path_buf = path_buf,
         .polka_dir_path = polka_dir_path,
+        .home_path_string = home_path_string,
         .constant_value_allocator = .init(gpa),
         .ephemeral_value_allocator = .init(gpa),
     };
@@ -154,7 +159,9 @@ pub fn sync(runner: *Runner, io: Io) !void {
     var config: PolkaConfig = .init(runner.gpa, runner.pool);
     defer config.deinit();
 
-    try runner.syncDir(io, &config, runner.root_dir);
+    var destination_path: PathBuf = .init(runner.gpa);
+    defer destination_path.deinit();
+    try runner.syncDir(io, &config, runner.root_dir, &destination_path);
 }
 
 fn syncDir(
@@ -162,6 +169,7 @@ fn syncDir(
     io: Io,
     starting_config: *PolkaConfig,
     dir: Io.Dir,
+    starting_destination_path: *PathBuf,
 ) !void {
     var new_config: ?PolkaConfig = config: {
         const config_file = dir.openFile(io, config_file_name, .{}) catch {
@@ -191,7 +199,7 @@ fn syncDir(
             .directory => {
                 const new_dir = try dir.openDir(io, entry.name, .{ .iterate = true });
                 defer new_dir.close(io);
-                try runner.syncDir(io, &config, new_dir);
+                try runner.syncDir(io, &config, new_dir, starting_destination_path);
             },
             .file => {
                 const file = try dir.openFile(io, entry.name, .{});
@@ -226,11 +234,11 @@ fn runFile(runner: *Runner, io: Io, config: *PolkaConfig, file: Io.File) !void {
     // TODO we can probably use the file_arena for parsing; we just need to preallocate parser.stack
     // with like ~4096 entries.
     const parsed = try parser.parse(src, mode, gpa);
+    defer parsed.deinit(gpa);
     if (parsed.errors.len != 0) {
-        try runner.printSyntaxErrors(parsed.errors, runner.path_buf.basename());
+        try runner.printSyntaxErrors(parsed.errors, runner.path_buf.path());
         return;
     }
-    defer parsed.deinit(gpa);
 
     var out: Io.Writer.Allocating = .init(file_arena.allocator());
 
@@ -247,7 +255,7 @@ fn runFile(runner: *Runner, io: Io, config: *PolkaConfig, file: Io.File) !void {
 
     const err = vm.run();
     if (err) |_| {
-        try runner.printRuntimeError(src, parsed.nodes, runner.path_buf.basename(), err.?);
+        try runner.printRuntimeError(src, parsed.nodes, runner.path_buf.path(), err.?);
         return;
     }
 }
