@@ -51,7 +51,7 @@ const Runner = @This();
 const path_sep = Io.Dir.path.sep;
 pub const language_filetype = ".polka";
 pub const config_file_name = "config" ++ language_filetype;
-pub const polka_dir_name = ".polka" ++ .{path_sep};
+pub const polka_dir_name = ".polka";
 
 pub fn init(io: Io, gpa: Allocator, environ_map: *std.process.Environ.Map, pool: *StringPool) !Runner {
     const cwd = try Io.Dir.cwd().openDir(io, ".", .{});
@@ -103,7 +103,7 @@ pub fn deinit(runner: *Runner, io: Io, gpa: std.mem.Allocator) void {
     runner.constant_value_allocator.deinit();
     runner.ephemeral_value_allocator.deinit();
 
-    runner.output_dir.cleanup(io, runner.polka_dir);
+    // runner.output_dir.cleanup(io, runner.polka_dir);
     runner.polka_dir.close(io);
     runner.root_dir.close(io);
 
@@ -194,15 +194,17 @@ fn syncDir(
 
     var out_buf: [2048]u8 = undefined;
     var entries = start_dir.iterate();
+
     while (entries.next(io) catch null) |entry| {
-        const m = if (entry.kind == .directory)
-            try runner.root_path.visitDir(entry.name)
-        else
-            try runner.root_path.visitFile(entry.name);
-        defer runner.root_path.exit(m);
+        if (entry.kind == .directory) {
+            if (std.mem.eql(u8, polka_dir_name, entry.name)) continue;
+        }
 
         switch (entry.kind) {
             .directory => {
+                const m = try runner.root_path.visitDir(entry.name);
+                defer runner.root_path.exit(m);
+
                 const new_start_dir = try start_dir.openDir(io, entry.name, .{ .iterate = true });
                 defer new_start_dir.close(io);
                 const new_dest_dir = try dest_dir.createDirPathOpen(io, entry.name, .{});
@@ -210,14 +212,15 @@ fn syncDir(
                 try runner.syncDir(io, &config, new_start_dir, new_dest_dir);
             },
             .file => {
+                const m = try runner.root_path.visitFile(entry.name);
+                defer runner.root_path.exit(m);
+
                 const src_file = try start_dir.openFile(io, entry.name, .{});
                 defer src_file.close(io);
-
-                const out_file = try dest_dir.openFile(io, entry.name, .{ .mode = .write_only });
+                const out_file = try dest_dir.createFile(io, entry.name, .{});
                 defer out_file.close(io);
                 var out_writer = out_file.writer(io, &out_buf);
                 defer out_writer.flush() catch {}; // TODO handle error
-
                 const file_kind = getFileKind(entry.name);
                 const out = switch (file_kind) {
                     .template => &out_writer.interface,
