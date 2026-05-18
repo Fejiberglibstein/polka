@@ -279,7 +279,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     var pool: String.Pool = .init(gpa);
     defer pool.deinit();
 
-    const constants: builtin.Constants = try .init(io, gpa, &pool);
+    var constants: builtin.Constants = try .init(io, gpa, &pool);
     defer constants.deinit(gpa);
 
     var config: polka.Config = .init(gpa, &pool);
