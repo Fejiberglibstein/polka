@@ -5,46 +5,16 @@ constants: builtin.Constants,
 
 polka_dir: Io.Dir,
 /// Relative to .root_dir
-root_path: PathBuf,
+root_path: Vfs.PathBuf,
 root_dir: Io.Dir,
 home_path: []const u8,
 home_dir: Io.Dir,
-output_dir: TmpDir,
+output_dir: Vfs.TmpDir,
 
 /// Reset after evaluating each template file.
 ephemeral_value_allocator: std.heap.ArenaAllocator,
 /// Lasts the entire duration of syncing, used for .polka files.
 constant_value_allocator: std.heap.ArenaAllocator,
-
-/// Temporary directory with random name that may delete itself
-///
-/// Copied from testing.tmpDir
-const TmpDir = struct {
-    dir: Io.Dir,
-    sub_path: [sub_path_len]u8,
-
-    const random_bytes_count = 12;
-    const sub_path_len = std.base64.url_safe.Encoder.calcSize(random_bytes_count);
-
-    pub fn init(io: Io, parent_dir: Io.Dir, opts: Io.Dir.OpenOptions) !TmpDir {
-        var random_bytes: [random_bytes_count]u8 = undefined;
-        io.random(&random_bytes);
-        var sub_path: [sub_path_len]u8 = undefined;
-        _ = std.base64.url_safe.Encoder.encode(&sub_path, &random_bytes);
-
-        const dir = try parent_dir.createDirPathOpen(io, &sub_path, .{ .open_options = opts });
-        return .{
-            .dir = dir,
-            .sub_path = sub_path,
-        };
-    }
-
-    pub fn cleanup(self: *TmpDir, io: Io, parent_dir: Io.Dir) void {
-        self.dir.close(io);
-        parent_dir.deleteTree(io, &self.sub_path) catch {};
-        self.* = undefined;
-    }
-};
 
 const Runner = @This();
 
@@ -57,7 +27,7 @@ pub fn init(io: Io, gpa: Allocator, environ_map: *std.process.Environ.Map, pool:
     const cwd = try Io.Dir.cwd().openDir(io, ".", .{});
     defer cwd.close(io);
 
-    var path_buf: PathBuf = .init(gpa);
+    var path_buf: Vfs.PathBuf = .init(gpa);
     errdefer path_buf.deinit();
 
     const root_dir = try findRootDirectory(io, cwd, &path_buf, .{ .iterate = true });
@@ -71,7 +41,7 @@ pub fn init(io: Io, gpa: Allocator, environ_map: *std.process.Environ.Map, pool:
         std.log.info("Found .polka directory at {s}", .{path_buf.path()});
     }
 
-    var output_dir: TmpDir = try .init(io, polka_dir, .{});
+    var output_dir: Vfs.TmpDir = try .init(io, polka_dir, .{});
     errdefer output_dir.cleanup(io, polka_dir);
 
     var constants: builtin.Constants = try .init(io, gpa, pool);
@@ -113,7 +83,7 @@ pub fn deinit(runner: *Runner, io: Io, gpa: std.mem.Allocator) void {
 }
 
 /// Search upwards in the filesystem from starting_dir to find where the `.polka/` directory is
-pub fn findRootDirectory(io: Io, starting_dir: Io.Dir, path_buf: *PathBuf, opts: Io.Dir.OpenOptions) !Io.Dir {
+pub fn findRootDirectory(io: Io, starting_dir: Io.Dir, path_buf: *Vfs.PathBuf, opts: Io.Dir.OpenOptions) !Io.Dir {
     var current = try starting_dir.openDir(io, ".", opts);
     errdefer current.close(io);
 
@@ -329,6 +299,6 @@ const parser = lang.parser;
 const ParseMode = parser.ParseMode;
 const Vm = lang.Vm;
 const SyntaxNode = lang.SyntaxNode;
-const PathBuf = @import("PathBuf.zig");
+const Vfs = @import("VirtualFilesystem.zig");
 const polka = @import("polka.zig");
 const PolkaConfig = polka.Config;
