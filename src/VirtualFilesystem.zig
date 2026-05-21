@@ -62,10 +62,10 @@ pub const Kind = enum {
     file,
 };
 
-const DirID = enum(u16) { _ };
+const DirID = enum(u16) { root = std.math.maxInt(u16), _ };
 const FileID = enum(u16) { _ };
 pub const ID = enum(u16) {
-    root = std.math.maxInt(u16),
+    root = @intFromEnum(DirID.root),
     _,
     pub fn from(id: anytype) ID {
         const T = @TypeOf(id);
@@ -117,17 +117,37 @@ const Entry = union(Kind) {
     }
 };
 
-pub fn init(gpa: std.mem.Allocator, pool: *String.Pool) VirtualFilesystem {
+pub fn init(gpa: std.mem.Allocator, pool: *String.Pool, home_path: String) !VirtualFilesystem {
+    const root_dir: Dir = .{
+        .dest_path = home_path,
+        .status = .unlinked,
+    };
+
+    var directories: HashMap(DirID, Dir) = .empty;
+    errdefer directories.deinit(gpa);
+    try directories.put(gpa, .root, root_dir);
+
+    const files: HashMap(FileID, File) = .empty;
+    const hierarchy: HashMap(ID, DirID) = .empty;
+
     return .{
         .gpa = gpa,
         .pool = pool,
-        .files = .empty,
-        .hierarchy = .empty,
-        .directories = .empty,
+        .files = files,
+        .hierarchy = hierarchy,
+        .directories = directories,
         .next_id = @enumFromInt(0),
         .src_path_lookup = .init(pool),
         .dest_path_lookup = .init(pool),
     };
+}
+
+pub fn deinit(fs: *VirtualFilesystem) void {
+    fs.files.deinit(fs.gpa);
+    fs.hierarchy.deinit(fs.gpa);
+    fs.directories.deinit(fs.gpa);
+    fs.src_path_lookup.deinit(fs.gpa);
+    fs.dest_path_lookup.deinit(fs.gpa);
 }
 
 pub fn newID(fs: *VirtualFilesystem) ID {

@@ -5,11 +5,12 @@ constants: builtin.Constants,
 
 polka_dir: Io.Dir,
 /// Relative to .root_dir
-root_path: Vfs.PathBuf,
+root_path: VirtualFilesystem.PathBuf,
 root_dir: Io.Dir,
 home_path: []const u8,
 home_dir: Io.Dir,
-output_dir: Vfs.TmpDir,
+output_dir: VirtualFilesystem.TmpDir,
+vfs: VirtualFilesystem,
 
 /// Reset after evaluating each template file.
 ephemeral_value_allocator: std.heap.ArenaAllocator,
@@ -27,7 +28,7 @@ pub fn init(io: Io, gpa: Allocator, environ_map: *std.process.Environ.Map, pool:
     const cwd = try Io.Dir.cwd().openDir(io, ".", .{});
     defer cwd.close(io);
 
-    var path_buf: Vfs.PathBuf = .init(gpa);
+    var path_buf: VirtualFilesystem.PathBuf = .init(gpa);
     errdefer path_buf.deinit();
 
     const root_dir = try findRootDirectory(io, cwd, &path_buf, .{ .iterate = true });
@@ -41,27 +42,32 @@ pub fn init(io: Io, gpa: Allocator, environ_map: *std.process.Environ.Map, pool:
         std.log.info("Found .polka directory at {s}", .{path_buf.path()});
     }
 
-    var output_dir: Vfs.TmpDir = try .init(io, polka_dir, .{});
+    var output_dir: VirtualFilesystem.TmpDir = try .init(io, polka_dir, .{});
     errdefer output_dir.cleanup(io, polka_dir);
 
     var constants: builtin.Constants = try .init(io, gpa, pool);
     errdefer constants.deinit(gpa);
 
     const home_path = environ_map.get("HOME") orelse return error.HomeDirectoryNotFound;
+    const string_home_path = try pool.put(home_path);
     const home_dir = try Io.Dir.openDirAbsolute(io, home_path, .{});
     errdefer home_dir.close(io);
+
+    const virtual_filesystem: VirtualFilesystem = try .init(gpa, pool, string_home_path);
+    errdefer virtual_filesystem.deinit();
 
     return .{
         .gpa = gpa,
         .pool = pool,
         .errors = .init(gpa),
         .root_dir = root_dir,
-        .root_path = path_buf,
         .home_dir = home_dir,
+        .root_path = path_buf,
         .polka_dir = polka_dir,
         .constants = constants,
-        .output_dir = output_dir,
         .home_path = home_path,
+        .output_dir = output_dir,
+        .vfs = virtual_filesystem,
         .constant_value_allocator = .init(gpa),
         .ephemeral_value_allocator = .init(gpa),
     };
@@ -83,7 +89,7 @@ pub fn deinit(runner: *Runner, io: Io, gpa: std.mem.Allocator) void {
 }
 
 /// Search upwards in the filesystem from starting_dir to find where the `.polka/` directory is
-pub fn findRootDirectory(io: Io, starting_dir: Io.Dir, path_buf: *Vfs.PathBuf, opts: Io.Dir.OpenOptions) !Io.Dir {
+pub fn findRootDirectory(io: Io, starting_dir: Io.Dir, path_buf: *VirtualFilesystem.PathBuf, opts: Io.Dir.OpenOptions) !Io.Dir {
     var current = try starting_dir.openDir(io, ".", opts);
     errdefer current.close(io);
 
@@ -299,6 +305,6 @@ const parser = lang.parser;
 const ParseMode = parser.ParseMode;
 const Vm = lang.Vm;
 const SyntaxNode = lang.SyntaxNode;
-const Vfs = @import("VirtualFilesystem.zig");
+const VirtualFilesystem = @import("VirtualFilesystem.zig");
 const polka = @import("polka.zig");
 const PolkaConfig = polka.Config;
