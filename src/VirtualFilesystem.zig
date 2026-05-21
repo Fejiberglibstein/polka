@@ -18,21 +18,16 @@ fn HashMap(K: type, V: type) type {
 
 gpa: std.mem.Allocator,
 pool: *String.Pool,
-files: HashMap(ID, File),
-directories: HashMap(ID, Dir),
+files: HashMap(FileID, File),
+directories: HashMap(DirID, Dir),
 /// child -> parent mapping. Each parent can have multiple children but a child may only have one
 /// parent.
-hierarchy: HashMap(ID, ID),
+hierarchy: HashMap(ID, DirID),
 /// Returns the ID of a file or directory based on its `dest_path`
 dest_path_lookup: String.HashMap(ID),
 /// Returns the ID of a file based on its `src_path`
 src_path_lookup: String.HashMap(ID),
 next_id: ID,
-
-const ID = enum(u16) {
-    root = std.math.maxInt(u16),
-    _,
-};
 
 pub const Dir = struct {
     dest_path: String,
@@ -55,11 +50,71 @@ pub const File = struct {
     /// The file source relative to the directory containing `.polka/`
     src_path: String,
     status: union(enum) {
-        /// File inside a TmpDir that contains the evaluated template
-        templated: struct { content: Io.File },
         /// The file path that should be symlinked is `file.src_path`
         symlinked: void,
+        /// File inside a TmpDir that contains the evaluated template
+        templated: struct { content: Io.File },
     },
+};
+
+pub const Kind = enum {
+    dir,
+    file,
+};
+
+const DirID = enum(u16) { _ };
+const FileID = enum(u16) { _ };
+pub const ID = enum(u16) {
+    root = std.math.maxInt(u16),
+    _,
+    pub fn from(id: anytype) ID {
+        const T = @TypeOf(id);
+        return switch (T) {
+            FileID, DirID, ID => @enumFromInt(@intFromEnum(id)),
+            else => @compileError("Cannot convert from " ++ @typeName(T) ++ " to ID"),
+        };
+    }
+
+    fn into(id: ID, fs: *const VirtualFilesystem, comptime kind: Kind) switch (kind) {
+        .dir => Dir,
+        .file => File,
+    } {
+        switch (kind) {
+            .dir => {
+                const dir_id: DirID = @enumFromInt(@intFromEnum(id));
+                assert(fs.directories.contains(dir_id));
+                return dir_id;
+            },
+            .file => {
+                const file_id: FileID = @enumFromInt(@intFromEnum(id));
+                assert(fs.files.contains(file_id));
+                return file_id;
+            },
+        }
+    }
+};
+
+const Entry = union(Kind) {
+    dir: *Dir,
+    file: *File,
+    pub fn from(fs: *VirtualFilesystem, id: anytype) Entry {
+        const T = @TypeOf(id);
+        return switch (T) {
+            FileID => .{ .file = fs.files.getPtr(id) orelse unreachable },
+            DirID => .{ .dir = fs.directories.getPtr(id) orelse unreachable },
+            ID => blk: {
+                const file_id: FileID = @enumFromInt(@intFromEnum(id));
+                const dir_id: DirID = @enumFromInt(@intFromEnum(id));
+                break :blk if (fs.files.getPtr(file_id)) |file|
+                    .{ .file = file }
+                else if (fs.directories.getPtr(dir_id)) |dir|
+                    .{ .dir = dir }
+                else
+                    unreachable;
+            },
+            else => @compileError("Cannot convert from " ++ @typeName(T) ++ " to ID"),
+        };
+    }
 };
 
 pub fn init(gpa: std.mem.Allocator, pool: *String.Pool) VirtualFilesystem {
@@ -75,10 +130,75 @@ pub fn init(gpa: std.mem.Allocator, pool: *String.Pool) VirtualFilesystem {
     };
 }
 
+pub fn newID(fs: *VirtualFilesystem) ID {
+    const old_id = fs.next_id;
+    fs.next_id = @enumFromInt(@intFromEnum(fs.next_id) + 1);
+    assert(fs.next_id != .root);
+    return old_id;
+}
+
+fn getDestPath(fs: *const VirtualFilesystem, id: anytype) []const u8 {
+    const entry: Entry = .from(fs, id);
+    const dest_path = switch (entry) {
+        .dir => |dir| dir.dest_path,
+        .file => |file| file.dest_path,
+    };
+
+    return fs.pool.get(dest_path);
+}
+
+/// Get the parent directory of a file. The parent of the root directory is null.
+pub fn parentDir(fs: *const VirtualFilesystem, id: anytype) !?DirID {
+    if (ID.from(id) == .root) return null;
+
+    const dest_path = fs.getDestPath(id);
+    var iter: path.NativeComponentIterator = .init(dest_path);
+    _ = iter.last();
+
+    const component = iter.previous() orelse unreachable;
+
+    const new_id: ID = if (fs.dest_path_lookup.getEntryAdapted(component.path)) |entry|
+        entry.value_ptr.*
+    else
+        // TODO maybe add the parent directory in case it doesn't already exist
+        unreachable;
+
+    return new_id.into(fs, .dir);
+}
+
+/// Marks all directories above this id as unlinked.
+pub fn unlink(fs: *VirtualFilesystem, id: anytype) !void {
+    const dest_path = fs.getDestPath(id);
+
+    var iter: path.NativeComponentIterator = .init(dest_path);
+    _ = iter.last();
+    while (iter.previous()) |component| {
+        const new_id: ID = if (fs.dest_path_lookup.getEntryAdapted(component.path)) |entry|
+            entry.value_ptr.*
+        else
+            // TODO handle this case
+            continue;
+
+        const entry: Entry = .from(fs, new_id);
+        const is_already_unlinked = switch (entry) {
+            .dir => |dir| switch (dir.status) {
+                .symlinked => blk: {
+                    dir.status = .unlinked;
+                    break :blk false;
+                },
+                .unlinked => true,
+            },
+            .file => unreachable, // Component iterator should not give us a file.
+        };
+
+        if (is_already_unlinked) break;
+    }
+}
+
 /// Temporary directory to store computed results in
 ///
 /// Copied from testing.tmpDir
-const TmpDir = struct {
+pub const TmpDir = struct {
     dir: Io.Dir,
     sub_path: [sub_path_len]u8,
 
