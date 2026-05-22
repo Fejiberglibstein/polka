@@ -249,24 +249,24 @@ pub const PathBuf = struct {
     bytes: std.ArrayList(u8),
     gpa: std.mem.Allocator,
     file_start: ?Marker,
-    stack_top: StackMarker,
+    stack_top: Marker,
+
+    pub const Marker = enum(u32) { _ };
+
+    pub const StackMarker = struct {
+        top: Marker,
+        file_start: ?Marker,
+        pub const init: StackMarker = .{ .top = @enumFromInt(0), .file_start = null };
+    };
 
     pub fn init(gpa: std.mem.Allocator) PathBuf {
         return .{
             .gpa = gpa,
             .bytes = .empty,
             .file_start = null,
-            .stack_top = .init,
+            .stack_top = @enumFromInt(0),
         };
     }
-
-    pub const Marker = enum(u32) { _ };
-
-    pub const StackMarker = struct {
-        top: enum(u32) { _ },
-        file_start: ?Marker,
-        pub const init: StackMarker = .{ .top = @enumFromInt(0), .file_start = null };
-    };
 
     pub fn deinit(self: *PathBuf) void {
         self.bytes.deinit(self.gpa);
@@ -315,38 +315,123 @@ pub const PathBuf = struct {
     }
 
     pub fn path(self: *const PathBuf) []const u8 {
-        return self.bytes.items[@intFromEnum(self.stack_top.top)..];
+        if (@intFromEnum(self.stack_top) == self.bytes.items.len) return self.bytes.items[0..0];
+        return self.bytes.items[@intFromEnum(self.stack_top)..];
     }
 
     /// Return the basename of the file.
     ///
     /// Memory will be invalidated when .exit() is called.
-    pub fn basename(self: *const PathBuf) []const u8 {
-        assert(self.file_start != null);
-        return self.bytes.items[@intFromEnum(self.file_start.?)..];
+    pub fn basename(self: *const PathBuf) ?[]const u8 {
+        return if (self.file_start) |file_start|
+            self.bytes.items[@intFromEnum(file_start)..]
+        else
+            null;
     }
 
     /// Return the directory path.
     ///
     /// Memory will be invalidated when .exit() or .visit*() is called.
     pub fn dirname(self: *const PathBuf) []const u8 {
-        const end = @intFromEnum(self.file_start) orelse self.bytes.items.len - 1;
-        return self.bytes.items[@intFromEnum(self.stack_top.top)..end];
+        if (self.bytes.items.len == 0) return self.bytes.items[0..0];
+
+        const end = if (self.file_start) |file_start| blk: {
+            const dir_end = @intFromEnum(file_start) - 1;
+            assert(self.bytes.items[dir_end] == '/');
+            break :blk dir_end;
+        } else blk: {
+            assert(self.bytes.getLast() == '/');
+            break :blk self.bytes.items.len - 1;
+        };
+        return self.bytes.items[@intFromEnum(self.stack_top)..end];
     }
 
-    pub fn push(self: *PathBuf) !StackMarker {
-        defer self.file_start = null;
-        self.bytes.append(self.gpa, 0);
-        return .{
-            .top = @intFromEnum(self.bytes.items.len),
+    pub fn new(self: *PathBuf) !StackMarker {
+        const ret: StackMarker = .{
+            .top = self.stack_top,
             .file_start = self.file_start,
         };
+        try self.bytes.append(self.gpa, 0);
+        self.stack_top = @enumFromInt(self.bytes.items.len);
+        self.file_start = null;
+
+        return ret;
     }
 
-    pub fn pop(self: *PathBuf, stack_top: StackMarker) void {
-        assert(stack_top.top <= self.bytes.items.len);
-        self.bytes.resize(self.gpa, stack_top.top) catch unreachable;
-        self.file_start = stack_top.file_start;
+    pub fn delete(self: *PathBuf, stack_marker: StackMarker) void {
+        assert(@intFromEnum(stack_marker.top) <= self.bytes.items.len);
+
+        assert(self.bytes.items[@intFromEnum(self.stack_top) - 1] == 0);
+        self.bytes.resize(self.gpa, @intFromEnum(self.stack_top) - 1) catch unreachable;
+        self.stack_top = stack_marker.top;
+        self.file_start = stack_marker.file_start;
+    }
+
+    test exit {
+        const gpa = std.testing.allocator;
+        var buf: PathBuf = .init(gpa);
+        try std.testing.expectEqualStrings(buf.path(), "");
+        defer buf.deinit();
+
+        const m1 = try buf.visitDir("foo");
+        try std.testing.expectEqualStrings(buf.path(), "foo/");
+        {
+            const m2 = try buf.visitDir("bar");
+            try std.testing.expectEqualStrings(buf.path(), "foo/bar/");
+            {
+                const m3 = try buf.visitFile("baz.txt");
+                try std.testing.expectEqualStrings(buf.path(), "foo/bar/baz.txt");
+                buf.exit(m3);
+                try std.testing.expectEqualStrings(buf.path(), "foo/bar/");
+            }
+            buf.exit(m2);
+            try std.testing.expectEqualStrings(buf.path(), "foo/");
+        }
+        buf.exit(m1);
+        try std.testing.expectEqualStrings(buf.path(), "");
+    }
+
+    test dirname {
+        const gpa = std.testing.allocator;
+        var buf: PathBuf = .init(gpa);
+        try std.testing.expect(buf.basename() == null);
+        try std.testing.expectEqualStrings(buf.dirname(), "");
+        try std.testing.expectEqualStrings(buf.path(), "");
+        defer buf.deinit();
+        _ = try buf.visitDir("foo");
+        try std.testing.expect(buf.basename() == null);
+        try std.testing.expectEqualStrings(buf.dirname(), "foo");
+        try std.testing.expectEqualStrings(buf.path(), "foo/");
+
+        _ = try buf.visitDir("bar");
+        try std.testing.expect(buf.basename() == null);
+        try std.testing.expectEqualStrings(buf.dirname(), "foo/bar");
+        try std.testing.expectEqualStrings(buf.path(), "foo/bar/");
+
+        _ = try buf.visitFile("baz.txt");
+        try std.testing.expectEqualStrings(buf.basename() orelse return error.Failed, "baz.txt");
+        try std.testing.expectEqualStrings(buf.dirname(), "foo/bar");
+        try std.testing.expectEqualStrings(buf.path(), "foo/bar/baz.txt");
+    }
+
+    test new {
+        const gpa = std.testing.allocator;
+        var buf: PathBuf = .init(gpa);
+        defer buf.deinit();
+
+        _ = try buf.visitDir("foo");
+        _ = try buf.visitDir("bar");
+        _ = try buf.visitFile("baz.txt");
+        try std.testing.expectEqualStrings("foo/bar/baz.txt", buf.path());
+
+        const sm = try buf.new();
+        try std.testing.expectEqualStrings("", buf.path());
+        _ = try buf.visitDir("one");
+        _ = try buf.visitDir("two");
+        _ = try buf.visitFile("three.txt");
+        try std.testing.expectEqualStrings("one/two/three.txt", buf.path());
+        buf.delete(sm);
+        try std.testing.expectEqualStrings("foo/bar/baz.txt", buf.path());
     }
 };
 
