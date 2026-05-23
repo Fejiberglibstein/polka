@@ -282,7 +282,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     var constants: builtin.Constants = try .init(io, gpa, &pool);
     defer constants.deinit(gpa);
 
-    var config: polka.Config = .init(gpa, &pool);
+    var config: polka.Config = .init(gpa, &pool, @enumFromInt(0));
     defer config.deinit();
 
     var vm = try Vm.init(gpa, .{

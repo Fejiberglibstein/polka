@@ -24,7 +24,7 @@ pub const Config = struct {
     ignored_files: std.ArrayList(String),
 
     /// The path where this file/directory should be placed.
-    destination_path: ?String,
+    destination_path: String,
 
     // const BitSet = @Int(.unsigned, @typeInfo(Config).@"struct".fields.len - owned_fields_index);
     comptime {
@@ -33,11 +33,11 @@ pub const Config = struct {
     const BitSet = u3;
     const owned_fields_index = std.meta.fieldIndex(@This(), "--").? + 1;
 
-    pub fn init(gpa: Allocator, pool: *String.Pool) Config {
+    pub fn init(gpa: Allocator, pool: *String.Pool, home_path: String) Config {
         return .{
             .allocator = gpa,
             .ignored_files = .empty,
-            .destination_path = null,
+            .destination_path = home_path,
             .comment_strings = .init(pool),
             .modified_bitset = 0,
         };
