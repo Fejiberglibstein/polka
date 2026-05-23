@@ -13,24 +13,64 @@
 ///   absolute paths
 pub const VirtualFilesystem = @This();
 fn HashMap(K: type, V: type) type {
-    return std.HashMapUnmanaged(K, V, void, std.hash_map.default_max_load_percentage);
+    const max_load_percentage = std.hash_map.default_max_load_percentage;
+    return std.HashMapUnmanaged(K, V, std.hash_map.AutoContext(K), max_load_percentage);
 }
 
-gpa: std.mem.Allocator,
+tmp: *TmpDir,
 pool: *String.Pool,
-files: HashMap(FileID, File),
-directories: HashMap(DirID, Dir),
-/// child -> parent mapping. Each parent can have multiple children but a child may only have one
-/// parent.
-hierarchy: HashMap(ID, DirID),
-/// Returns the ID of a file or directory based on its `dest_path`
-dest_path_lookup: String.HashMap(ID),
-/// Returns the ID of a file based on its `src_path`
-src_path_lookup: String.HashMap(ID),
-next_id: ID,
+gpa: Allocator,
+
+/// Cwd in the virtual file system. Can be accessed by the outside world to open files, directories,
+/// etc.
+// dunno if i should write this in the doccomments but all files/dir use this path as their
+// dest_path
+cwd: PathBuf,
+
+/// Mapping string paths -> ID
+paths: String.HashMap(Entry.Index),
+
+/// Each entry in entries has an equivalent entry in hierarchy.
+///
+/// A Entry.Index is used to index into this array
+entries: std.ArrayList(Entry),
+
+pub const Entry = struct {
+    /// parent directory. The root's parent is .null
+    parent: Entry.Index,
+    /// Singly linked list of siblings. .null for the end of the list
+    sibling: Entry.Index,
+
+    item: Item,
+
+    fn destPath(entry: Entry, pool: String.Pool) []const u8 {
+        const dest_path = switch (entry.item) {
+            .dir => |dir| dir.dest_path,
+            .file => |file| file.dest_path,
+        };
+        return pool.get(dest_path);
+    }
+
+    // TODO i hate the name of this
+    const Item = union(enum) {
+        dir: Dir,
+        file: File,
+    };
+
+    pub const Index = enum(u16) {
+        root = 0,
+        null = std.math.maxInt(u16),
+        _,
+
+        fn get(idx: Index, fs: *const VirtualFilesystem) *Entry {
+            return &fs.entries.items[@intFromEnum(idx)];
+        }
+    };
+};
 
 pub const Dir = struct {
     dest_path: String,
+    first_child: Entry.Index,
     status: union(enum) {
         /// Dir inside the .dotfiles directory that should be symlinked to
         symlinked: struct { source: Io.Dir },
@@ -57,162 +97,60 @@ pub const File = struct {
     },
 };
 
-pub const Kind = enum {
-    dir,
-    file,
-};
+pub fn init(gpa: Allocator, pool: *String.Pool, root_path: String, tmp_dir: *TmpDir) !VirtualFilesystem {
+    var entries: std.ArrayList(Entry) = .empty;
+    errdefer entries.deinit(gpa);
+    try entries.append(gpa, .{
+        .sibling = .null,
+        .parent = .null,
+        .item = .{ .dir = .{
+            .first_child = .null,
+            .dest_path = root_path,
+            .status = .unlinked,
+        } },
+    });
 
-const DirID = enum(u16) { root = std.math.maxInt(u16), _ };
-const FileID = enum(u16) { _ };
-pub const ID = enum(u16) {
-    root = @intFromEnum(DirID.root),
-    _,
-    pub fn from(id: anytype) ID {
-        const T = @TypeOf(id);
-        return switch (T) {
-            FileID, DirID, ID => @enumFromInt(@intFromEnum(id)),
-            else => @compileError("Cannot convert from " ++ @typeName(T) ++ " to ID"),
-        };
-    }
+    var paths: String.HashMap(Entry.Index) = .init(pool);
+    errdefer paths.deinit(gpa);
+    try paths.put(gpa, root_path, .root);
 
-    fn into(id: ID, fs: *const VirtualFilesystem, comptime kind: Kind) switch (kind) {
-        .dir => Dir,
-        .file => File,
-    } {
-        switch (kind) {
-            .dir => {
-                const dir_id: DirID = @enumFromInt(@intFromEnum(id));
-                assert(fs.directories.contains(dir_id));
-                return dir_id;
-            },
-            .file => {
-                const file_id: FileID = @enumFromInt(@intFromEnum(id));
-                assert(fs.files.contains(file_id));
-                return file_id;
-            },
-        }
-    }
-};
-
-const Entry = union(Kind) {
-    dir: *Dir,
-    file: *File,
-    pub fn from(fs: *VirtualFilesystem, id: anytype) Entry {
-        const T = @TypeOf(id);
-        return switch (T) {
-            FileID => .{ .file = fs.files.getPtr(id) orelse unreachable },
-            DirID => .{ .dir = fs.directories.getPtr(id) orelse unreachable },
-            ID => blk: {
-                const file_id: FileID = @enumFromInt(@intFromEnum(id));
-                const dir_id: DirID = @enumFromInt(@intFromEnum(id));
-                break :blk if (fs.files.getPtr(file_id)) |file|
-                    .{ .file = file }
-                else if (fs.directories.getPtr(dir_id)) |dir|
-                    .{ .dir = dir }
-                else
-                    unreachable;
-            },
-            else => @compileError("Cannot convert from " ++ @typeName(T) ++ " to ID"),
-        };
-    }
-};
-
-pub fn init(gpa: std.mem.Allocator, pool: *String.Pool, home_path: String) !VirtualFilesystem {
-    const root_dir: Dir = .{
-        .dest_path = home_path,
-        .status = .unlinked,
-    };
-
-    var directories: HashMap(DirID, Dir) = .empty;
-    errdefer directories.deinit(gpa);
-    try directories.put(gpa, .root, root_dir);
-
-    const files: HashMap(FileID, File) = .empty;
-    const hierarchy: HashMap(ID, DirID) = .empty;
+    const cwd: PathBuf = .empty;
+    errdefer cwd.deinit();
 
     return .{
         .gpa = gpa,
+        .cwd = cwd,
         .pool = pool,
-        .files = files,
-        .hierarchy = hierarchy,
-        .directories = directories,
-        .next_id = @enumFromInt(0),
-        .src_path_lookup = .init(pool),
-        .dest_path_lookup = .init(pool),
+        .tmp = tmp_dir,
+        .paths = paths,
+        .entries = entries,
     };
 }
 
 pub fn deinit(fs: *VirtualFilesystem) void {
-    fs.files.deinit(fs.gpa);
-    fs.hierarchy.deinit(fs.gpa);
-    fs.directories.deinit(fs.gpa);
-    fs.src_path_lookup.deinit(fs.gpa);
-    fs.dest_path_lookup.deinit(fs.gpa);
+    fs.entries.deinit(fs.gpa);
+    fs.paths.deinit(fs.gpa);
+    fs.cwd.deinit(fs.gpa);
+    fs.* = undefined;
 }
 
-pub fn newID(fs: *VirtualFilesystem) ID {
-    const old_id = fs.next_id;
-    fs.next_id = @enumFromInt(@intFromEnum(fs.next_id) + 1);
-    assert(fs.next_id != .root);
-    return old_id;
-}
+fn putEntry(fs: *VirtualFilesystem, entry: Entry.Item, parent_index: Entry.Index) !Entry.Index {
+    assert(parent_index != .null);
+    assert(fs.entries.items[@intFromEnum(parent_index)].item == .dir);
 
-fn getDestPath(fs: *const VirtualFilesystem, id: anytype) []const u8 {
-    const entry: Entry = .from(fs, id);
-    const dest_path = switch (entry) {
-        .dir => |dir| dir.dest_path,
-        .file => |file| file.dest_path,
+    const index: Entry.Index = @intFromEnum(try fs.entries.addOne(fs.gpa));
+    assert(index != .null);
+
+    const parent: *Entry.Item = &fs.entries.items[@intFromEnum(parent_index)].item;
+    const sibling = parent.dir.first_child;
+    parent.dir.first_child = index;
+    fs.entries.items[@intFromEnum(index)] = .{
+        .sibling = sibling,
+        .parent = parent_index,
+        .item = entry,
     };
 
-    return fs.pool.get(dest_path);
-}
-
-/// Get the parent directory of a file. The parent of the root directory is null.
-pub fn parentDir(fs: *const VirtualFilesystem, id: anytype) !?DirID {
-    if (ID.from(id) == .root) return null;
-
-    const dest_path = fs.getDestPath(id);
-    var iter: path.NativeComponentIterator = .init(dest_path);
-    _ = iter.last();
-
-    const component = iter.previous() orelse unreachable;
-
-    const new_id: ID = if (fs.dest_path_lookup.getEntryAdapted(component.path)) |entry|
-        entry.value_ptr.*
-    else
-        // TODO maybe add the parent directory in case it doesn't already exist
-        unreachable;
-
-    return new_id.into(fs, .dir);
-}
-
-/// Marks all directories above this id as unlinked.
-pub fn unlink(fs: *VirtualFilesystem, id: anytype) !void {
-    const dest_path = fs.getDestPath(id);
-
-    var iter: path.NativeComponentIterator = .init(dest_path);
-    _ = iter.last();
-    while (iter.previous()) |component| {
-        const new_id: ID = if (fs.dest_path_lookup.getEntryAdapted(component.path)) |entry|
-            entry.value_ptr.*
-        else
-            // TODO handle this case
-            continue;
-
-        const entry: Entry = .from(fs, new_id);
-        const is_already_unlinked = switch (entry) {
-            .dir => |dir| switch (dir.status) {
-                .symlinked => blk: {
-                    dir.status = .unlinked;
-                    break :blk false;
-                },
-                .unlinked => true,
-            },
-            .file => unreachable, // Component iterator should not give us a file.
-        };
-
-        if (is_already_unlinked) break;
-    }
+    return index;
 }
 
 /// Temporary directory to store computed results in
@@ -220,34 +158,36 @@ pub fn unlink(fs: *VirtualFilesystem, id: anytype) !void {
 /// Copied from testing.tmpDir
 pub const TmpDir = struct {
     dir: Io.Dir,
-    sub_path: [sub_path_len]u8,
 
     const random_bytes_count = 12;
     const sub_path_len = std.base64.url_safe.Encoder.calcSize(random_bytes_count);
 
-    pub fn init(io: Io, parent_dir: Io.Dir, opts: Io.Dir.OpenOptions) !TmpDir {
+    const path_name = "tmp";
+
+    pub fn init(io: Io, polka_dir: Io.Dir, opts: Io.Dir.OpenOptions) !TmpDir {
+        const dir = try polka_dir.createDirPathOpen(io, path_name, .{ .open_options = opts });
+        errdefer dir.close(io);
+        return .{ .dir = dir };
+    }
+
+    pub fn createFile(tmp: *TmpDir, io: Io, opts: Io.Dir.CreateFileOptions) !Io.File {
         var random_bytes: [random_bytes_count]u8 = undefined;
         io.random(&random_bytes);
         var sub_path: [sub_path_len]u8 = undefined;
         _ = std.base64.url_safe.Encoder.encode(&sub_path, &random_bytes);
 
-        const dir = try parent_dir.createDirPathOpen(io, &sub_path, .{ .open_options = opts });
-        return .{
-            .dir = dir,
-            .sub_path = sub_path,
-        };
+        return try tmp.dir.createFile(io, sub_path, opts);
     }
 
-    pub fn cleanup(self: *TmpDir, io: Io, parent_dir: Io.Dir) void {
+    pub fn deinit(self: *TmpDir, io: Io, parent_dir: Io.Dir) void {
         self.dir.close(io);
-        parent_dir.deleteTree(io, &self.sub_path) catch {};
+        parent_dir.deleteTree(io, path_name) catch {};
         self.* = undefined;
     }
 };
 
 pub const PathBuf = struct {
     bytes: std.ArrayList(u8),
-    gpa: std.mem.Allocator,
     file_start: ?Marker,
     stack_top: Marker,
 
@@ -259,28 +199,25 @@ pub const PathBuf = struct {
         pub const init: StackMarker = .{ .top = @enumFromInt(0), .file_start = null };
     };
 
-    pub fn init(gpa: std.mem.Allocator) PathBuf {
-        return .{
-            .gpa = gpa,
-            .bytes = .empty,
-            .file_start = null,
-            .stack_top = @enumFromInt(0),
-        };
-    }
+    pub const empty: PathBuf = .{
+        .bytes = .empty,
+        .file_start = null,
+        .stack_top = @enumFromInt(0),
+    };
 
-    pub fn deinit(self: *PathBuf) void {
-        self.bytes.deinit(self.gpa);
+    pub fn deinit(self: *PathBuf, gpa: Allocator) void {
+        self.bytes.deinit(gpa);
     }
 
     /// Append the file name to the buffer. It can be exited by calling .exit().
     ///
     /// This will panic if a file has already been visited without being exited.
-    pub fn visitFile(self: *PathBuf, file: []const u8) !Marker {
+    pub fn visitFile(self: *PathBuf, gpa: Allocator, file: []const u8) !Marker {
         assert(self.file_start == null);
         assert(file.len > 0);
 
         const marker: Marker = @enumFromInt(self.bytes.items.len);
-        try self.bytes.appendSlice(self.gpa, file);
+        try self.bytes.appendSlice(gpa, file);
 
         self.file_start = marker;
         return marker;
@@ -288,16 +225,17 @@ pub const PathBuf = struct {
 
     const path_sep = std.Io.Dir.path.sep;
 
+    /// Marks all directories above this id as unlinked.
     /// Append the directory name to the buffer. It can be exited by calling .exit()
     ///
     /// This will panic if a file has been visited without being exited.
-    pub fn visitDir(self: *PathBuf, dir: []const u8) !Marker {
+    pub fn visitDir(self: *PathBuf, gpa: Allocator, dir: []const u8) !Marker {
         assert(dir.len > 0);
         assert(self.file_start == null);
         const marker: Marker = @enumFromInt(self.bytes.items.len);
-        try self.bytes.appendSlice(self.gpa, dir);
+        try self.bytes.appendSlice(gpa, dir);
         if (dir[dir.len - 1] != path_sep)
-            try self.bytes.append(self.gpa, path_sep);
+            try self.bytes.append(gpa, path_sep);
 
         return marker;
     }
@@ -346,12 +284,12 @@ pub const PathBuf = struct {
         return self.bytes.items[@intFromEnum(self.stack_top)..end];
     }
 
-    pub fn new(self: *PathBuf) !StackMarker {
+    pub fn new(self: *PathBuf, gpa: Allocator) !StackMarker {
         const ret: StackMarker = .{
             .top = self.stack_top,
             .file_start = self.file_start,
         };
-        try self.bytes.append(self.gpa, 0);
+        try self.bytes.append(gpa, 0);
         self.stack_top = @enumFromInt(self.bytes.items.len);
         self.file_start = null;
 
@@ -362,24 +300,24 @@ pub const PathBuf = struct {
         assert(@intFromEnum(stack_marker.top) <= self.bytes.items.len);
 
         assert(self.bytes.items[@intFromEnum(self.stack_top) - 1] == 0);
-        self.bytes.resize(self.gpa, @intFromEnum(self.stack_top) - 1) catch unreachable;
+        self.bytes.items.len = @intFromEnum(self.stack_top) - 1;
         self.stack_top = stack_marker.top;
         self.file_start = stack_marker.file_start;
     }
 
     test exit {
         const gpa = std.testing.allocator;
-        var buf: PathBuf = .init(gpa);
+        var buf: PathBuf = .empty;
         try std.testing.expectEqualStrings(buf.path(), "");
-        defer buf.deinit();
+        defer buf.deinit(gpa);
 
-        const m1 = try buf.visitDir("foo");
+        const m1 = try buf.visitDir(gpa, "foo");
         try std.testing.expectEqualStrings(buf.path(), "foo/");
         {
-            const m2 = try buf.visitDir("bar");
+            const m2 = try buf.visitDir(gpa, "bar");
             try std.testing.expectEqualStrings(buf.path(), "foo/bar/");
             {
-                const m3 = try buf.visitFile("baz.txt");
+                const m3 = try buf.visitFile(gpa, "baz.txt");
                 try std.testing.expectEqualStrings(buf.path(), "foo/bar/baz.txt");
                 buf.exit(m3);
                 try std.testing.expectEqualStrings(buf.path(), "foo/bar/");
@@ -393,22 +331,22 @@ pub const PathBuf = struct {
 
     test dirname {
         const gpa = std.testing.allocator;
-        var buf: PathBuf = .init(gpa);
+        var buf: PathBuf = .empty;
         try std.testing.expect(buf.basename() == null);
         try std.testing.expectEqualStrings(buf.dirname(), "");
         try std.testing.expectEqualStrings(buf.path(), "");
-        defer buf.deinit();
-        _ = try buf.visitDir("foo");
+        defer buf.deinit(gpa);
+        _ = try buf.visitDir(gpa, "foo");
         try std.testing.expect(buf.basename() == null);
         try std.testing.expectEqualStrings(buf.dirname(), "foo");
         try std.testing.expectEqualStrings(buf.path(), "foo/");
 
-        _ = try buf.visitDir("bar");
+        _ = try buf.visitDir(gpa, "bar");
         try std.testing.expect(buf.basename() == null);
         try std.testing.expectEqualStrings(buf.dirname(), "foo/bar");
         try std.testing.expectEqualStrings(buf.path(), "foo/bar/");
 
-        _ = try buf.visitFile("baz.txt");
+        _ = try buf.visitFile(gpa, "baz.txt");
         try std.testing.expectEqualStrings(buf.basename() orelse return error.Failed, "baz.txt");
         try std.testing.expectEqualStrings(buf.dirname(), "foo/bar");
         try std.testing.expectEqualStrings(buf.path(), "foo/bar/baz.txt");
@@ -416,19 +354,19 @@ pub const PathBuf = struct {
 
     test new {
         const gpa = std.testing.allocator;
-        var buf: PathBuf = .init(gpa);
-        defer buf.deinit();
+        var buf: PathBuf = .empty;
+        defer buf.deinit(gpa);
 
-        _ = try buf.visitDir("foo");
-        _ = try buf.visitDir("bar");
-        _ = try buf.visitFile("baz.txt");
+        _ = try buf.visitDir(gpa, "foo");
+        _ = try buf.visitDir(gpa, "bar");
+        _ = try buf.visitFile(gpa, "baz.txt");
         try std.testing.expectEqualStrings("foo/bar/baz.txt", buf.path());
 
-        const sm = try buf.new();
+        const sm = try buf.new(gpa);
         try std.testing.expectEqualStrings("", buf.path());
-        _ = try buf.visitDir("one");
-        _ = try buf.visitDir("two");
-        _ = try buf.visitFile("three.txt");
+        _ = try buf.visitDir(gpa, "one");
+        _ = try buf.visitDir(gpa, "two");
+        _ = try buf.visitFile(gpa, "three.txt");
         try std.testing.expectEqualStrings("one/two/three.txt", buf.path());
         buf.delete(sm);
         try std.testing.expectEqualStrings("foo/bar/baz.txt", buf.path());
@@ -438,6 +376,7 @@ pub const PathBuf = struct {
 const String = @import("lang.zig").Value.String;
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const path = std.Io.Dir.path;
 const assert = std.debug.assert;
