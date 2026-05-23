@@ -43,7 +43,7 @@ pub const Entry = struct {
 
     item: Item,
 
-    fn destPath(entry: Entry, pool: String.Pool) []const u8 {
+    fn destPath(entry: Entry, pool: *const String.Pool) []const u8 {
         const dest_path = switch (entry.item) {
             .dir => |dir| dir.dest_path,
             .file => |file| file.dest_path,
@@ -62,7 +62,7 @@ pub const Entry = struct {
         null = std.math.maxInt(u16),
         _,
 
-        fn get(idx: Index, fs: *const VirtualFilesystem) *Entry {
+        fn get(idx: Index, fs: *VirtualFilesystem) *Entry {
             return &fs.entries.items[@intFromEnum(idx)];
         }
     };
@@ -81,6 +81,13 @@ pub const Dir = struct {
         /// - There exists a child in the destination directory that is not present anywhere in the
         ///   .dotfiles directory
         unlinked: void,
+
+        pub fn symlinkIf(link: ?Io.Dir) @This() {
+            return if (link) |dir|
+                .{ .symlinked = .{ .source = dir } }
+            else
+                .unlinked;
+        }
     },
 };
 
@@ -97,7 +104,13 @@ pub const File = struct {
     },
 };
 
-pub fn init(gpa: Allocator, pool: *String.Pool, root_path: String, tmp_dir: *TmpDir) !VirtualFilesystem {
+pub fn init(gpa: Allocator, pool: *String.Pool, root_path: []const u8, tmp_dir: *TmpDir) !VirtualFilesystem {
+    var cwd: PathBuf = .empty;
+    errdefer cwd.deinit(gpa);
+    _ = try cwd.visitDir(gpa, root_path);
+
+    const root_path_string = try pool.put(cwd.dirname());
+
     var entries: std.ArrayList(Entry) = .empty;
     errdefer entries.deinit(gpa);
     try entries.append(gpa, .{
@@ -105,17 +118,14 @@ pub fn init(gpa: Allocator, pool: *String.Pool, root_path: String, tmp_dir: *Tmp
         .parent = .null,
         .item = .{ .dir = .{
             .first_child = .null,
-            .dest_path = root_path,
+            .dest_path = root_path_string,
             .status = .unlinked,
         } },
     });
 
     var paths: String.HashMap(Entry.Index) = .init(pool);
     errdefer paths.deinit(gpa);
-    try paths.put(gpa, root_path, .root);
-
-    const cwd: PathBuf = .empty;
-    errdefer cwd.deinit();
+    try paths.put(gpa, root_path_string, .root);
 
     return .{
         .gpa = gpa,
@@ -151,6 +161,143 @@ fn putEntry(fs: *VirtualFilesystem, entry: Entry.Item, parent_index: Entry.Index
     };
 
     return index;
+}
+
+pub fn addParentDirs(fs: *VirtualFilesystem, io: Io, symlink_to: ?Io.Dir) !Entry.Index {
+    const entry_path = fs.cwd.dirname();
+
+    const entry_path_string, const ret_index = blk: {
+        const gop = try fs.paths.getOrPutAdapted(fs.gpa, entry_path);
+        if (gop.found_existing) return gop.value_ptr.*;
+        break :blk .{ gop.key_ptr.*, gop.value_ptr };
+    };
+
+    // The next entry appended will be the child we just made, which is what we want to return.
+    ret_index.* = @enumFromInt(fs.entries.items.len);
+    std.log.debug("index: {}", .{fs.entries.items.len});
+
+    var iter: path.NativeComponentIterator = .init(entry_path);
+    const last = iter.last();
+    assert(last != null);
+    assert(iter.peekPrevious() != null);
+
+    // We do NOT need to offset by 1 for this index. The child has not yet been added to the list;
+    // this is the index the child will have by the time it's added to the list.
+    var child_index: Entry.Index = @enumFromInt(fs.entries.items.len);
+    // reopen the directory since the caller is expected to close it
+    var child_dir: ?Io.Dir = if (symlink_to) |link| try link.openDir(io, ".", .{}) else null;
+    errdefer if (child_dir) |dir| dir.close(io);
+    var child: Entry.Item = .{ .dir = .{
+        .first_child = .null,
+        .dest_path = entry_path_string,
+        .status = .symlinkIf(child_dir),
+    } };
+    while (iter.previous()) |component| {
+        const gop = try fs.paths.getOrPutAdapted(fs.gpa, component.path);
+        if (gop.found_existing) {
+            const parent_index = gop.value_ptr.*;
+            std.log.debug(" - {}", .{parent_index});
+            const parent = parent_index.get(fs);
+            assert(parent.item == .dir);
+            const sibling = parent.item.dir.first_child;
+            parent.item.dir.first_child = child_index;
+            try fs.entries.append(fs.gpa, .{
+                .parent = parent_index,
+                .sibling = sibling,
+                .item = child,
+            });
+            break;
+        }
+
+        const child_ptr = try fs.entries.addOne(fs.gpa);
+        assert(child_ptr == &fs.entries.items[@intFromEnum(child_index)]);
+        const parent_index: Entry.Index = @enumFromInt(fs.entries.items.len);
+        child_ptr.* = .{
+            .parent = parent_index,
+            .sibling = .null,
+            .item = child,
+        };
+        const parent_dir = if (child_dir) |dir| try dir.openDir(io, "../", .{}) else null;
+        // make sure the parent dir isn't left open if there's an error
+        errdefer comptime unreachable;
+        const parent: Entry.Item = .{ .dir = .{
+            .first_child = child_index,
+            .dest_path = gop.key_ptr.*,
+            .status = .symlinkIf(parent_dir),
+        } };
+        gop.value_ptr.* = parent_index;
+
+        // Make the parent the new child
+        child = parent;
+        child_dir = parent_dir;
+        child_index = parent_index;
+    }
+
+    return ret_index.*;
+}
+
+// TODO rewrite this test because i think i could do a better job
+test addParentDirs {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var pool: String.Pool = .init(gpa);
+    var vfs: VirtualFilesystem = try .init(gpa, &pool, "/home/", undefined);
+    defer vfs.deinit();
+    defer pool.deinit();
+    try std.testing.expectEqual(1, vfs.entries.items.len);
+
+    {
+        const m1 = try vfs.cwd.visitDir(gpa, "help");
+        defer vfs.cwd.exit(m1);
+        const m2 = try vfs.cwd.visitDir(gpa, "me");
+        defer vfs.cwd.exit(m2);
+
+        const entry_index = try vfs.addParentDirs(io, null);
+        try std.testing.expectEqual(3, vfs.entries.items.len);
+
+        const entry = entry_index.get(&vfs);
+        try std.testing.expect(entry.item == .dir);
+        try std.testing.expect(entry.parent != .null);
+        try std.testing.expectEqual(.unlinked, entry.item.dir.status);
+        try std.testing.expectEqual(.null, entry.item.dir.first_child);
+        try std.testing.expectEqualStrings("/home/help/me", pool.get(entry.item.dir.dest_path));
+
+        const parent = entry.parent.get(&vfs);
+        try std.testing.expect(parent.item == .dir);
+        try std.testing.expectEqual(.root, parent.parent);
+        try std.testing.expectEqual(.unlinked, parent.item.dir.status);
+        try std.testing.expectEqual(entry_index, parent.item.dir.first_child);
+        try std.testing.expectEqualStrings("/home/help", pool.get(parent.item.dir.dest_path));
+    }
+
+    std.log.debug("HIIIi", .{});
+    {
+        const m1 = try vfs.cwd.visitDir(gpa, "help");
+        defer vfs.cwd.exit(m1);
+        const m2 = try vfs.cwd.visitDir(gpa, "b");
+        defer vfs.cwd.exit(m2);
+        const m3 = try vfs.cwd.visitFile(gpa, "c");
+        defer vfs.cwd.exit(m3);
+
+        const entry_index = try vfs.addParentDirs(io, null);
+        try std.testing.expectEqual(4, vfs.entries.items.len);
+
+        const sibling = vfs.paths.getEntryAdapted("/home/help/me").?.value_ptr.*;
+        const entry = entry_index.get(&vfs);
+        try std.testing.expect(entry.item == .dir);
+        try std.testing.expect(entry.parent != .null);
+        try std.testing.expectEqual(.unlinked, entry.item.dir.status);
+        try std.testing.expectEqual(.null, entry.item.dir.first_child);
+        try std.testing.expectEqual(sibling, entry.sibling);
+        try std.testing.expectEqualStrings("/home/help/b", pool.get(entry.item.dir.dest_path));
+
+        const parent = entry.parent.get(&vfs);
+        try std.testing.expect(parent.item == .dir);
+        try std.testing.expectEqual(.root, parent.parent);
+        try std.testing.expectEqual(.unlinked, parent.item.dir.status);
+        try std.testing.expectEqual(entry_index, parent.item.dir.first_child);
+        try std.testing.expectEqualStrings("/home/help", pool.get(parent.item.dir.dest_path));
+    }
 }
 
 /// Temporary directory to store computed results in
@@ -222,8 +369,6 @@ pub const PathBuf = struct {
         self.file_start = marker;
         return marker;
     }
-
-    const path_sep = std.Io.Dir.path.sep;
 
     /// Marks all directories above this id as unlinked.
     /// Append the directory name to the buffer. It can be exited by calling .exit()
@@ -379,4 +524,5 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const path = std.Io.Dir.path;
+const path_sep = path.sep;
 const assert = std.debug.assert;
