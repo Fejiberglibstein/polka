@@ -107,7 +107,7 @@ pub const File = struct {
 pub fn init(gpa: Allocator, pool: *String.Pool, root_path: []const u8, tmp_dir: *TmpDir) !VirtualFilesystem {
     var cwd: PathBuf = .empty;
     errdefer cwd.deinit(gpa);
-    _ = try cwd.visitDir(gpa, root_path);
+    _ = try cwd.enterDir(gpa, root_path);
 
     const root_path_string = try pool.put(cwd.dirname());
 
@@ -247,12 +247,12 @@ test addParentDirs {
     try std.testing.expectEqual(1, vfs.entries.items.len);
 
     {
-        const m1 = try vfs.cwd.visitDir(gpa, "help");
+        const m1 = try vfs.cwd.enterDir(gpa, "help");
         defer vfs.cwd.exit(m1);
-        const m2 = try vfs.cwd.visitDir(gpa, "me");
+        const m2 = try vfs.cwd.enterDir(gpa, "me");
         defer vfs.cwd.exit(m2);
 
-        const entry_index = try vfs.addParentDirs(io, null);
+        const entry_index = try vfs.addCwdDir(io, null);
         try std.testing.expectEqual(3, vfs.entries.items.len);
 
         const entry = entry_index.get(&vfs);
@@ -272,14 +272,14 @@ test addParentDirs {
 
     std.log.debug("HIIIi", .{});
     {
-        const m1 = try vfs.cwd.visitDir(gpa, "help");
+        const m1 = try vfs.cwd.enterDir(gpa, "help");
         defer vfs.cwd.exit(m1);
-        const m2 = try vfs.cwd.visitDir(gpa, "b");
+        const m2 = try vfs.cwd.enterDir(gpa, "b");
         defer vfs.cwd.exit(m2);
-        const m3 = try vfs.cwd.visitFile(gpa, "c");
+        const m3 = try vfs.cwd.enterFile(gpa, "c");
         defer vfs.cwd.exit(m3);
 
-        const entry_index = try vfs.addParentDirs(io, null);
+        const entry_index = try vfs.addCwdDir(io, null);
         try std.testing.expectEqual(4, vfs.entries.items.len);
 
         const sibling = vfs.paths.getEntryAdapted("/home/help/me").?.value_ptr.*;
@@ -358,8 +358,8 @@ pub const PathBuf = struct {
 
     /// Append the file name to the buffer. It can be exited by calling .exit().
     ///
-    /// This will panic if a file has already been visited without being exited.
-    pub fn visitFile(self: *PathBuf, gpa: Allocator, file: []const u8) !Marker {
+    /// This will panic if a file has already been entered without being exited.
+    pub fn enterFile(self: *PathBuf, gpa: Allocator, file: []const u8) !Marker {
         assert(self.file_start == null);
         assert(file.len > 0);
 
@@ -373,8 +373,8 @@ pub const PathBuf = struct {
     /// Marks all directories above this id as unlinked.
     /// Append the directory name to the buffer. It can be exited by calling .exit()
     ///
-    /// This will panic if a file has been visited without being exited.
-    pub fn visitDir(self: *PathBuf, gpa: Allocator, dir: []const u8) !Marker {
+    /// This will panic if a file has been entered without being exited.
+    pub fn enterDir(self: *PathBuf, gpa: Allocator, dir: []const u8) !Marker {
         assert(dir.len > 0);
         assert(self.file_start == null);
         const marker: Marker = @enumFromInt(self.bytes.items.len);
@@ -414,7 +414,7 @@ pub const PathBuf = struct {
 
     /// Return the directory path.
     ///
-    /// Memory will be invalidated when .exit() or .visit*() is called.
+    /// Memory will be invalidated when .exit() or .enter*() is called.
     pub fn dirname(self: *const PathBuf) []const u8 {
         if (self.bytes.items.len == 0) return self.bytes.items[0..0];
 
@@ -456,13 +456,13 @@ pub const PathBuf = struct {
         try std.testing.expectEqualStrings(buf.path(), "");
         defer buf.deinit(gpa);
 
-        const m1 = try buf.visitDir(gpa, "foo");
+        const m1 = try buf.enterDir(gpa, "foo");
         try std.testing.expectEqualStrings(buf.path(), "foo/");
         {
-            const m2 = try buf.visitDir(gpa, "bar");
+            const m2 = try buf.enterDir(gpa, "bar");
             try std.testing.expectEqualStrings(buf.path(), "foo/bar/");
             {
-                const m3 = try buf.visitFile(gpa, "baz.txt");
+                const m3 = try buf.enterFile(gpa, "baz.txt");
                 try std.testing.expectEqualStrings(buf.path(), "foo/bar/baz.txt");
                 buf.exit(m3);
                 try std.testing.expectEqualStrings(buf.path(), "foo/bar/");
@@ -481,17 +481,17 @@ pub const PathBuf = struct {
         try std.testing.expectEqualStrings(buf.dirname(), "");
         try std.testing.expectEqualStrings(buf.path(), "");
         defer buf.deinit(gpa);
-        _ = try buf.visitDir(gpa, "foo");
+        _ = try buf.enterDir(gpa, "foo");
         try std.testing.expect(buf.basename() == null);
         try std.testing.expectEqualStrings(buf.dirname(), "foo");
         try std.testing.expectEqualStrings(buf.path(), "foo/");
 
-        _ = try buf.visitDir(gpa, "bar");
+        _ = try buf.enterDir(gpa, "bar");
         try std.testing.expect(buf.basename() == null);
         try std.testing.expectEqualStrings(buf.dirname(), "foo/bar");
         try std.testing.expectEqualStrings(buf.path(), "foo/bar/");
 
-        _ = try buf.visitFile(gpa, "baz.txt");
+        _ = try buf.enterFile(gpa, "baz.txt");
         try std.testing.expectEqualStrings(buf.basename() orelse return error.Failed, "baz.txt");
         try std.testing.expectEqualStrings(buf.dirname(), "foo/bar");
         try std.testing.expectEqualStrings(buf.path(), "foo/bar/baz.txt");
@@ -502,16 +502,16 @@ pub const PathBuf = struct {
         var buf: PathBuf = .empty;
         defer buf.deinit(gpa);
 
-        _ = try buf.visitDir(gpa, "foo");
-        _ = try buf.visitDir(gpa, "bar");
-        _ = try buf.visitFile(gpa, "baz.txt");
+        _ = try buf.enterDir(gpa, "foo");
+        _ = try buf.enterDir(gpa, "bar");
+        _ = try buf.enterFile(gpa, "baz.txt");
         try std.testing.expectEqualStrings("foo/bar/baz.txt", buf.path());
 
         const sm = try buf.new(gpa);
         try std.testing.expectEqualStrings("", buf.path());
-        _ = try buf.visitDir(gpa, "one");
-        _ = try buf.visitDir(gpa, "two");
-        _ = try buf.visitFile(gpa, "three.txt");
+        _ = try buf.enterDir(gpa, "one");
+        _ = try buf.enterDir(gpa, "two");
+        _ = try buf.enterFile(gpa, "three.txt");
         try std.testing.expectEqualStrings("one/two/three.txt", buf.path());
         buf.delete(sm);
         try std.testing.expectEqualStrings("foo/bar/baz.txt", buf.path());
