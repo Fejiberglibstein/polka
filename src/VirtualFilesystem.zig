@@ -43,12 +43,14 @@ pub const Entry = struct {
 
     item: Item,
 
-    fn destPath(entry: Entry, pool: *const String.Pool) []const u8 {
+    /// Pointer may be invalidated when a new string is created; Don't expect these to stick around
+    /// very long
+    fn destBasename(entry: Entry, pool: *const String.Pool) []const u8 {
         const dest_path = switch (entry.item) {
             .dir => |dir| dir.dest_path,
             .file => |file| file.dest_path,
         };
-        return pool.get(dest_path);
+        return path.basename(pool.get(dest_path));
     }
 
     // TODO i hate the name of this
@@ -73,7 +75,7 @@ pub const Dir = struct {
     first_child: Entry.Index,
     status: union(enum) {
         /// Dir inside the .dotfiles directory that should be symlinked to
-        symlinked: struct { source: Io.Dir },
+        symlinked: struct { src_path: String },
         /// A dir may be unlinked if
         /// - Any of its children are not symlinkable
         /// - There exists children from two separate sources inside it (by setting the file
@@ -82,13 +84,17 @@ pub const Dir = struct {
         ///   .dotfiles directory
         unlinked: void,
 
-        pub fn symlinkIf(link: ?Io.Dir) @This() {
-            return if (link) |dir|
-                .{ .symlinked = .{ .source = dir } }
+        pub fn symlinkIf(src_path: ?String) @This() {
+            return if (src_path) |link|
+                .{ .symlinked = .{ .src_path = link } }
             else
                 .unlinked;
         }
     },
+    fn deinit(dir: Dir, io: Io) void {
+        _ = dir;
+        _ = io;
+    }
 };
 
 pub const File = struct {
@@ -102,6 +108,12 @@ pub const File = struct {
         /// File inside a TmpDir that contains the evaluated template
         templated: struct { content: Io.File },
     },
+    fn deinit(file: File, io: Io) void {
+        switch (file.status) {
+            .templated => |template| template.content.close(io),
+            .symlinked => {},
+        }
+    }
 };
 
 pub fn init(gpa: Allocator, pool: *String.Pool, root_path: []const u8, tmp_dir: *TmpDir) !VirtualFilesystem {
@@ -137,11 +149,82 @@ pub fn init(gpa: Allocator, pool: *String.Pool, root_path: []const u8, tmp_dir: 
     };
 }
 
-pub fn deinit(fs: *VirtualFilesystem) void {
+pub fn deinit(fs: *VirtualFilesystem, io: Io) void {
+    for (fs.entries.items) |entry| {
+        switch (entry.item) {
+            .dir => |dir| dir.deinit(io),
+            .file => |file| file.deinit(io),
+        }
+    }
     fs.entries.deinit(fs.gpa);
     fs.paths.deinit(fs.gpa);
     fs.cwd.deinit(fs.gpa);
     fs.* = undefined;
+}
+
+pub fn print(fs: *VirtualFilesystem, w: *Io.Writer) !void {
+    try w.writeByte('[');
+    try w.printInt(0, 10, .lower, .{
+        .alignment = .right,
+        .fill = ' ',
+        .width = std.math.log10(fs.entries.items.len) + 1,
+    });
+    try w.writeAll("] ");
+    return fs.printImpl(w, 0, 0, .root);
+}
+
+fn printImpl(fs: *VirtualFilesystem, w: *Io.Writer, depth: u6, bar_bits: u32, parent: Entry.Index) !void {
+    const parent_entry = parent.get(fs);
+    assert(parent_entry.item == .dir);
+    {
+        try w.print(" {s}", .{parent_entry.destBasename(fs.pool)});
+        switch (parent_entry.item.dir.status) {
+            .symlinked => |link| try w.print(" -> {s}", .{fs.pool.get(link.src_path)}),
+            .unlinked => {},
+        }
+        try w.writeByte('\n');
+    }
+
+    if (depth > 32) return;
+    var child = parent_entry.item.dir.first_child;
+    while (child != .null) : (child = child.get(fs).sibling) {
+        {
+            try w.writeByte('[');
+            try w.printInt(@intFromEnum(child), 10, .lower, .{
+                .alignment = .right,
+                .fill = ' ',
+                .width = std.math.log10(fs.entries.items.len) + 1,
+            });
+            try w.writeAll("] ");
+        }
+        for (0..depth) |i| {
+            if ((bar_bits & (@as(u32, 1) << @intCast(i))) == 0)
+                try w.writeAll("   ")
+            else
+                try w.writeAll("│  ");
+        }
+        const child_entry = child.get(fs);
+        if (child_entry.sibling != .null)
+            try w.writeAll("├─ ")
+        else
+            try w.writeAll("╰─ ");
+
+        const new_bits = if (child_entry.sibling != .null)
+            bar_bits | (@as(u32, 1) << @intCast(depth))
+        else
+            bar_bits;
+
+        switch (child_entry.item) {
+            .dir => try fs.printImpl(w, depth + 1, new_bits, child),
+            .file => |file| {
+                try w.print(" {s} -> {s} ({t})\n", .{
+                    child_entry.destBasename(fs.pool),
+                    fs.pool.get(file.src_path),
+                    file.status,
+                });
+            },
+        }
+    }
 }
 
 fn putEntry(fs: *VirtualFilesystem, entry: Entry.Item, parent_index: Entry.Index) !Entry.Index {
@@ -163,7 +246,17 @@ fn putEntry(fs: *VirtualFilesystem, entry: Entry.Item, parent_index: Entry.Index
     return index;
 }
 
-pub fn addParentDirs(fs: *VirtualFilesystem, io: Io, symlink_to: ?Io.Dir) !Entry.Index {
+fn parentDir(fs: *VirtualFilesystem, dir_path: String) !String {
+    var iter: path.NativeComponentIterator = .init(fs.pool.get(dir_path));
+    _ = iter.last();
+    const parent = iter.previous() orelse unreachable;
+
+    return try fs.pool.put(parent.path);
+}
+
+/// Adds `fs.cwd` and all of its parents to the filesystem. Returns the index of
+/// the cwd.
+pub fn addCwdDir(fs: *VirtualFilesystem, symlink_to_path: ?String) !Entry.Index {
     const entry_path = fs.cwd.dirname();
 
     const entry_path_string, const ret_index = blk: {
@@ -173,8 +266,8 @@ pub fn addParentDirs(fs: *VirtualFilesystem, io: Io, symlink_to: ?Io.Dir) !Entry
     };
 
     // The next entry appended will be the child we just made, which is what we want to return.
-    ret_index.* = @enumFromInt(fs.entries.items.len);
-    std.log.debug("index: {}", .{fs.entries.items.len});
+    const ret_value: Entry.Index = @enumFromInt(fs.entries.items.len);
+    ret_index.* = ret_value;
 
     var iter: path.NativeComponentIterator = .init(entry_path);
     const last = iter.last();
@@ -185,18 +278,16 @@ pub fn addParentDirs(fs: *VirtualFilesystem, io: Io, symlink_to: ?Io.Dir) !Entry
     // this is the index the child will have by the time it's added to the list.
     var child_index: Entry.Index = @enumFromInt(fs.entries.items.len);
     // reopen the directory since the caller is expected to close it
-    var child_dir: ?Io.Dir = if (symlink_to) |link| try link.openDir(io, ".", .{}) else null;
-    errdefer if (child_dir) |dir| dir.close(io);
+    var child_dir_path: ?String = symlink_to_path;
     var child: Entry.Item = .{ .dir = .{
         .first_child = .null,
         .dest_path = entry_path_string,
-        .status = .symlinkIf(child_dir),
+        .status = .symlinkIf(child_dir_path),
     } };
     while (iter.previous()) |component| {
         const gop = try fs.paths.getOrPutAdapted(fs.gpa, component.path);
         if (gop.found_existing) {
             const parent_index = gop.value_ptr.*;
-            std.log.debug(" - {}", .{parent_index});
             const parent = parent_index.get(fs);
             assert(parent.item == .dir);
             const sibling = parent.item.dir.first_child;
@@ -217,7 +308,7 @@ pub fn addParentDirs(fs: *VirtualFilesystem, io: Io, symlink_to: ?Io.Dir) !Entry
             .sibling = .null,
             .item = child,
         };
-        const parent_dir = if (child_dir) |dir| try dir.openDir(io, "../", .{}) else null;
+        const parent_dir = if (child_dir_path) |dir_path| try fs.parentDir(dir_path) else null;
         // make sure the parent dir isn't left open if there's an error
         errdefer comptime unreachable;
         const parent: Entry.Item = .{ .dir = .{
