@@ -107,6 +107,12 @@ pub const File = struct {
         symlinked: void,
         /// File inside a TmpDir that contains the evaluated template
         templated: struct { content: Io.File },
+        pub fn templateIf(file: ?Io.File) @This() {
+            return if (file) |content|
+                .{ .templated = .{ .content = content } }
+            else
+                .symlinked;
+        }
     },
     fn deinit(file: File, io: Io) void {
         switch (file.status) {
@@ -249,6 +255,34 @@ fn parentDir(fs: *VirtualFilesystem, dir_path: String) !?String {
     _ = iter.last();
     const parent = iter.previous() orelse return null;
     return try fs.pool.put(parent.path);
+}
+
+pub fn addCwdFile(fs: *VirtualFilesystem, source_path: String, templated: ?Io.File) !Entry.Index {
+    const parent_path = try fs.pool.put(fs.cwd.dirname());
+    // Parent must already exist in the file system from calling addCwdDir
+    const parent = fs.paths.get(parent_path) orelse unreachable;
+    const parent_entry = parent.get(fs);
+    assert(parent_entry.item == .dir);
+
+    const file_path = try fs.pool.put(fs.cwd.path());
+    const file_index: Entry.Index = @enumFromInt(fs.entries.items.len);
+    try fs.paths.put(fs.gpa, file_path, file_index);
+    const sibling = parent_entry.item.dir.first_child;
+    parent_entry.item.dir.first_child = file_index;
+    try fs.entries.append(fs.gpa, .{
+        .parent = parent,
+        .sibling = sibling,
+        .dest_path = file_path,
+        .item = .{ .file = .{
+            .src_path = source_path,
+            .status = .templateIf(templated),
+        } },
+    });
+    if (templated == null) {
+        fs.unlinkDir(parent_entry.dest_path);
+    }
+
+    return file_index;
 }
 
 /// Adds `fs.cwd` and all of its parents to the filesystem. Returns the index of
