@@ -40,17 +40,14 @@ pub const Entry = struct {
     parent: Entry.Index,
     /// Singly linked list of siblings. .null for the end of the list
     sibling: Entry.Index,
+    dest_path: String,
 
     item: Item,
 
     /// Pointer may be invalidated when a new string is created; Don't expect these to stick around
     /// very long
     fn destBasename(entry: Entry, pool: *const String.Pool) []const u8 {
-        const dest_path = switch (entry.item) {
-            .dir => |dir| dir.dest_path,
-            .file => |file| file.dest_path,
-        };
-        return path.basename(pool.get(dest_path));
+        return path.basename(pool.get(entry.dest_path));
     }
 
     // TODO i hate the name of this
@@ -71,7 +68,6 @@ pub const Entry = struct {
 };
 
 pub const Dir = struct {
-    dest_path: String,
     first_child: Entry.Index,
     status: union(enum) {
         /// Dir inside the .dotfiles directory that should be symlinked to
@@ -83,7 +79,6 @@ pub const Dir = struct {
         /// - There exists a child in the destination directory that is not present anywhere in the
         ///   .dotfiles directory
         unlinked: void,
-
         pub fn symlinkIf(src_path: ?String) @This() {
             return if (src_path) |link|
                 .{ .symlinked = .{ .src_path = link } }
@@ -98,8 +93,6 @@ pub const Dir = struct {
 };
 
 pub const File = struct {
-    /// The absolute path to the file that should be written to.
-    dest_path: String,
     /// The file source relative to the directory containing `.polka/`
     src_path: String,
     status: union(enum) {
@@ -132,11 +125,11 @@ pub fn init(gpa: Allocator, pool: *String.Pool, root_path: []const u8, tmp_dir: 
     var entries: std.ArrayList(Entry) = .empty;
     errdefer entries.deinit(gpa);
     try entries.append(gpa, .{
+        .dest_path = root_path_string,
         .sibling = .null,
         .parent = .null,
         .item = .{ .dir = .{
             .first_child = .null,
-            .dest_path = root_path_string,
             .status = .unlinked,
         } },
     });
@@ -310,9 +303,9 @@ pub fn addCwdDir(fs: *VirtualFilesystem, symlink_to_path: ?String) !Entry.Index 
     var child_index: Entry.Index = @enumFromInt(fs.entries.items.len);
     // reopen the directory since the caller is expected to close it
     var child_symlink_path: ?String = symlink_to_path;
+    var child_dest_path = entry_path_string;
     var child: Entry.Item = .{ .dir = .{
         .first_child = .null,
-        .dest_path = entry_path_string,
         .status = .symlinkIf(child_symlink_path),
     } };
     loop: while (iter.previous()) |component| {
@@ -329,9 +322,10 @@ pub fn addCwdDir(fs: *VirtualFilesystem, symlink_to_path: ?String) !Entry.Index 
             const sibling = parent.item.dir.first_child;
             parent.item.dir.first_child = child_index;
             try fs.entries.append(fs.gpa, .{
-                .parent = parent_index,
-                .sibling = sibling,
                 .item = child,
+                .sibling = sibling,
+                .parent = parent_index,
+                .dest_path = child_dest_path,
             });
 
             // Unlink parent if paths dont match
@@ -344,7 +338,7 @@ pub fn addCwdDir(fs: *VirtualFilesystem, symlink_to_path: ?String) !Entry.Index 
                             fs.pool.get(symlinked.src_path),
                         });
                         if (parent_dir_path != symlinked.src_path) {
-                            fs.unlinkDir(parent.item.dir.dest_path);
+                            fs.unlinkDir(parent.dest_path);
                         }
                     },
                 }
@@ -357,13 +351,13 @@ pub fn addCwdDir(fs: *VirtualFilesystem, symlink_to_path: ?String) !Entry.Index 
         // parent will be added next in the list
         const parent_index: Entry.Index = @enumFromInt(fs.entries.items.len);
         child_ptr.* = .{
-            .parent = parent_index,
-            .sibling = .null,
             .item = child,
+            .sibling = .null,
+            .parent = parent_index,
+            .dest_path = child_dest_path,
         };
         const parent: Entry.Item = .{ .dir = .{
             .first_child = child_index,
-            .dest_path = parent_dest_path,
             .status = .symlinkIf(parent_symlink_path),
         } };
         parent_gop.value_ptr.* = parent_index;
@@ -371,6 +365,7 @@ pub fn addCwdDir(fs: *VirtualFilesystem, symlink_to_path: ?String) !Entry.Index 
         // Make the parent the new child
         child = parent;
         child_index = parent_index;
+        child_dest_path = parent_dest_path;
         child_symlink_path = parent_symlink_path;
     }
 
@@ -399,8 +394,8 @@ fn testEntries(fs: *VirtualFilesystem, start: Entry.Index, entries: []const Entr
             const act_status = fs.pool.get(actual.item.dir.status.symlinked.src_path);
             try std.testing.expectEqualStrings(exp_status, act_status);
         } else try std.testing.expect(actual.item.dir.status == .unlinked);
-        const exp_dest_path = fs.pool.get(expected.item.dir.dest_path);
-        const act_dest_path = fs.pool.get(actual.item.dir.dest_path);
+        const exp_dest_path = fs.pool.get(expected.dest_path);
+        const act_dest_path = fs.pool.get(actual.dest_path);
         try std.testing.expectEqualStrings(exp_dest_path, act_dest_path);
 
         last = current;
@@ -433,9 +428,9 @@ test addCwdDir {
             return .{
                 .parent = .null,
                 .sibling = sibling,
+                .dest_path = try fs.pool.put(dest_path),
                 .item = .{ .dir = .{
                     .first_child = .null,
-                    .dest_path = try fs.pool.put(dest_path),
                     .status = if (link) |p|
                         .{ .symlinked = .{ .src_path = try fs.pool.put(p) } }
                     else
