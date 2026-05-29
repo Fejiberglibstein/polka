@@ -95,7 +95,7 @@ pub const File = struct {
     /// The file source relative to the directory containing `.polka/`
     src_path: String,
     status: Status,
-    const Status = union(enum) {
+    pub const Status = union(enum) {
         /// The file path that should be symlinked is `file.src_path`
         symlinked: void,
         /// The file may be symlinked if the parent directory is to be symlinked. However, if the
@@ -110,6 +110,7 @@ pub const File = struct {
     fn deinit(file: File, io: Io) void {
         switch (file.status) {
             .templated => |template| template.content.close(io),
+            .weak_link => {},
             .symlinked => {},
         }
     }
@@ -214,12 +215,19 @@ fn printImpl(fs: *VirtualFilesystem, w: *Io.Writer, depth: u6, bar_bits: u32, pa
 
         switch (child_entry.item) {
             .dir => try fs.printImpl(w, depth + 1, new_bits, child),
-            .file => |file| {
-                try w.print(" {s} -> {s} ({t})\n", .{
+            .file => |file| switch (file.status) {
+                .weak_link => try w.print(" {s} ~> {s}\n", .{
                     child_entry.destBasename(fs.pool),
                     fs.pool.get(file.src_path),
-                    file.status,
-                });
+                }),
+                .symlinked => try w.print(" {s} -> {s}\n", .{
+                    child_entry.destBasename(fs.pool),
+                    fs.pool.get(file.src_path),
+                }),
+                .templated => try w.print(" {s} (template @ {s})\n", .{
+                    child_entry.destBasename(fs.pool),
+                    fs.pool.get(file.src_path),
+                }),
             },
         }
     }
@@ -250,7 +258,7 @@ fn parentDir(fs: *VirtualFilesystem, dir_path: String) !?String {
 }
 
 pub fn addCwdFile(fs: *VirtualFilesystem, source_path: String, status: File.Status) !Entry.Index {
-    const parent_path = try fs.pool.put(fs.cwd.dirname());
+    const parent_path = try fs.pool.put(fs.cwd.basename() orelse unreachable);
     // Parent must already exist in the file system from calling addCwdDir
     const parent = fs.paths.get(parent_path) orelse unreachable;
     const parent_entry = parent.get(fs);
