@@ -17,7 +17,6 @@ fn HashMap(K: type, V: type) type {
     return std.HashMapUnmanaged(K, V, std.hash_map.AutoContext(K), max_load_percentage);
 }
 
-tmp: *TmpDir,
 pool: *String.Pool,
 gpa: Allocator,
 
@@ -95,18 +94,19 @@ pub const Dir = struct {
 pub const File = struct {
     /// The file source relative to the directory containing `.polka/`
     src_path: String,
-    status: union(enum) {
+    status: Status,
+    const Status = union(enum) {
         /// The file path that should be symlinked is `file.src_path`
         symlinked: void,
+        /// The file may be symlinked if the parent directory is to be symlinked. However, if the
+        /// parent directory is not symlinked, then this file does not need to be copied.
+        ///
+        /// It is used for `.polka` files; it is perfectly fine for these to be symlinked, but they
+        /// don't _need_ to be if it's not necessary.
+        weak_link: void,
         /// File inside a TmpDir that contains the evaluated template
         templated: struct { content: Io.File },
-        pub fn templateIf(file: ?Io.File) @This() {
-            return if (file) |content|
-                .{ .templated = .{ .content = content } }
-            else
-                .symlinked;
-        }
-    },
+    };
     fn deinit(file: File, io: Io) void {
         switch (file.status) {
             .templated => |template| template.content.close(io),
@@ -115,7 +115,7 @@ pub const File = struct {
     }
 };
 
-pub fn init(gpa: Allocator, pool: *String.Pool, root_path: []const u8, tmp_dir: *TmpDir) !VirtualFilesystem {
+pub fn init(gpa: Allocator, pool: *String.Pool, root_path: []const u8) !VirtualFilesystem {
     var cwd: PathBuf = .empty;
     errdefer cwd.deinit(gpa);
     _ = try cwd.enterDir(gpa, root_path);
@@ -142,7 +142,6 @@ pub fn init(gpa: Allocator, pool: *String.Pool, root_path: []const u8, tmp_dir: 
         .gpa = gpa,
         .cwd = cwd,
         .pool = pool,
-        .tmp = tmp_dir,
         .paths = paths,
         .entries = entries,
     };
@@ -250,7 +249,7 @@ fn parentDir(fs: *VirtualFilesystem, dir_path: String) !?String {
     return try fs.pool.put(parent.path);
 }
 
-pub fn addCwdFile(fs: *VirtualFilesystem, source_path: String, templated: ?Io.File) !Entry.Index {
+pub fn addCwdFile(fs: *VirtualFilesystem, source_path: String, status: File.Status) !Entry.Index {
     const parent_path = try fs.pool.put(fs.cwd.dirname());
     // Parent must already exist in the file system from calling addCwdDir
     const parent = fs.paths.get(parent_path) orelse unreachable;
@@ -268,10 +267,10 @@ pub fn addCwdFile(fs: *VirtualFilesystem, source_path: String, templated: ?Io.Fi
         .dest_path = file_path,
         .item = .{ .file = .{
             .src_path = source_path,
-            .status = .templateIf(templated),
+            .status = status,
         } },
     });
-    if (templated == null) {
+    if (status == .templated) {
         fs.unlinkDir(parent_entry.dest_path);
     }
 
@@ -333,10 +332,6 @@ pub fn addCwdDir(fs: *VirtualFilesystem, symlink_to_path: ?String) !Entry.Index 
                 switch (parent.item.dir.status) {
                     .unlinked => {},
                     .symlinked => |symlinked| {
-                        std.log.debug("child: {s} :: {s}", .{
-                            fs.pool.get(parent_dir_path),
-                            fs.pool.get(symlinked.src_path),
-                        });
                         if (parent_dir_path != symlinked.src_path) {
                             fs.unlinkDir(parent.dest_path);
                         }
@@ -408,7 +403,7 @@ test addCwdDir {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var pool: String.Pool = .init(gpa);
-    var vfs: VirtualFilesystem = try .init(gpa, &pool, "/home/", undefined);
+    var vfs: VirtualFilesystem = try .init(gpa, &pool, "/home/");
     defer vfs.deinit(io);
     defer pool.deinit();
     try std.testing.expectEqual(1, vfs.entries.items.len);
@@ -535,13 +530,13 @@ pub const TmpDir = struct {
         var sub_path: [sub_path_len]u8 = undefined;
         _ = std.base64.url_safe.Encoder.encode(&sub_path, &random_bytes);
 
-        return try tmp.dir.createFile(io, sub_path, opts);
+        return try tmp.dir.createFile(io, &sub_path, opts);
     }
 
-    pub fn deinit(self: *TmpDir, io: Io, parent_dir: Io.Dir) void {
-        self.dir.close(io);
+    pub fn deinit(tmp: *TmpDir, io: Io, parent_dir: Io.Dir) void {
+        tmp.dir.close(io);
         parent_dir.deleteTree(io, path_name) catch {};
-        self.* = undefined;
+        tmp.* = undefined;
     }
 };
 
