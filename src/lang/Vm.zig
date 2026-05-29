@@ -1,23 +1,3 @@
-const Variable = struct {
-    /// The name of the variable
-    name: []const u8,
-    /// The value bound to the variable
-    value: Value,
-
-    /// The function depth of the variable. Every function call will increase the depth by one, and
-    /// returning from a function will pop all variables off
-    function_depth: u32,
-};
-
-pub const Scope = struct {
-    level: u32,
-    function_depth: u32,
-    /// The index in .variables of the top of this stack
-    top: u32,
-
-    pub const init: Scope = .{ .level = 0, .function_depth = 0, .top = 0 };
-};
-
 src: []const u8,
 nodes: []const SyntaxNode,
 err: ?RuntimeErrorPayload,
@@ -28,6 +8,7 @@ value_allocator: Allocator,
 /// Since emitting text inside functions is legal and will write the text into a string rather than
 /// the output file, you should always use Vm.out() to output text
 output_file: *std.Io.Writer,
+output_status: OutputStatus,
 string_builder: StringBuilder,
 constants: builtin.Constants,
 config: *polka.Config,
@@ -38,6 +19,24 @@ scope: Scope,
 function_return_value: ?Value,
 /// The index of the node that started a ControlFlow error to be tried.
 control_flow_node: ?ast.NodeIndex,
+
+const Variable = struct {
+    /// The name of the variable
+    name: []const u8,
+    /// The value bound to the variable
+    value: Value,
+    /// The function depth of the variable. Every function call will increase the depth by one, and
+    /// returning from a function will pop all variables off
+    function_depth: u32,
+};
+
+pub const Scope = struct {
+    level: u32,
+    function_depth: u32,
+    /// The index in .variables of the top of this stack
+    top: u32,
+    pub const init: Scope = .{ .level = 0, .function_depth = 0, .top = 0 };
+};
 
 /// A file-local string builder, this is used to create strings using .begin() & .finish(). A
 /// finished string may be placed in the StringPool if it's not already in the pool.
@@ -71,6 +70,15 @@ pub const StringBuilder = struct {
     }
 };
 
+pub const OutputStatus = enum {
+    /// The output contains the result of templated code executed i.e. a runtime string inserted
+    /// into the output text
+    templated,
+    /// The entire contents of the output came from .text nodes. .code nodes may still be
+    /// executed, however, they must not produce any content
+    text,
+};
+
 const Vm = @This();
 
 pub const InitOptions = struct {
@@ -99,6 +107,7 @@ pub fn init(gpa: Allocator, opts: InitOptions) !Vm {
         .nodes = opts.nodes,
         .config = opts.config,
         .variables = variables,
+        .output_status = .text,
         .control_flow_node = null,
         .output_file = opts.output,
         .constants = opts.constants,
@@ -113,8 +122,17 @@ pub fn deinit(vm: *Vm, gpa: Allocator) void {
     vm.string_builder.deinit();
 }
 
-pub fn run(vm: *Vm) ?RuntimeErrorPayload {
-    if (vm.nodes.len == 0) return null;
+pub const RunResult = union(enum) {
+    /// Must be checked
+    err: RuntimeErrorPayload,
+    /// Describes the content written to Vm.out
+    output: struct {
+        status: OutputStatus,
+    },
+};
+
+pub fn run(vm: *Vm) RunResult {
+    if (vm.nodes.len == 0) return .{ .output = .{ .status = .text } };
 
     const root = ast.toASTNode(ast.Text, .root, vm.nodes) orelse unreachable;
     eval.evalText(vm, root) catch |err| {
@@ -123,11 +141,12 @@ pub fn run(vm: *Vm) ?RuntimeErrorPayload {
             ControlFlow.Return => vm.setError(vm.control_flow_node.?, .misplaced_return),
             ControlFlow.Continue => vm.setError(vm.control_flow_node.?, .misplaced_continue),
             ControlFlow.RuntimeError => error.RuntimeError,
-        }) catch return vm.err;
+        }) catch return .{ .err = vm.err orelse unreachable };
     };
 
     assert(vm.variables.len == 0);
-    return null;
+
+    return .{ .output = .{ .status = vm.output_status } };
 }
 
 pub fn out(vm: *Vm) *std.Io.Writer {

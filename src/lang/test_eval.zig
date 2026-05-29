@@ -297,17 +297,20 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     defer vm.deinit(gpa);
 
     const result = vm.run();
-    if (result) |err| {
-        std.debug.print("Error: {f}\n", .{err.formatWith(parsed.nodes, source, &pool)});
+    switch (result) {
+        .err => |err| {
+            std.debug.print("Error: {f}\n", .{err.formatWith(parsed.nodes, source, &pool)});
 
-        var buffer: [2048]u8 = undefined;
-        var stderr = std.Io.File.stderr().writer(io, &buffer);
+            var buffer: [2048]u8 = undefined;
+            var stderr = std.Io.File.stderr().writer(io, &buffer);
 
-        const err_node = parsed.nodes[@intFromEnum(err.index)];
-        try err_node.print(parsed.nodes, source, 0, &stderr.interface);
-        try stderr.interface.flush();
+            const err_node = parsed.nodes[@intFromEnum(err.index)];
+            try err_node.print(parsed.nodes, source, 0, &stderr.interface);
+            try stderr.interface.flush();
 
-        try std.testing.expect(result == null);
+            try std.testing.expect(result != .err);
+        },
+        else => {},
     }
     const actual = try output.toOwnedSlice();
     defer gpa.free(actual);
