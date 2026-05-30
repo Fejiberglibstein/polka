@@ -60,8 +60,10 @@ fn parseText(p: *Parser) Allocator.Error!void {
     // Even when in a `.polka` file, all nodes are still wrapped in text
     if (p.mode() == .code_file) {
         const m = try p.marker();
+        defer p.wrap(m, .text);
+        const m1 = try p.marker();
+        defer p.wrap(m1, .code);
         try parseCode(p);
-        p.wrap(m, .text);
         return;
     }
 
