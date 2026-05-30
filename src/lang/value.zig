@@ -290,25 +290,72 @@ pub const Value = packed union {
             .string => |str| w.print("<string@{x:0>12}>", .{str}),
             .function => |function| w.print("<function@{x:0>12}>", .{@intFromPtr(function)}),
             .color => |c| w.print("#{x}{x}{x}{x}", .{ c.r, c.g, c.b, c.alpha }),
+            .object => unreachable,
         };
     }
 
-    pub fn debugPrint(
-        value: Value,
-        strings: *String.Pool,
-        w: *std.Io.Writer,
-    ) error{WriteFailed}!void {
-        return switch (value.taggedValue()) {
-            .nil => w.writeAll("<nil>"),
-            .number => |n| w.print("{}", .{n}),
-            .boolean => |b| w.print("{}", .{b}),
-            .list => |list| w.print("<list@{*}>", .{list}),
-            .dict => |dict| w.print("<dict@{*}>", .{dict}),
-            .string => |str| w.print("{s}", .{strings.get(str)}),
-            .function => |function| w.print("<function@{*}>", .{function}),
-            .color => |c| w.print("#{x}{x}{x}{x}", .{ c.r, c.g, c.b, c.alpha }),
-        };
+    pub fn formatWith(value: @This(), pool: *String.Pool) FormatWrapper {
+        return .{ .value = value, .pool = pool };
     }
+    const FormatWrapper = struct {
+        value: Value,
+        pool: *String.Pool,
+
+        pub fn format(self: @This(), w: *std.Io.Writer) std.Io.Writer.Error!void {
+            return formatImpl(self.pool, w, self.value, 0);
+        }
+
+        pub fn formatImpl(pool: *String.Pool, w: *std.Io.Writer, value: Value, depth: u32) !void {
+            switch (value.taggedValue()) {
+                .nil => try w.writeAll("<nil>"),
+                .number => |n| try w.print("{}", .{n}),
+                .boolean => |b| try w.print("{}", .{b}),
+                .string => |str| try w.print("{s}", .{pool.get(str)}),
+                .color => |c| try w.print("#{x}{x}{x}{x}", .{ c.r, c.g, c.b, c.alpha }),
+                .function => |func| try w.print("<function@{x:0>12}>", .{@intFromPtr(func)}),
+
+                .list => {
+                    const list: std.ArrayList(Value) = value.as(.list).array;
+                    if (list.items.len == 0) return w.writeAll("[]");
+
+                    try w.writeAll("[\n");
+                    for (list.items, 0..) |item, i| {
+                        try w.splatBytesAll("  ", depth + 1);
+                        try formatImpl(pool, w, item, depth + 1);
+                        if (i == list.items.len - 1)
+                            try w.writeAll("\n")
+                        else
+                            try w.writeAll(",\n");
+                    }
+                    try w.splatBytesAll("  ", depth);
+                    try w.writeAll("]");
+                },
+                .dict => {
+                    const dict: String.HashMap(Value) = value.as(.dict).map;
+                    const dict_len = dict.count();
+                    if (dict_len == 0) return w.writeAll("{}");
+
+                    try w.writeAll("{\n");
+                    var iter = dict.iterator();
+                    var i: usize = 0;
+                    while (iter.next()) |entry| {
+                        defer i += 1;
+
+                        try w.splatBytesAll("  ", depth + 1);
+                        try w.print("'{s}' = ", .{pool.get(entry.key_ptr.*)});
+                        try formatImpl(pool, w, entry.value_ptr.*, depth + 1);
+                        if (i == dict_len - 1)
+                            try w.writeAll("\n")
+                        else
+                            try w.writeAll(",\n");
+                    }
+                    try w.splatBytesAll("  ", depth);
+                    try w.writeAll("}");
+                },
+                .object => unreachable,
+            }
+        }
+    };
 
     pub const Color = packed struct(u32) {
         r: u8,
