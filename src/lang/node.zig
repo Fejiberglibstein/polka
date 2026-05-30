@@ -329,7 +329,14 @@ pub const SyntaxNode = packed struct {
 
         switch (node.kind.getType()) {
             .leaf => {
-                try writer.print("{s},\n", .{@tagName(node.kind)});
+                const node_src = if (src.len > 0)
+                    if (node.kind != .newline)
+                        node.getLeafSource(src)
+                    else
+                        ""
+                else
+                    "";
+                try writer.print("{s} '{s}',\n", .{ @tagName(node.kind), node_src });
             },
             .tree => {
                 try writer.print("{s} [\n", .{@tagName(node.kind)});
