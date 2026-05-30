@@ -266,13 +266,13 @@ pub const Value = packed union {
     /// needs the *String.Pool so that it can print out strings correctly.
     pub fn print(
         value: Value,
-        strings: *String.Pool,
+        pool: *String.Pool,
         w: *std.Io.Writer,
     ) error{ WriteFailed, ValueError }!void {
         return switch (value.taggedValue()) {
             .number => |n| w.print("{}", .{n}),
             .boolean => |b| w.print("{}", .{b}),
-            .string => |str| w.print("{s}", .{strings.get(str)}),
+            .string => |str| w.print("{s}", .{str.get(pool)}),
             else => error.ValueError,
         };
     }

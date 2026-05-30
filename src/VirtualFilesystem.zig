@@ -41,7 +41,7 @@ pub const Entry = struct {
     /// Pointer may be invalidated when a new string is created; Don't expect these to stick around
     /// very long
     fn destBasename(entry: Entry, pool: *const String.Pool) []const u8 {
-        return path.basename(pool.get(entry.dst_path));
+        return path.basename(entry.dst_path.get(pool));
     }
 
     // TODO i hate the name of this
@@ -171,7 +171,7 @@ fn printImpl(fs: *VirtualFilesystem, w: *Io.Writer, depth: u8, bar_bits: u32, pa
         .unlinked => try w.print(" {s}\n", .{parent_entry.destBasename(fs.pool)}),
         .symlinked => try w.print(" {s} -> {s}\n", .{
             parent_entry.destBasename(fs.pool),
-            fs.pool.get(parent_entry.item.dir.status.symlinked.src_path),
+            parent_entry.item.dir.status.symlinked.src_path.get(fs.pool),
         }),
     }
 
@@ -201,15 +201,15 @@ fn printImpl(fs: *VirtualFilesystem, w: *Io.Writer, depth: u8, bar_bits: u32, pa
             .file => |file| switch (file.status) {
                 .weak_link => try w.print(" {s} ~> {s}\n", .{
                     child_entry.destBasename(fs.pool),
-                    fs.pool.get(file.src_path),
+                    file.src_path.get(fs.pool),
                 }),
                 .symlinked => try w.print(" {s} -> {s}\n", .{
                     child_entry.destBasename(fs.pool),
-                    fs.pool.get(file.src_path),
+                    file.src_path.get(fs.pool),
                 }),
                 .templated => try w.print(" {s} (template @ {s})\n", .{
                     child_entry.destBasename(fs.pool),
-                    fs.pool.get(file.src_path),
+                    file.src_path.get(fs.pool),
                 }),
             },
         }
@@ -234,14 +234,14 @@ fn unlinkDir(fs: *VirtualFilesystem, dst_path: String) void {
 }
 
 fn parentDir(fs: *VirtualFilesystem, dir_path: String) !?String {
-    var iter: path.NativeComponentIterator = .init(fs.pool.get(dir_path));
+    var iter: path.NativeComponentIterator = .init(dir_path.get(fs.pool));
     _ = iter.last();
     const parent = iter.previous() orelse return null;
 
     // TODO this is a really annoying hack
     const len = parent.path.len;
     try fs.pool.bytes.ensureUnusedCapacity(fs.pool.gpa, len + 1);
-    return try fs.pool.put(fs.pool.get(dir_path)[0..len]);
+    return try fs.pool.put(dir_path.get(fs.pool)[0..len]);
 }
 
 pub const AddFileArgs = struct {
@@ -298,8 +298,8 @@ fn addDirectoryAndItsParents(
     if (youngest_child_gop.found_existing) return youngest_child_gop.value_ptr.*;
 
     const root_path = Entry.root.get(fs).dst_path;
-    std.log.warn("{s} :: {s}", .{ fs.pool.get(dest_path), fs.pool.get(root_path) });
-    assert(std.mem.startsWith(u8, fs.pool.get(dest_path), fs.pool.get(root_path)));
+    std.log.warn("{s} :: {s}", .{ dest_path.get(fs.pool), root_path.get(fs.pool) });
+    assert(std.mem.startsWith(u8, dest_path.get(fs.pool), root_path.get(fs.pool)));
 
     // The next entry that gets appended to entries will be the index of the child to return
     const youngest_child_index: Entry.Index = @enumFromInt(fs.entries.items.len);
@@ -312,14 +312,14 @@ fn addDirectoryAndItsParents(
         .first_child = .null,
         .status = .symlinkIf(child_symlink_path),
     };
-    std.log.debug("parent: {s}", .{fs.pool.get(dest_path)});
+    std.log.debug("parent: {s}", .{dest_path.get(fs.pool)});
     loop: while (true) {
         const parent_symlink_path = if (child_symlink_path) |link|
             try fs.parentDir(link)
         else
             null;
         const parent_dest_path = try fs.parentDir(child_dest_path) orelse unreachable;
-        std.log.debug("{s}", .{fs.pool.get(parent_dest_path)});
+        std.log.debug("{s}", .{parent_dest_path.get(fs.pool)});
         const parent_gop = try fs.dst_paths.getOrPut(fs.gpa, parent_dest_path);
         if (parent_gop.found_existing) {
             try fs.entries.ensureUnusedCapacity(fs.gpa, 1);
@@ -393,12 +393,12 @@ fn testEntries(fs: *VirtualFilesystem, start: Entry.Index, entries: []const Entr
 
         if (expected.item.dir.status == .symlinked) {
             try std.testing.expect(actual.item.dir.status == .symlinked);
-            const exp_status = fs.pool.get(expected.item.dir.status.symlinked.src_path);
-            const act_status = fs.pool.get(actual.item.dir.status.symlinked.src_path);
+            const exp_status = expected.item.dir.status.symlinked.src_path.get(fs.pool);
+            const act_status = actual.item.dir.status.symlinked.src_path.get(fs.pool);
             try std.testing.expectEqualStrings(exp_status, act_status);
         } else try std.testing.expect(actual.item.dir.status == .unlinked);
-        const exp_dest_path = fs.pool.get(expected.dst_path);
-        const act_dest_path = fs.pool.get(actual.dst_path);
+        const exp_dest_path = expected.dst_path.get(fs.pool);
+        const act_dest_path = actual.dst_path.get(fs.pool);
         try std.testing.expectEqualStrings(exp_dest_path, act_dest_path);
 
         last = current;

@@ -223,7 +223,7 @@ fn syncDir(
     defer config.deinit();
 
     const m = if (config.isModified(.destination_path))
-        try runner.cwd.dst.new(runner.gpa, runner.pool.get(config.destination_path))
+        try runner.cwd.dst.new(runner.gpa, config.destination_path.get(runner.pool))
     else
         null;
     defer if (m) |marker| runner.cwd.dst.delete(marker);
@@ -358,9 +358,8 @@ fn syncFile(
         try runner.logRuntimeError(src, parsed.nodes, runner.cwd.src.path(), result.err);
         return error.RuntimeError;
     }
-
     const m = if (config.isModified(.destination_path)) blk: {
-        const m = try runner.cwd.dst.new(runner.gpa, runner.pool.get(config.destination_path));
+        const m = try runner.cwd.dst.new(runner.gpa, config.destination_path.get(runner.pool));
         _ = try runner.cwd.dst.enterFile(vfs.gpa, runner.cwd.src.basename() orelse unreachable);
         break :blk m;
     } else null;

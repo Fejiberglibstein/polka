@@ -1,6 +1,10 @@
 pub const String = enum(u32) {
     _,
 
+    pub fn get(string: String, pool: *const StringPool) []const u8 {
+        return std.mem.sliceTo(pool.bytes.items[@intFromEnum(string)..], 0);
+    }
+
     pub const Pool = StringPool;
     pub const HashMap = StringHashMap;
 };
@@ -27,21 +31,10 @@ const StringPool = struct {
         pool.map.deinit(pool.gpa);
     }
 
-    pub fn getZ(pool: *const @This(), index: String) [*:0]const u8 {
-        return @ptrCast(@alignCast(&pool.bytes.items[@intFromEnum(index)]));
-    }
-
-    pub fn get(pool: *const @This(), index: String) []const u8 {
-        return std.mem.sliceTo(pool.bytes.items[@intFromEnum(index)..], 0);
-    }
-
     pub fn put(pool: *@This(), str: []const u8) Allocator.Error!String {
-        const gop = try pool.map.getOrPutContextAdapted(
-            pool.gpa,
-            str,
-            StringIndexAdapter{ .bytes = pool.bytes.items },
-            StringIndexContext{ .bytes = pool.bytes.items },
-        );
+        const adapter: StringIndexAdapter = .{ .bytes = pool.bytes.items };
+        const context: StringIndexContext = .{ .bytes = pool.bytes.items };
+        const gop = try pool.map.getOrPutContextAdapted(pool.gpa, str, adapter, context);
 
         if (!gop.found_existing) {
             try pool.bytes.ensureUnusedCapacity(pool.gpa, str.len + 1);

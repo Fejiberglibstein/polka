@@ -388,7 +388,7 @@ pub const RuntimeErrorPayload = struct {
                 .cannot_mutate_constant => w.writeAll(
                     \\Cannot mutate a constant
                 ),
-                .any => |v| w.writeAll(self.pool.get(v)),
+                .any => |v| w.writeAll(v.get(self.pool)),
             };
         }
     };

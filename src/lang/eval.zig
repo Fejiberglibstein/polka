@@ -95,7 +95,7 @@ pub fn evalExpressionStatement(vm: *Vm, node: ast.Expression) RuntimeError!void 
         .nil => {},
         .string => |str| {
             vm.output_status = .templated;
-            out.writeAll(vm.string_builder.pool.get(str)) catch
+            out.writeAll(str.get(vm.string_builder.pool)) catch
                 try vm.setError(node.index(), .write_failure);
         },
         else => try vm.setError(node.index(), .{ .cannot_print_value = res }),
