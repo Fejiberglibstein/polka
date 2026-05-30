@@ -276,7 +276,7 @@ fn testEval(source: []const u8, expected: []const u8) !void {
     var output: std.Io.Writer.Allocating = .init(gpa);
     errdefer output.deinit();
 
-    var pool: String.Pool = .init(gpa);
+    var pool: String.Pool = try .init(gpa);
     defer pool.deinit();
 
     var constants: builtin.Constants = try .init(io, gpa, &pool);

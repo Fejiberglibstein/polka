@@ -1,8 +1,25 @@
+const length_payload_bits = 6;
+const length_payload_mask: u8 = 0b00_111111;
+const length_payload_header: u8 = 0b10_000000;
 pub const String = enum(u32) {
+    empty = 0,
+    null = std.math.maxInt(u32),
     _,
 
     pub fn get(string: String, pool: *const StringPool) []const u8 {
-        return std.mem.sliceTo(pool.bytes.items[@intFromEnum(string)..], 0);
+        assert(string != .null);
+        if (string == .empty) return "";
+
+        var i: usize = 0;
+        var ind = @intFromEnum(string);
+        var len: u32 = 0;
+        while (pool.bytes.items[ind] & ~length_payload_mask == length_payload_header) {
+            const shamt: u5 = @intCast(length_payload_bits * i);
+            len += @as(u32, @intCast(pool.bytes.items[ind] & length_payload_mask)) << shamt;
+            ind += 1;
+            i += 1;
+        }
+        return pool.bytes.items[ind..][0..len];
     }
 
     pub const Pool = StringPool;
@@ -18,9 +35,14 @@ const StringPool = struct {
     bytes: std.ArrayList(u8),
     map: std.HashMapUnmanaged(String, void, StringIndexContext, max_load_percentage),
 
-    pub fn init(gpa: Allocator) String.Pool {
+    pub fn init(gpa: Allocator) !String.Pool {
+        var bytes: std.ArrayList(u8) = .empty;
+        errdefer bytes.deinit(gpa);
+        // add empty space for String.empty
+        _ = try bytes.addOne(gpa);
+
         return .{
-            .bytes = .empty,
+            .bytes = bytes,
             .map = .empty,
             .gpa = gpa,
         };
@@ -32,26 +54,99 @@ const StringPool = struct {
     }
 
     pub fn put(pool: *@This(), str: []const u8) Allocator.Error!String {
-        const adapter: StringIndexAdapter = .{ .bytes = pool.bytes.items };
-        const context: StringIndexContext = .{ .bytes = pool.bytes.items };
+        if (str.len == 0) return .empty;
+        const adapter: StringIndexAdapter = .{ .pool = pool };
+        const context: StringIndexContext = .{ .pool = pool };
         const gop = try pool.map.getOrPutContextAdapted(pool.gpa, str, adapter, context);
 
         if (!gop.found_existing) {
-            try pool.bytes.ensureUnusedCapacity(pool.gpa, str.len + 1);
-            const index: String = @enumFromInt(pool.bytes.items.len);
-            pool.bytes.appendSliceAssumeCapacity(str);
-            pool.bytes.appendAssumeCapacity(0);
-            gop.key_ptr.* = index;
+            gop.key_ptr.* = try pool.putNewString(str);
         }
 
         return gop.key_ptr.*;
     }
+
+    pub fn putNewString(pool: *StringPool, str: []const u8) !String {
+        const index: String = @enumFromInt(pool.bytes.items.len);
+
+        const length_bytes_amt = (std.math.log2(str.len) / length_payload_bits + 1);
+        const bytes_to_write = length_bytes_amt + str.len + 1;
+        assert(@intFromEnum(index) + bytes_to_write < @intFromEnum(String.null));
+        try pool.bytes.ensureUnusedCapacity(pool.gpa, bytes_to_write);
+
+        // Write the length of the string; each byte of the length will be of the form `0b10xxxxxx`.
+        // By beginning with `0b10`, we avoid collisions with utf-8 encoded strings.
+        var len = str.len;
+        assert(len < std.math.maxInt(u32));
+        for (0..length_bytes_amt) |_| {
+            assert(len != 0);
+            const byte: u8 = length_payload_header | @as(u8, @intCast(len & length_payload_mask));
+            pool.bytes.appendAssumeCapacity(byte);
+            len >>= length_payload_bits;
+        }
+        assert(len == 0);
+
+        pool.bytes.appendSliceAssumeCapacity(str);
+        pool.bytes.appendAssumeCapacity(0);
+
+        return index;
+    }
 };
 
+test "StringPool bytes work" {
+    const gpa = std.testing.allocator;
+    var pool: StringPool = try .init(gpa);
+    defer pool.deinit();
+
+    {
+        const str = "help";
+        const ind = try pool.put(str);
+        try std.testing.expectEqualSlices(
+            u8,
+            (.{length_payload_header | 4} ++ str ++ .{0}),
+            pool.bytes.items[@intFromEnum(ind)..],
+        );
+        try std.testing.expectEqualSlices(u8, str, ind.get(&pool));
+    }
+
+    {
+        const str: [63]u8 = @splat('h');
+        const ind = try pool.put(&str);
+        try std.testing.expectEqualSlices(
+            u8,
+            &(.{length_payload_header | 63} ++ str ++ .{0}),
+            pool.bytes.items[@intFromEnum(ind)..],
+        );
+        try std.testing.expectEqualSlices(u8, &str, ind.get(&pool));
+    }
+
+    {
+        const str: [64]u8 = @splat('h');
+        const ind = try pool.put(&str);
+        try std.testing.expectEqualSlices(
+            u8,
+            &(.{ length_payload_header | 0, length_payload_header | 1 } ++ str ++ .{0}),
+            pool.bytes.items[@intFromEnum(ind)..],
+        );
+        try std.testing.expectEqualSlices(u8, &str, ind.get(&pool));
+    }
+
+    {
+        const str: [0b100000_100000]u8 = @splat('h');
+        const ind = try pool.put(&str);
+        try std.testing.expectEqualSlices(
+            u8,
+            &(.{ length_payload_header | 32, length_payload_header | 32 } ++ str ++ .{0}),
+            pool.bytes.items[@intFromEnum(ind)..],
+        );
+        try std.testing.expectEqualSlices(u8, &str, ind.get(&pool));
+    }
+}
+
 const StringIndexContext = struct {
-    bytes: []const u8,
+    pool: *StringPool,
     pub fn hash(ctx: @This(), key: String) u64 {
-        return std.hash_map.hashString(std.mem.sliceTo(ctx.bytes[@intFromEnum(key)..], 0));
+        return std.hash_map.hashString(key.get(ctx.pool));
     }
     pub fn eql(_: @This(), a: String, b: String) bool {
         return a == b;
@@ -59,13 +154,13 @@ const StringIndexContext = struct {
 };
 
 const StringIndexAdapter = struct {
-    bytes: []const u8,
+    pool: *StringPool,
     pub fn hash(_: @This(), key: []const u8) u64 {
         assert(std.mem.indexOfScalar(u8, key, 0) == null);
         return std.hash_map.hashString(key);
     }
     pub fn eql(ctx: @This(), a: []const u8, b: String) bool {
-        return std.mem.eql(u8, a, std.mem.sliceTo(ctx.bytes[@intFromEnum(b)..], 0));
+        return std.mem.eql(u8, a, b.get(ctx.pool));
     }
 };
 
@@ -104,10 +199,10 @@ fn StringHashMap(V: type) type {
         }
 
         fn getContext(self: Self) StringIndexContext {
-            return .{ .bytes = self.pool.bytes.items };
+            return .{ .pool = self.pool };
         }
         fn getAdapter(self: Self) StringIndexAdapter {
-            return .{ .bytes = self.pool.bytes.items };
+            return .{ .pool = self.pool };
         }
 
         /// Puts the hash map into a state where any method call that would

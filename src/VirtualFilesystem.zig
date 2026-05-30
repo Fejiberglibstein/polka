@@ -410,7 +410,7 @@ fn testEntries(fs: *VirtualFilesystem, start: Entry.Index, entries: []const Entr
 test addDirectoryAndItsParents {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
-    var pool: String.Pool = .init(gpa);
+    var pool: String.Pool = try .init(gpa);
     var vfs: VirtualFilesystem = try .init(gpa, &pool, try pool.put("/home"));
     defer vfs.deinit(io);
     defer pool.deinit();

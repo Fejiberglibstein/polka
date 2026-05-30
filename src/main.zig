@@ -13,7 +13,7 @@ pub fn main(init: std.process.Init) !void {
     const stderr = &stderr_writer.interface;
     defer stderr.flush() catch {};
 
-    var pool: Value.String.Pool = .init(gpa);
+    var pool: Value.String.Pool = try .init(gpa);
     defer pool.deinit();
 
     var runner: Runner = try .init(io, gpa, environ_map, &pool);
