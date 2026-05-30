@@ -1,45 +1,64 @@
-const length_payload_bits = 6;
-const length_payload_mask: u8 = 0b00_111111;
-const length_payload_header: u8 = 0b10_000000;
+const length_payload_bits = 14;
+const length_payload_mask: u16 = 0b00_11111111111111;
+const length_payload_header: u16 = 0b10_00000000000000;
 pub const String = enum(u32) {
-    empty = 0,
-    null = std.math.maxInt(u32),
+    null = 0,
+    empty = 1,
     _,
 
     pub fn get(string: String, pool: *const StringPool) []const u8 {
         assert(string != .null);
         if (string == .empty) return "";
 
-        var i: usize = 0;
-        var ind = @intFromEnum(string);
-        var len: u32 = 0;
-        while (pool.bytes.items[ind] & ~length_payload_mask == length_payload_header) {
-            const shamt: u5 = @intCast(length_payload_bits * i);
-            len += @as(u32, @intCast(pool.bytes.items[ind] & length_payload_mask)) << shamt;
-            ind += 1;
-            i += 1;
-        }
-        return pool.bytes.items[ind..][0..len];
+        const max_bytes_to_check = 3;
+        comptime assert(@bitSizeOf(String) <= max_bytes_to_check * length_payload_bits);
+        const starting_index, const len = blk: {
+            var ind = @intFromEnum(string);
+            var len: u32 = 0;
+
+            for (0..max_bytes_to_check) |i| {
+                const bytes = pool.bytes.items[ind .. ind + 2];
+                const vln_part: u16 = bytes[1] | (@as(u16, @intCast(bytes[0])) << 8);
+                if (vln_part & ~length_payload_mask != length_payload_header)
+                    break :blk .{ ind, len };
+
+                const shamt: u5 = @intCast(i * length_payload_bits);
+                len += @as(u32, @intCast(vln_part & length_payload_mask)) << shamt;
+                ind += 2;
+            } else @panic("Malformed string");
+        };
+        return pool.bytes.items[starting_index..][0..len];
     }
+
+    pub const Slice = struct {
+        string: String,
+        start: u32,
+        len: u32,
+    };
 
     pub const Pool = StringPool;
     pub const HashMap = StringHashMap;
 };
 
-/// A global pool of every string across all files.
+/// Container for every allocated string throughout the execution of the program to go.
 ///
-/// One instance of this will usually be made at a time, so that all files intern into a
-/// single pool to increase the likelihood of intern hits.
+/// String values may be retrieved by calling String.get().
 const StringPool = struct {
     gpa: Allocator,
-    bytes: std.ArrayList(u8),
+
+    /// Each string is made up of a variable length number representing the length of the string,
+    /// followed by the byte contents of the string.
+    ///
+    /// The variable length number made up of 1-3 u16s. The first two bytes of these u16s is always
+    /// `0b10`, followed by 14 bits for the length of the string.
+    bytes: std.ArrayListAligned(u8, .of(u16)),
     map: std.HashMapUnmanaged(String, void, StringIndexContext, max_load_percentage),
 
     pub fn init(gpa: Allocator) !String.Pool {
-        var bytes: std.ArrayList(u8) = .empty;
+        var bytes: std.ArrayListAligned(u8, .of(u16)) = .empty;
         errdefer bytes.deinit(gpa);
-        // add empty space for String.empty
-        _ = try bytes.addOne(gpa);
+        // add empty space for String.empty. 2 bytes so that a u16 can be padded
+        _ = try bytes.appendSlice(gpa, &.{ undefined, undefined });
 
         return .{
             .bytes = bytes,
@@ -67,27 +86,35 @@ const StringPool = struct {
     }
 
     pub fn putNewString(pool: *StringPool, str: []const u8) !String {
+        assert(pool.bytes.items.len % 2 == 0);
+        defer assert(pool.bytes.items.len % 2 == 0);
         const index: String = @enumFromInt(pool.bytes.items.len);
 
-        const length_bytes_amt = (std.math.log2(str.len) / length_payload_bits + 1);
+        const length_bytes_amt = (std.math.log2(str.len) / length_payload_bits + 1) * @sizeOf(u16);
         const bytes_to_write = length_bytes_amt + str.len + 1;
-        assert(@intFromEnum(index) + bytes_to_write < @intFromEnum(String.null));
+        assert(@intFromEnum(index) + bytes_to_write < std.math.maxInt(u32));
         try pool.bytes.ensureUnusedCapacity(pool.gpa, bytes_to_write);
 
         // Write the length of the string; each byte of the length will be of the form `0b10xxxxxx`.
         // By beginning with `0b10`, we avoid collisions with utf-8 encoded strings.
         var len = str.len;
         assert(len < std.math.maxInt(u32));
-        for (0..length_bytes_amt) |_| {
+        for (0..length_bytes_amt / 2) |_| {
             assert(len != 0);
-            const byte: u8 = length_payload_header | @as(u8, @intCast(len & length_payload_mask));
-            pool.bytes.appendAssumeCapacity(byte);
+            const len_bits: u16 = @intCast(len & length_payload_mask);
+            const bytes: u16 = length_payload_header | len_bits;
+            pool.bytes.appendAssumeCapacity(@intCast((bytes & 0xFF00) >> 8));
+            pool.bytes.appendAssumeCapacity(@intCast(bytes & 0x00FF));
             len >>= length_payload_bits;
         }
         assert(len == 0);
 
         pool.bytes.appendSliceAssumeCapacity(str);
         pool.bytes.appendAssumeCapacity(0);
+
+        // Add padding byte
+        if (bytes_to_write % 2 != 0)
+            try pool.bytes.append(pool.gpa, 0);
 
         return index;
     }
@@ -98,45 +125,71 @@ test "StringPool bytes work" {
     var pool: StringPool = try .init(gpa);
     defer pool.deinit();
 
+    const packNums = struct {
+        pub inline fn it(comptime n: usize, comptime elems: [n]u16) [n * 2]u8 {
+            comptime {
+                var out: [elems.len * 2]u8 = undefined;
+                for (elems, 0..) |elem, i| {
+                    assert(elem & ~length_payload_mask == 0);
+                    const bytes = elem | length_payload_header;
+                    out[i * 2] = @intCast((bytes & 0xFF00) >> 8);
+                    out[i * 2 + 1] = @intCast(bytes & 0x00FF);
+                }
+                return out;
+            }
+        }
+    }.it;
+
     {
         const str = "help";
         const ind = try pool.put(str);
         try std.testing.expectEqualSlices(
             u8,
-            (.{length_payload_header | 4} ++ str ++ .{0}),
+            (packNums(1, .{4}) ++ str ++ .{ 0, 0 }),
             pool.bytes.items[@intFromEnum(ind)..],
         );
         try std.testing.expectEqualSlices(u8, str, ind.get(&pool));
     }
 
     {
-        const str: [63]u8 = @splat('h');
+        const str = "hel";
+        const ind = try pool.put(str);
+        try std.testing.expectEqualSlices(
+            u8,
+            (packNums(1, .{3}) ++ str ++ .{0}),
+            pool.bytes.items[@intFromEnum(ind)..],
+        );
+        try std.testing.expectEqualSlices(u8, str, ind.get(&pool));
+    }
+
+    {
+        const str: [0b00_11111111111111]u8 = @splat('h');
         const ind = try pool.put(&str);
         try std.testing.expectEqualSlices(
             u8,
-            &(.{length_payload_header | 63} ++ str ++ .{0}),
+            &(packNums(1, .{0b00_11111111111111}) ++ str ++ .{0}),
             pool.bytes.items[@intFromEnum(ind)..],
         );
         try std.testing.expectEqualSlices(u8, &str, ind.get(&pool));
     }
 
     {
-        const str: [64]u8 = @splat('h');
+        const str: [0b01_00000000000000]u8 = @splat('h');
         const ind = try pool.put(&str);
         try std.testing.expectEqualSlices(
             u8,
-            &(.{ length_payload_header | 0, length_payload_header | 1 } ++ str ++ .{0}),
+            &(packNums(2, .{ 0, 1 }) ++ str ++ .{ 0, 0 }),
             pool.bytes.items[@intFromEnum(ind)..],
         );
         try std.testing.expectEqualSlices(u8, &str, ind.get(&pool));
     }
 
     {
-        const str: [0b100000_100000]u8 = @splat('h');
+        const str: [0b11_00000000000110]u8 = @splat('h');
         const ind = try pool.put(&str);
         try std.testing.expectEqualSlices(
             u8,
-            &(.{ length_payload_header | 32, length_payload_header | 32 } ++ str ++ .{0}),
+            &(packNums(2, .{ 6, 3 }) ++ str ++ .{ 0, 0 }),
             pool.bytes.items[@intFromEnum(ind)..],
         );
         try std.testing.expectEqualSlices(u8, &str, ind.get(&pool));
