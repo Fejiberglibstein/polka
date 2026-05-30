@@ -20,14 +20,8 @@ fn HashMap(K: type, V: type) type {
 pool: *String.Pool,
 gpa: Allocator,
 
-/// Cwd in the virtual file system. Can be accessed by the outside world to open files, directories,
-/// etc.
-// dunno if i should write this in the doccomments but all files/dir use this path as their
-// dest_path
-cwd: PathBuf,
-
-/// Mapping string paths -> ID
-paths: String.HashMap(Entry.Index),
+/// Mapping string destination paths -> ID
+dst_paths: String.HashMap(Entry.Index),
 
 /// Each entry in entries has an equivalent entry in hierarchy.
 ///
@@ -39,14 +33,15 @@ pub const Entry = struct {
     parent: Entry.Index,
     /// Singly linked list of siblings. .null for the end of the list
     sibling: Entry.Index,
-    dest_path: String,
+    /// The destination path where this file will eventually be placed in the real file system
+    dst_path: String,
 
     item: Item,
 
     /// Pointer may be invalidated when a new string is created; Don't expect these to stick around
     /// very long
     fn destBasename(entry: Entry, pool: *const String.Pool) []const u8 {
-        return path.basename(pool.get(entry.dest_path));
+        return path.basename(pool.get(entry.dst_path));
     }
 
     // TODO i hate the name of this
@@ -64,6 +59,7 @@ pub const Entry = struct {
             return &fs.entries.items[@intFromEnum(idx)];
         }
     };
+    pub const root: Entry.Index = .root;
 };
 
 pub const Dir = struct {
@@ -116,17 +112,15 @@ pub const File = struct {
     }
 };
 
-pub fn init(gpa: Allocator, pool: *String.Pool, root_path: []const u8) !VirtualFilesystem {
-    var cwd: PathBuf = .empty;
-    errdefer cwd.deinit(gpa);
-    _ = try cwd.enterDir(gpa, root_path);
-
-    const root_path_string = try pool.put(cwd.dirname());
+pub fn init(gpa: Allocator, pool: *String.Pool, root_path: String) !VirtualFilesystem {
+    var paths: String.HashMap(Entry.Index) = .init(pool);
+    errdefer paths.deinit(gpa);
+    try paths.put(gpa, root_path, .root);
 
     var entries: std.ArrayList(Entry) = .empty;
     errdefer entries.deinit(gpa);
     try entries.append(gpa, .{
-        .dest_path = root_path_string,
+        .dst_path = root_path,
         .sibling = .null,
         .parent = .null,
         .item = .{ .dir = .{
@@ -135,15 +129,10 @@ pub fn init(gpa: Allocator, pool: *String.Pool, root_path: []const u8) !VirtualF
         } },
     });
 
-    var paths: String.HashMap(Entry.Index) = .init(pool);
-    errdefer paths.deinit(gpa);
-    try paths.put(gpa, root_path_string, .root);
-
     return .{
         .gpa = gpa,
-        .cwd = cwd,
         .pool = pool,
-        .paths = paths,
+        .dst_paths = paths,
         .entries = entries,
     };
 }
@@ -156,46 +145,40 @@ pub fn deinit(fs: *VirtualFilesystem, io: Io) void {
         }
     }
     fs.entries.deinit(fs.gpa);
-    fs.paths.deinit(fs.gpa);
-    fs.cwd.deinit(fs.gpa);
+    fs.dst_paths.deinit(fs.gpa);
     fs.* = undefined;
 }
 
 pub fn print(fs: *VirtualFilesystem, w: *Io.Writer) !void {
+    try fs.printIndex(w, .root);
+    return fs.printImpl(w, 0, 0, .root);
+}
+
+fn printIndex(fs: *VirtualFilesystem, w: *Io.Writer, ind: Entry.Index) !void {
     try w.writeByte('[');
-    try w.printInt(0, 10, .lower, .{
+    try w.printInt(@intFromEnum(ind), 10, .lower, .{
         .alignment = .right,
         .fill = ' ',
         .width = std.math.log10(fs.entries.items.len) + 1,
     });
     try w.writeAll("] ");
-    return fs.printImpl(w, 0, 0, .root);
 }
 
-fn printImpl(fs: *VirtualFilesystem, w: *Io.Writer, depth: u6, bar_bits: u32, parent: Entry.Index) !void {
+fn printImpl(fs: *VirtualFilesystem, w: *Io.Writer, depth: u8, bar_bits: u32, parent: Entry.Index) !void {
     const parent_entry = parent.get(fs);
     assert(parent_entry.item == .dir);
-    {
-        try w.print(" {s}", .{parent_entry.destBasename(fs.pool)});
-        switch (parent_entry.item.dir.status) {
-            .symlinked => |link| try w.print(" -> {s}", .{fs.pool.get(link.src_path)}),
-            .unlinked => {},
-        }
-        try w.writeByte('\n');
+    switch (parent_entry.item.dir.status) {
+        .unlinked => try w.print(" {s}\n", .{parent_entry.destBasename(fs.pool)}),
+        .symlinked => try w.print(" {s} -> {s}\n", .{
+            parent_entry.destBasename(fs.pool),
+            fs.pool.get(parent_entry.item.dir.status.symlinked.src_path),
+        }),
     }
 
     if (depth > 32) return;
     var child = parent_entry.item.dir.first_child;
     while (child != .null) : (child = child.get(fs).sibling) {
-        {
-            try w.writeByte('[');
-            try w.printInt(@intFromEnum(child), 10, .lower, .{
-                .alignment = .right,
-                .fill = ' ',
-                .width = std.math.log10(fs.entries.items.len) + 1,
-            });
-            try w.writeAll("] ");
-        }
+        try fs.printIndex(w, child);
         for (0..depth) |i| {
             if ((bar_bits & (@as(u32, 1) << @intCast(i))) == 0)
                 try w.writeAll("   ")
@@ -233,8 +216,8 @@ fn printImpl(fs: *VirtualFilesystem, w: *Io.Writer, depth: u6, bar_bits: u32, pa
     }
 }
 
-fn unlinkDir(fs: *VirtualFilesystem, dir_path: String) void {
-    const entry_index = fs.paths.get(dir_path) orelse unreachable;
+fn unlinkDir(fs: *VirtualFilesystem, dst_path: String) void {
+    const entry_index = fs.dst_paths.get(dst_path) orelse unreachable;
     const entry = entry_index.get(fs);
     assert(entry.item == .dir);
 
@@ -254,96 +237,111 @@ fn parentDir(fs: *VirtualFilesystem, dir_path: String) !?String {
     var iter: path.NativeComponentIterator = .init(fs.pool.get(dir_path));
     _ = iter.last();
     const parent = iter.previous() orelse return null;
-    return try fs.pool.put(parent.path);
+
+    // TODO this is a really annoying hack
+    const len = parent.path.len;
+    try fs.pool.bytes.ensureUnusedCapacity(fs.pool.gpa, len + 1);
+    return try fs.pool.put(fs.pool.get(dir_path)[0..len]);
 }
 
-pub fn addCwdFile(fs: *VirtualFilesystem, source_path: String, status: File.Status) !Entry.Index {
-    const parent_path = try fs.pool.put(fs.cwd.dirname());
-    // Parent must already exist in the file system from calling addCwdDir
-    const parent = fs.paths.get(parent_path) orelse unreachable;
+pub const AddFileArgs = struct {
+    /// The destination path that this file should be placed in the physical filesystem
+    dst_path: []const u8,
+    /// The path that this file is located in the physical filesystem
+    src_path: []const u8,
+    status: File.Status,
+};
+
+/// Add a file named `dst_path` to the filesystem. Its parent directories will be created and if the
+/// file may be symlinked, the parent directories will also be recursively symlinked to the matching
+/// `src_path` parent directories.
+pub fn addFile(fs: *VirtualFilesystem, args: AddFileArgs) !void {
+    const dst_path = try fs.pool.put(args.dst_path);
+    const src_path = try fs.pool.put(args.src_path);
+    const status = args.status;
+
+    std.log.debug("{s} :: {s}", .{ args.dst_path, args.src_path });
+    const dst_parent = try fs.parentDir(dst_path) orelse unreachable;
+    const src_parent = try fs.parentDir(src_path); // If it's null, it won't get symlinked.
+    const parent = try fs.addDirectoryAndItsParents(dst_parent, src_parent);
+
     try fs.entries.ensureUnusedCapacity(fs.gpa, 1);
     const parent_entry = parent.get(fs);
     assert(parent_entry.item == .dir);
 
-    const file_path = try fs.pool.put(fs.cwd.path());
     const file_index: Entry.Index = @enumFromInt(fs.entries.items.len);
-    try fs.paths.put(fs.gpa, file_path, file_index);
+    try fs.dst_paths.put(fs.gpa, dst_path, file_index);
     const sibling = parent_entry.item.dir.first_child;
     parent_entry.item.dir.first_child = file_index;
     fs.entries.appendAssumeCapacity(.{
         .parent = parent,
         .sibling = sibling,
-        .dest_path = file_path,
+        .dst_path = dst_path,
         .item = .{ .file = .{
-            .src_path = source_path,
+            .src_path = src_path,
             .status = status,
         } },
     });
     if (status == .templated) {
-        fs.unlinkDir(parent_entry.dest_path);
+        fs.unlinkDir(parent_entry.dst_path);
     }
-
-    return file_index;
 }
 
-/// Adds `fs.cwd` and all of its parents to the filesystem. Returns the index of
-/// the cwd.
-pub fn addCwdDir(fs: *VirtualFilesystem, symlink_to_path: ?String) !Entry.Index {
-    const entry_path = fs.cwd.dirname();
+/// Adds `dest_path` and all of its parents to the filesystem, symlinking with `symlink_to_path` the
+/// directories until a known parent is reached.
+fn addDirectoryAndItsParents(
+    fs: *VirtualFilesystem,
+    dest_path: String,
+    symlink_to_path: ?String,
+) !Entry.Index {
+    const youngest_child_gop = try fs.dst_paths.getOrPut(fs.gpa, dest_path);
+    if (youngest_child_gop.found_existing) return youngest_child_gop.value_ptr.*;
 
-    const entry_path_string, const path_value_ptr = blk: {
-        const gop = try fs.paths.getOrPutAdapted(fs.gpa, entry_path);
-        if (gop.found_existing) return gop.value_ptr.*;
-        break :blk .{ gop.key_ptr.*, gop.value_ptr };
-    };
+    const root_path = Entry.root.get(fs).dst_path;
+    std.log.warn("{s} :: {s}", .{ fs.pool.get(dest_path), fs.pool.get(root_path) });
+    assert(std.mem.startsWith(u8, fs.pool.get(dest_path), fs.pool.get(root_path)));
 
-    // The next entry appended will be the child we just made, which is what we want to return.
-    const ret_value: Entry.Index = @enumFromInt(fs.entries.items.len);
-    path_value_ptr.* = ret_value;
+    // The next entry that gets appended to entries will be the index of the child to return
+    const youngest_child_index: Entry.Index = @enumFromInt(fs.entries.items.len);
+    youngest_child_gop.value_ptr.* = youngest_child_index;
 
-    var iter: path.NativeComponentIterator = .init(entry_path);
-    const last = iter.last();
-    assert(last != null);
-    assert(iter.peekPrevious() != null);
-
-    // We do NOT need to offset by 1 for this index. The child has not yet been added to the list;
-    // this is the index the child will have by the time it's added to the list.
-    var child_index: Entry.Index = @enumFromInt(fs.entries.items.len);
-    // reopen the directory since the caller is expected to close it
-    var child_symlink_path: ?String = symlink_to_path;
-    var child_dest_path = entry_path_string;
-    var child: Entry.Item = .{ .dir = .{
+    var child_dest_path = dest_path;
+    var child_index = youngest_child_index;
+    var child_symlink_path = symlink_to_path;
+    var child: Dir = .{
         .first_child = .null,
         .status = .symlinkIf(child_symlink_path),
-    } };
-    loop: while (iter.previous()) |component| {
+    };
+    std.log.debug("parent: {s}", .{fs.pool.get(dest_path)});
+    loop: while (true) {
         const parent_symlink_path = if (child_symlink_path) |link|
             try fs.parentDir(link)
         else
             null;
-        const parent_dest_path = try fs.pool.put(component.path);
-        const parent_gop = try fs.paths.getOrPut(fs.gpa, parent_dest_path);
+        const parent_dest_path = try fs.parentDir(child_dest_path) orelse unreachable;
+        std.log.debug("{s}", .{fs.pool.get(parent_dest_path)});
+        const parent_gop = try fs.dst_paths.getOrPut(fs.gpa, parent_dest_path);
         if (parent_gop.found_existing) {
             try fs.entries.ensureUnusedCapacity(fs.gpa, 1);
-            const parent_index = parent_gop.value_ptr.*;
-            const parent = parent_index.get(fs);
-            assert(parent.item == .dir);
-            const sibling = parent.item.dir.first_child;
-            parent.item.dir.first_child = child_index;
+            const parent = parent_gop.value_ptr.*;
+            const parent_entry = parent.get(fs);
+            assert(parent_entry.item == .dir);
+            const sibling = parent_entry.item.dir.first_child;
+            parent_entry.item.dir.first_child = child_index;
             fs.entries.appendAssumeCapacity(.{
-                .item = child,
+                .parent = parent,
                 .sibling = sibling,
-                .parent = parent_index,
-                .dest_path = child_dest_path,
+                .item = .{ .dir = child },
+                .dst_path = child_dest_path,
             });
 
             // Unlink parent if paths dont match
             if (parent_symlink_path) |parent_dir_path| {
-                switch (parent.item.dir.status) {
+                switch (parent_entry.item.dir.status) {
                     .unlinked => {},
                     .symlinked => |symlinked| {
                         if (parent_dir_path != symlinked.src_path) {
-                            fs.unlinkDir(parent.dest_path);
+                            fs.unlinkDir(parent_entry.dst_path);
                         }
                     },
                 }
@@ -356,15 +354,15 @@ pub fn addCwdDir(fs: *VirtualFilesystem, symlink_to_path: ?String) !Entry.Index 
         // parent will be added next in the list
         const parent_index: Entry.Index = @enumFromInt(fs.entries.items.len);
         child_ptr.* = .{
-            .item = child,
-            .sibling = .null,
             .parent = parent_index,
-            .dest_path = child_dest_path,
+            .sibling = .null,
+            .item = .{ .dir = child },
+            .dst_path = child_dest_path,
         };
-        const parent: Entry.Item = .{ .dir = .{
+        const parent: Dir = .{
             .first_child = child_index,
             .status = .symlinkIf(parent_symlink_path),
-        } };
+        };
         parent_gop.value_ptr.* = parent_index;
 
         // Make the parent the new child
@@ -374,7 +372,7 @@ pub fn addCwdDir(fs: *VirtualFilesystem, symlink_to_path: ?String) !Entry.Index 
         child_symlink_path = parent_symlink_path;
     }
 
-    return ret_value;
+    return youngest_child_index;
 }
 
 fn testEntries(fs: *VirtualFilesystem, start: Entry.Index, entries: []const Entry) !void {
@@ -399,8 +397,8 @@ fn testEntries(fs: *VirtualFilesystem, start: Entry.Index, entries: []const Entr
             const act_status = fs.pool.get(actual.item.dir.status.symlinked.src_path);
             try std.testing.expectEqualStrings(exp_status, act_status);
         } else try std.testing.expect(actual.item.dir.status == .unlinked);
-        const exp_dest_path = fs.pool.get(expected.dest_path);
-        const act_dest_path = fs.pool.get(actual.dest_path);
+        const exp_dest_path = fs.pool.get(expected.dst_path);
+        const act_dest_path = fs.pool.get(actual.dst_path);
         try std.testing.expectEqualStrings(exp_dest_path, act_dest_path);
 
         last = current;
@@ -409,11 +407,11 @@ fn testEntries(fs: *VirtualFilesystem, start: Entry.Index, entries: []const Entr
 }
 
 // TODO rewrite this test because i think i could do a better job
-test addCwdDir {
+test addDirectoryAndItsParents {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var pool: String.Pool = .init(gpa);
-    var vfs: VirtualFilesystem = try .init(gpa, &pool, "/home/");
+    var vfs: VirtualFilesystem = try .init(gpa, &pool, try pool.put("/home"));
     defer vfs.deinit(io);
     defer pool.deinit();
     try std.testing.expectEqual(1, vfs.entries.items.len);
@@ -433,7 +431,7 @@ test addCwdDir {
             return .{
                 .parent = .null,
                 .sibling = sibling,
-                .dest_path = try fs.pool.put(dest_path),
+                .dst_path = try fs.pool.put(dest_path),
                 .item = .{ .dir = .{
                     .first_child = .null,
                     .status = if (link) |p|
@@ -447,11 +445,10 @@ test addCwdDir {
 
     // Insert initial entries
     const help_me_index = blk: {
-        const m1 = try vfs.cwd.enterDir(gpa, "help");
-        defer vfs.cwd.exit(m1);
-        const m2 = try vfs.cwd.enterDir(gpa, "me");
-        defer vfs.cwd.exit(m2);
-        const entry_index = try vfs.addCwdDir(try pool.put("a/help/d"));
+        const dest_path = try pool.put("/home/help/me");
+        const symlink_to = try pool.put("a/help/d");
+        const entry_index = try vfs.addDirectoryAndItsParents(dest_path, symlink_to);
+        try std.testing.expectEqual(3, vfs.entries.items.len);
         try vfs.testEntries(entry_index, &.{
             try makeEntry(&vfs, "/home/help/me", "a/help/d", .null),
             try makeEntry(&vfs, "/home/help", "a/help", .null),
@@ -462,13 +459,9 @@ test addCwdDir {
 
     // Insert directory inside help/
     _ = blk: {
-        const m1 = try vfs.cwd.enterDir(gpa, "help");
-        defer vfs.cwd.exit(m1);
-        const m2 = try vfs.cwd.enterDir(gpa, "a");
-        defer vfs.cwd.exit(m2);
-        const m3 = try vfs.cwd.enterDir(gpa, "hi");
-        defer vfs.cwd.exit(m3);
-        const entry_index = try vfs.addCwdDir(try pool.put("a/help/new_thing/ok"));
+        const dest_path = try pool.put("/home/help/a/hi");
+        const symlink_to = try pool.put("a/help/new_thing/ok");
+        const entry_index = try vfs.addDirectoryAndItsParents(dest_path, symlink_to);
         try std.testing.expectEqual(5, vfs.entries.items.len);
         try vfs.testEntries(entry_index, &.{
             try makeEntry(&vfs, "/home/help/a/hi", "a/help/new_thing/ok", .null),
@@ -481,11 +474,9 @@ test addCwdDir {
 
     // Create new directory
     _ = blk: {
-        const m1 = try vfs.cwd.enterDir(gpa, "thing");
-        defer vfs.cwd.exit(m1);
-        const m2 = try vfs.cwd.enterDir(gpa, "b");
-        defer vfs.cwd.exit(m2);
-        const entry_index = try vfs.addCwdDir(try pool.put("x/y"));
+        const dest_path = try pool.put("/home/thing/b");
+        const symlink_to = try pool.put("x/y");
+        const entry_index = try vfs.addDirectoryAndItsParents(dest_path, symlink_to);
         try vfs.print(&stderr.interface);
         try std.testing.expectEqual(7, vfs.entries.items.len);
         try vfs.testEntries(entry_index, &.{
@@ -498,13 +489,9 @@ test addCwdDir {
 
     // Unlink help/me
     _ = blk: {
-        const m1 = try vfs.cwd.enterDir(gpa, "help");
-        defer vfs.cwd.exit(m1);
-        const m2 = try vfs.cwd.enterDir(gpa, "me");
-        defer vfs.cwd.exit(m2);
-        const m3 = try vfs.cwd.enterDir(gpa, "again");
-        defer vfs.cwd.exit(m3);
-        const entry_index = try vfs.addCwdDir(try pool.put("a/help/different/foo"));
+        const dest_path = try pool.put("/home/help/me/again");
+        const symlink_to = try pool.put("a/help/different/foo");
+        const entry_index = try vfs.addDirectoryAndItsParents(dest_path, symlink_to);
         try vfs.print(&stderr.interface);
         try std.testing.expectEqual(8, vfs.entries.items.len);
         try vfs.testEntries(entry_index, &.{
@@ -727,12 +714,12 @@ pub const PathBuf = struct {
         _ = try buf.enterFile(gpa, "baz.txt");
         try std.testing.expectEqualStrings("foo/bar/baz.txt", buf.path());
 
-        const sm = try buf.new(gpa);
-        try std.testing.expectEqualStrings("", buf.path());
+        const sm = try buf.new(gpa, "help");
+        try std.testing.expectEqualStrings("help/", buf.path());
         _ = try buf.enterDir(gpa, "one");
         _ = try buf.enterDir(gpa, "two");
         _ = try buf.enterFile(gpa, "three.txt");
-        try std.testing.expectEqualStrings("one/two/three.txt", buf.path());
+        try std.testing.expectEqualStrings("help/one/two/three.txt", buf.path());
         buf.delete(sm);
         try std.testing.expectEqualStrings("foo/bar/baz.txt", buf.path());
     }

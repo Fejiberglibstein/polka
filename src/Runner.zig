@@ -9,9 +9,35 @@ error_log: Io.Writer.Allocating,
 
 constants: builtin.Constants,
 
-/// Initialized as relative path from cwd to root_dir, used for keeping track of file names for
-/// logging/printing.
-src_path: PathBuf,
+cwd: struct {
+    /// Initialized as relative path from `Io.cwd()` to `.root_dir`, this is used by the virtual
+    /// filesystem for symlinking destination files, and for printing source file names.
+    src: PathBuf,
+    /// Initialized to /home/$USER/, this is where the virtual filesystem will place all of the files
+    dst: PathBuf,
+
+    const Marker = struct {
+        src: PathBuf.Marker,
+        dst: PathBuf.Marker,
+    };
+
+    pub fn enterDir(self: *@This(), gpa: Allocator, dir: []const u8) !Marker {
+        const dst_m = try self.dst.enterDir(gpa, dir);
+        const src_m = try self.src.enterDir(gpa, dir);
+        return .{ .src = src_m, .dst = dst_m };
+    }
+
+    pub fn enterFile(self: *@This(), gpa: Allocator, file: []const u8) !Marker {
+        const dst_m = try self.dst.enterFile(gpa, file);
+        const src_m = try self.src.enterFile(gpa, file);
+        return .{ .src = src_m, .dst = dst_m };
+    }
+
+    pub fn exit(self: *@This(), marker: Marker) void {
+        self.dst.exit(marker.dst);
+        self.src.exit(marker.src);
+    }
+},
 /// Directory containing the .polka directory. Typically the .dotfiles directory, or wherever you
 /// store your version controlled dotfiles.
 root_dir: Io.Dir,
@@ -36,20 +62,6 @@ pub fn init(io: Io, gpa: Allocator, env: *std.process.Environ.Map, pool: *String
     const cwd = try Io.Dir.cwd().openDir(io, ".", .{});
     defer cwd.close(io);
 
-    var path_buf: PathBuf = .empty;
-    errdefer path_buf.deinit(gpa);
-
-    const root_dir = try findRootDirectory(io, gpa, cwd, &path_buf, .{ .iterate = true });
-    errdefer root_dir.close(io);
-
-    const polka_dir = try root_dir.openDir(io, polka_dir_name, .{});
-    errdefer polka_dir.close(io);
-    {
-        const m = try path_buf.enterDir(gpa, polka_dir_name);
-        defer path_buf.exit(m);
-        std.log.info("Found .polka directory at {s}", .{path_buf.path()});
-    }
-
     var constants: builtin.Constants = try .init(io, gpa, pool);
     errdefer constants.deinit(gpa);
 
@@ -58,11 +70,28 @@ pub fn init(io: Io, gpa: Allocator, env: *std.process.Environ.Map, pool: *String
     const home_dir = try Io.Dir.openDirAbsolute(io, home_path, .{});
     errdefer home_dir.close(io);
 
+    var virtual_filesystem: VirtualFilesystem = try .init(gpa, pool, home_path_string);
+    errdefer virtual_filesystem.deinit(io);
+
+    var dst_cwd: PathBuf = .empty;
+    errdefer dst_cwd.deinit(gpa);
+    _ = try dst_cwd.enterDir(gpa, home_path);
+
+    var src_cwd: PathBuf = .empty;
+    errdefer src_cwd.deinit(gpa);
+
+    const root_dir = try findRootDirectory(io, gpa, cwd, &src_cwd, .{ .iterate = true });
+    errdefer root_dir.close(io);
+
+    const polka_dir = try root_dir.openDir(io, polka_dir_name, .{});
+    errdefer polka_dir.close(io);
+    {
+        const m = try src_cwd.enterDir(gpa, polka_dir_name);
+        defer src_cwd.exit(m);
+        std.log.info("Found .polka directory at {s}", .{src_cwd.path()});
+    }
     var tmp: VirtualFilesystem.TmpDir = try .init(io, polka_dir, .{});
     errdefer tmp.deinit(io, polka_dir);
-
-    const virtual_filesystem: VirtualFilesystem = try .init(gpa, pool, home_path);
-    errdefer virtual_filesystem.deinit();
 
     return .{
         .tmp = tmp,
@@ -70,7 +99,6 @@ pub fn init(io: Io, gpa: Allocator, env: *std.process.Environ.Map, pool: *String
         .pool = pool,
         .root_dir = root_dir,
         .home_dir = home_dir,
-        .src_path = path_buf,
         .polka_dir = polka_dir,
         .constants = constants,
         .error_log = .init(gpa),
@@ -78,6 +106,7 @@ pub fn init(io: Io, gpa: Allocator, env: *std.process.Environ.Map, pool: *String
         .home_path = home_path_string,
         .constant_value_allocator = .init(gpa),
         .ephemeral_value_allocator = .init(gpa),
+        .cwd = .{ .dst = dst_cwd, .src = src_cwd },
     };
 }
 
@@ -91,7 +120,8 @@ pub fn deinit(runner: *Runner, io: Io) void {
     runner.polka_dir.close(io);
     runner.root_dir.close(io);
 
-    runner.src_path.deinit(runner.gpa);
+    runner.cwd.src.deinit(runner.gpa);
+    runner.cwd.dst.deinit(runner.gpa);
     runner.vfs.deinit(io);
 
     runner.* = undefined;
@@ -162,13 +192,9 @@ fn syncDir(
     starting_config: *const PolkaConfig,
     start_dir: Io.Dir,
 ) SyncDirError!void {
-    const vfs = &runner.vfs;
-
     const new_config: ?PolkaConfig = config: {
-        const src_m = try runner.src_path.enterFile(runner.gpa, config_file_name);
-        defer runner.src_path.exit(src_m);
-        const vfs_m = try vfs.cwd.enterFile(runner.gpa, config_file_name);
-        defer vfs.cwd.exit(vfs_m);
+        const m = try runner.cwd.enterFile(runner.gpa, config_file_name);
+        defer runner.cwd.exit(m);
 
         const config_file = start_dir.openFile(io, config_file_name, .{}) catch {
             // TODO log the error
@@ -179,14 +205,14 @@ fn syncDir(
         var config = starting_config.copy();
         runner.syncFile(io, &config, config_file) catch |e| switch (e) {
             error.ParseError, error.RuntimeError => {
-                std.log.err("Error in {s}, skipping directory", .{runner.src_path.path()});
+                std.log.err("Error in {s}, skipping directory", .{runner.cwd.src.path()});
                 return;
             },
 
             inline else => |err| {
                 std.log.err(
                     "Could not execute config file {s} due to {t}",
-                    .{ runner.src_path.path(), err },
+                    .{ runner.cwd.src.path(), err },
                 );
             },
         };
@@ -196,11 +222,11 @@ fn syncDir(
     var config = new_config orelse starting_config.copy();
     defer config.deinit();
 
-    const cwd_marker = if (config.isModified(.destination_path))
-        try vfs.cwd.new(runner.gpa, runner.pool.get(config.destination_path))
+    const m = if (config.isModified(.destination_path))
+        try runner.cwd.dst.new(runner.gpa, runner.pool.get(config.destination_path))
     else
         null;
-    defer if (cwd_marker) |marker| vfs.cwd.delete(marker);
+    defer if (m) |marker| runner.cwd.dst.delete(marker);
 
     var iter = start_dir.iterate();
     while (iter.next(io) catch null) |entry| {
@@ -218,33 +244,28 @@ fn syncDirEntry(
     start_dir: Io.Dir,
     entry: Io.Dir.Entry,
 ) !void {
-    const vfs = &runner.vfs;
     switch (entry.kind) {
         .directory => {
             if (std.mem.eql(u8, entry.name, polka_dir_name)) return;
 
-            const src_path_m = try runner.src_path.enterDir(runner.gpa, entry.name);
-            defer runner.src_path.exit(src_path_m);
-            const vfs_m2 = try vfs.cwd.enterDir(vfs.gpa, entry.name);
-            defer vfs.cwd.exit(vfs_m2);
-
+            const m = try runner.cwd.enterDir(runner.gpa, entry.name);
+            defer runner.cwd.exit(m);
             const dir = try start_dir.openDir(io, entry.name, .{ .iterate = true });
             defer dir.close(io);
+
             try runner.syncDir(io, config, dir);
         },
         .file => {
             if (std.mem.eql(u8, entry.name, config_file_name)) return;
 
-            const src_path_m = try runner.src_path.enterFile(runner.gpa, entry.name);
-            defer runner.src_path.exit(src_path_m);
-            const cwd_m = try runner.vfs.cwd.enterFile(vfs.gpa, entry.name);
-            defer vfs.cwd.exit(cwd_m);
-
+            const m = try runner.cwd.enterFile(runner.gpa, entry.name);
+            defer runner.cwd.exit(m);
             const file = try start_dir.openFile(io, entry.name, .{});
             defer file.close(io);
+
             runner.syncFile(io, config, file) catch |e| switch (e) {
                 error.ParseError, error.RuntimeError => {
-                    std.log.err("Error in {s}, skipping", .{runner.src_path.path()});
+                    std.log.err("Error in {s}, skipping", .{runner.cwd.src.path()});
                     return;
                 },
                 inline else => |err| return err,
@@ -264,7 +285,7 @@ fn syncFile(
     const vfs = &runner.vfs;
     _ = runner.ephemeral_value_allocator.reset(.retain_capacity);
 
-    const ext = Io.Dir.path.extension(runner.src_path.basename() orelse unreachable);
+    const ext = Io.Dir.path.extension(runner.cwd.src.basename() orelse unreachable);
     const Status = struct {
         parse_mode: ParseMode,
         value_allocator: Allocator,
@@ -285,12 +306,12 @@ fn syncFile(
     const src = try src_reader.interface.readAlloc(gpa, try src_file.length(io));
     defer gpa.free(src);
 
-    std.log.info("syncing file {s}", .{runner.src_path.path()});
+    std.log.info("syncing file {s}", .{runner.cwd.src.path()});
 
     const parsed = try parser.parse(src, status.parse_mode, gpa);
     defer parsed.deinit(gpa);
     if (parsed.errors.len != 0) {
-        try runner.logSyntaxErrors(parsed.errors, runner.src_path.path());
+        try runner.logSyntaxErrors(parsed.errors, runner.cwd.src.path());
         return error.ParseError;
     }
 
@@ -334,17 +355,16 @@ fn syncFile(
 
     const result = vm.run();
     if (result == .err) {
-        try runner.logRuntimeError(src, parsed.nodes, runner.src_path.path(), result.err);
+        try runner.logRuntimeError(src, parsed.nodes, runner.cwd.src.path(), result.err);
         return error.RuntimeError;
     }
 
-    const m = blk: {
-        if (!config.isModified(.destination_path)) break :blk null;
-        const m = try vfs.cwd.new(runner.gpa, runner.pool.get(config.destination_path));
-        _ = try vfs.cwd.enterFile(vfs.gpa, runner.src_path.basename() orelse unreachable);
+    const m = if (config.isModified(.destination_path)) blk: {
+        const m = try runner.cwd.dst.new(runner.gpa, runner.pool.get(config.destination_path));
+        _ = try runner.cwd.dst.enterFile(vfs.gpa, runner.cwd.src.basename() orelse unreachable);
         break :blk m;
-    } orelse null;
-    defer if (m) |marker| vfs.cwd.delete(marker);
+    } else null;
+    defer if (m) |marker| runner.cwd.dst.delete(marker);
 
     const file_status: VirtualFilesystem.File.Status = if (status.kind == .polka)
         .weak_link
@@ -352,9 +372,11 @@ fn syncFile(
         .text => .symlinked,
         .templated => .{ .templated = .{ .content = out.kind.tmp.file } },
     };
-    const source_path = try runner.pool.put(runner.src_path.path());
-    _ = try vfs.addCwdDir(try runner.pool.put(runner.src_path.dirname()));
-    _ = try vfs.addCwdFile(source_path, file_status);
+    try vfs.addFile(.{
+        .status = file_status,
+        .src_path = runner.cwd.src.path(),
+        .dst_path = runner.cwd.dst.path(),
+    });
 }
 
 pub fn logRuntimeError(
