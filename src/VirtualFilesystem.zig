@@ -647,7 +647,7 @@ pub const PathBuf = struct {
         return self.bytes.items[@intFromEnum(self.stack_top)..end];
     }
 
-    pub fn new(self: *PathBuf, gpa: Allocator) !StackMarker {
+    pub fn new(self: *PathBuf, gpa: Allocator, starting_path: []const u8) !StackMarker {
         const ret: StackMarker = .{
             .top = self.stack_top,
             .file_start = self.file_start,
@@ -655,6 +655,8 @@ pub const PathBuf = struct {
         try self.bytes.append(gpa, 0);
         self.stack_top = @enumFromInt(self.bytes.items.len);
         self.file_start = null;
+
+        _ = try self.enterDir(gpa, starting_path);
 
         return ret;
     }

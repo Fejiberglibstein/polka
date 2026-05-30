@@ -28,8 +28,8 @@ constant_value_allocator: std.heap.ArenaAllocator,
 
 const Runner = @This();
 
-pub const language_filetype = ".polka";
-pub const config_file_name = "config" ++ language_filetype;
+pub const language_filetype_extension = ".polka";
+pub const config_file_name = "config" ++ language_filetype_extension;
 pub const polka_dir_name = ".polka";
 
 pub fn init(io: Io, gpa: Allocator, env: *std.process.Environ.Map, pool: *StringPool) !Runner {
@@ -151,8 +151,7 @@ pub fn sync(runner: *Runner, io: Io) !void {
     const starting_dir = try runner.root_dir.openDir(io, ".", .{ .iterate = true });
     defer starting_dir.close(io);
 
-    var file_arena: std.heap.ArenaAllocator = .init(runner.gpa);
-    try runner.syncDir(io, &file_arena, &config, starting_dir);
+    try runner.syncDir(io, &config, starting_dir);
 }
 
 const SyncDirError = error{} || Allocator.Error;
@@ -160,16 +159,14 @@ const SyncDirError = error{} || Allocator.Error;
 fn syncDir(
     runner: *Runner,
     io: Io,
-    file_arena: *std.heap.ArenaAllocator,
     starting_config: *const PolkaConfig,
     start_dir: Io.Dir,
 ) SyncDirError!void {
     const vfs = &runner.vfs;
-    // Get the config
+
     const new_config: ?PolkaConfig = config: {
         const src_m = try runner.src_path.enterFile(runner.gpa, config_file_name);
         defer runner.src_path.exit(src_m);
-
         const vfs_m = try vfs.cwd.enterFile(runner.gpa, config_file_name);
         defer vfs.cwd.exit(vfs_m);
 
@@ -198,17 +195,16 @@ fn syncDir(
     };
     var config = new_config orelse starting_config.copy();
     defer config.deinit();
-    const cwd_marker = if (config.isModified(.destination_path)) blk: {
-        const m = try vfs.cwd.new(runner.gpa);
-        _ = try vfs.cwd.enterDir(vfs.gpa, runner.pool.get(config.destination_path));
-        break :blk m;
-    } else null;
+
+    const cwd_marker = if (config.isModified(.destination_path))
+        try vfs.cwd.new(runner.gpa, runner.pool.get(config.destination_path))
+    else
+        null;
     defer if (cwd_marker) |marker| vfs.cwd.delete(marker);
-    _ = try vfs.addCwdDir(try runner.pool.put(runner.src_path.dirname()));
 
     var iter = start_dir.iterate();
     while (iter.next(io) catch null) |entry| {
-        runner.syncDirEntry(io, file_arena, &config, start_dir, entry) catch {
+        runner.syncDirEntry(io, &config, start_dir, entry) catch {
             // TODO handle and log error
             continue;
         };
@@ -218,7 +214,6 @@ fn syncDir(
 fn syncDirEntry(
     runner: *Runner,
     io: Io,
-    file_arena: *std.heap.ArenaAllocator,
     config: *PolkaConfig,
     start_dir: Io.Dir,
     entry: Io.Dir.Entry,
@@ -229,18 +224,16 @@ fn syncDirEntry(
             if (std.mem.eql(u8, entry.name, polka_dir_name)) return;
 
             const src_path_m = try runner.src_path.enterDir(runner.gpa, entry.name);
+            defer runner.src_path.exit(src_path_m);
             const vfs_m2 = try vfs.cwd.enterDir(vfs.gpa, entry.name);
             defer vfs.cwd.exit(vfs_m2);
-            defer runner.src_path.exit(src_path_m);
-            _ = try vfs.addCwdDir(try runner.pool.put(runner.src_path.dirname()));
 
             const dir = try start_dir.openDir(io, entry.name, .{ .iterate = true });
             defer dir.close(io);
-            try runner.syncDir(io, file_arena, config, dir);
+            try runner.syncDir(io, config, dir);
         },
         .file => {
             if (std.mem.eql(u8, entry.name, config_file_name)) return;
-            std.log.err("{s}", .{entry.name});
 
             const src_path_m = try runner.src_path.enterFile(runner.gpa, entry.name);
             defer runner.src_path.exit(src_path_m);
@@ -277,7 +270,7 @@ fn syncFile(
         value_allocator: Allocator,
         kind: enum { template, polka },
     };
-    const status: Status = if (std.mem.eql(u8, ext, ".polka")) .{
+    const status: Status = if (std.mem.eql(u8, ext, language_filetype_extension)) .{
         .kind = .polka,
         .parse_mode = .code_file,
         .value_allocator = runner.constant_value_allocator.allocator(),
@@ -304,7 +297,7 @@ fn syncFile(
     // create output file
     const Out = struct {
         writer: *Io.Writer,
-        buf: [2048]u8,
+        buf: [2048]u8 = undefined,
         kind: union(enum) {
             discarding: Io.Writer.Discarding,
             tmp: struct {
@@ -313,18 +306,20 @@ fn syncFile(
             },
         },
     };
-    var out: Out = undefined;
-    if (status.kind == .polka) {
-        out.kind = .{ .discarding = .init(&out.buf) };
-        out.writer = &out.kind.discarding.writer;
-    } else {
-        out.kind = .{ .tmp = .{
-            .file = try runner.tmp.createFile(io, .{}),
-            .writer = out.kind.tmp.file.writer(io, &out.buf),
-        } };
-        out.writer = &out.kind.tmp.writer.interface;
-    }
-    errdefer if (out.kind == .tmp) out.kind.tmp.file.close(io);
+    const out: Out = blk: {
+        var out: Out = undefined;
+        out = if (status.kind == .polka) .{
+            .kind = .{ .discarding = .init(&out.buf) },
+            .writer = &out.kind.discarding.writer,
+        } else .{
+            .kind = .{ .tmp = .{
+                .file = try runner.tmp.createFile(io, .{}),
+                .writer = out.kind.tmp.file.writer(io, &out.buf),
+            } },
+            .writer = &out.kind.tmp.writer.interface,
+        };
+        break :blk out;
+    };
 
     var vm: Vm = try .init(gpa, .{
         .src = src,
@@ -345,11 +340,8 @@ fn syncFile(
 
     const m = blk: {
         if (!config.isModified(.destination_path)) break :blk null;
-        const m = try vfs.cwd.new(runner.gpa);
-        _ = try vfs.cwd.enterDir(vfs.gpa, runner.pool.get(config.destination_path));
+        const m = try vfs.cwd.new(runner.gpa, runner.pool.get(config.destination_path));
         _ = try vfs.cwd.enterFile(vfs.gpa, runner.src_path.basename() orelse unreachable);
-        const source_path = try runner.pool.put(runner.src_path.dirname());
-        _ = try vfs.addCwdDir(source_path);
         break :blk m;
     } orelse null;
     defer if (m) |marker| vfs.cwd.delete(marker);
@@ -361,6 +353,7 @@ fn syncFile(
         .templated => .{ .templated = .{ .content = out.kind.tmp.file } },
     };
     const source_path = try runner.pool.put(runner.src_path.path());
+    _ = try vfs.addCwdDir(try runner.pool.put(runner.src_path.dirname()));
     _ = try vfs.addCwdFile(source_path, file_status);
 }
 
