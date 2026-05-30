@@ -261,6 +261,7 @@ pub fn addCwdFile(fs: *VirtualFilesystem, source_path: String, status: File.Stat
     const parent_path = try fs.pool.put(fs.cwd.dirname());
     // Parent must already exist in the file system from calling addCwdDir
     const parent = fs.paths.get(parent_path) orelse unreachable;
+    try fs.entries.ensureUnusedCapacity(fs.gpa, 1);
     const parent_entry = parent.get(fs);
     assert(parent_entry.item == .dir);
 
@@ -269,7 +270,7 @@ pub fn addCwdFile(fs: *VirtualFilesystem, source_path: String, status: File.Stat
     try fs.paths.put(fs.gpa, file_path, file_index);
     const sibling = parent_entry.item.dir.first_child;
     parent_entry.item.dir.first_child = file_index;
-    try fs.entries.append(fs.gpa, .{
+    fs.entries.appendAssumeCapacity(.{
         .parent = parent,
         .sibling = sibling,
         .dest_path = file_path,
@@ -635,6 +636,7 @@ pub const PathBuf = struct {
         if (self.bytes.items.len == 0) return self.bytes.items[0..0];
 
         const end = if (self.file_start) |file_start| blk: {
+            if (@intFromEnum(file_start) == 0) break :blk 0;
             const dir_end = @intFromEnum(file_start) - 1;
             assert(self.bytes.items[dir_end] == '/');
             break :blk dir_end;
