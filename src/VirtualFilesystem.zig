@@ -258,7 +258,7 @@ fn parentDir(fs: *VirtualFilesystem, dir_path: String) !?String {
 }
 
 pub fn addCwdFile(fs: *VirtualFilesystem, source_path: String, status: File.Status) !Entry.Index {
-    const parent_path = try fs.pool.put(fs.cwd.basename() orelse unreachable);
+    const parent_path = try fs.pool.put(fs.cwd.dirname());
     // Parent must already exist in the file system from calling addCwdDir
     const parent = fs.paths.get(parent_path) orelse unreachable;
     const parent_entry = parent.get(fs);
@@ -323,12 +323,13 @@ pub fn addCwdDir(fs: *VirtualFilesystem, symlink_to_path: ?String) !Entry.Index 
         const parent_dest_path = try fs.pool.put(component.path);
         const parent_gop = try fs.paths.getOrPut(fs.gpa, parent_dest_path);
         if (parent_gop.found_existing) {
+            try fs.entries.ensureUnusedCapacity(fs.gpa, 1);
             const parent_index = parent_gop.value_ptr.*;
             const parent = parent_index.get(fs);
             assert(parent.item == .dir);
             const sibling = parent.item.dir.first_child;
             parent.item.dir.first_child = child_index;
-            try fs.entries.append(fs.gpa, .{
+            fs.entries.appendAssumeCapacity(.{
                 .item = child,
                 .sibling = sibling,
                 .parent = parent_index,
