@@ -536,7 +536,8 @@ test "Dicts" {
                 }),
                 x.leaf(.comma),
                 x.tree(.dict_field, &.{
-                    x.leaf(.ident), x.leaf(.eq), x.tree(.list, &.{
+                    x.leaf(.ident), x.leaf(.eq),
+                    x.tree(.list, &.{
                         x.leaf(.l_bracket),
                         x.leaf(.r_bracket),
                     }),
@@ -923,13 +924,14 @@ fn testParser(gpa: std.mem.Allocator, source: []const u8, expected: []const Synt
     const parsed = try parser.parse(source, .text, gpa);
     defer parsed.deinit(gpa);
     defer gpa.free(expected);
+    const root_index = 0;
 
     for (parsed.errors) |err| {
         std.log.err(" \nERROR: {}", .{err});
     }
 
     const expected_root = expected[expected.len - 1];
-    const actual_root = parsed.nodes[parsed.nodes.len - 1];
+    const actual_root = parsed.nodes[root_index];
 
     if (parsed.errors.len != 0) {
         var buffer: [2048]u8 = undefined;

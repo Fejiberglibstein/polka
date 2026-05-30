@@ -116,7 +116,7 @@ pub fn deinit(vm: *Vm, gpa: Allocator) void {
 pub fn run(vm: *Vm) ?RuntimeErrorPayload {
     if (vm.nodes.len == 0) return null;
 
-    const root = ast.toASTNode(ast.Text, @enumFromInt(vm.nodes.len - 1), vm.nodes) orelse unreachable;
+    const root = ast.toASTNode(ast.Text, .root, vm.nodes) orelse unreachable;
     eval.evalText(vm, root) catch |err| {
         (switch (err) {
             ControlFlow.Break => vm.setError(vm.control_flow_node.?, .misplaced_break),

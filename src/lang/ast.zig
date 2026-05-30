@@ -10,7 +10,7 @@
 /// children nodes; more information is in the doc comment for SyntaxNode.
 ///
 /// In order to provide typed-ergonomics, most SyntaxKinds have respective structs with methods like
-/// .op(), .rhs(), .lhs() for a Binary Expression. These nodes may be one of 
+/// .op(), .rhs(), .lhs() for a Binary Expression. These nodes may be one of
 /// - A struct containing a `kind: SyntaxKind` decl and a 32 bit index into the CST where its node
 ///   lives
 /// - A tagged union made up of other node types
@@ -825,7 +825,10 @@ comptime {
     }
 }
 
-pub const NodeIndex = enum(u32) { _ };
+pub const NodeIndex = enum(u32) {
+    root = 0,
+    _,
+};
 
 const SyntaxKind = @import("node.zig").SyntaxKind;
 const SyntaxNode = @import("node.zig").SyntaxNode;

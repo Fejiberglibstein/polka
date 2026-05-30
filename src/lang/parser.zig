@@ -27,6 +27,9 @@ pub const ParseMode = Lexer.Mode;
 pub fn parse(src: []const u8, mode: ParseMode, gpa: Allocator) Allocator.Error!ParseResult {
     var p: Parser = try .init(src, mode, gpa);
 
+    // Create space for the root node; this will be set last
+    _ = try p.nodes.addOne(gpa);
+
     if (p.at(.eof)) {
         const m = try p.marker();
         try p.eat();
@@ -43,7 +46,7 @@ pub fn parse(src: []const u8, mode: ParseMode, gpa: Allocator) Allocator.Error!P
     assert(p.stack.items.len == 0);
     p.stack.deinit(gpa);
 
-    try p.nodes.append(gpa, root_node);
+    p.nodes.items[0] = root_node;
 
     return .{
         .nodes = try p.nodes.toOwnedSlice(gpa),
