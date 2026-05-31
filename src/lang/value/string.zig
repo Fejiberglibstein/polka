@@ -30,10 +30,32 @@ pub const String = enum(u32) {
         return pool.bytes.items[starting_index..][0..len];
     }
 
+    pub fn slice(string: String, start: u32, end: ?u32) Slice {
+        return .{
+            .string = string,
+            .start = start,
+            .end = end,
+        };
+    }
+
     pub const Slice = struct {
         string: String,
         start: u32,
-        len: u32,
+        end: ?u32,
+        pub fn len(self: Slice, pool: *StringPool) usize {
+            if (self.end) |end| {
+                @branchHint(.likely);
+                return end - self.start;
+            } else {
+                @branchHint(.cold);
+                return self.get(pool).len;
+            }
+        }
+        pub fn get(self: Slice, pool: *StringPool) []const u8 {
+            const string = self.string.get(pool);
+            const end = self.end orelse string.len;
+            return string[self.start..end];
+        }
     };
 
     pub const Pool = StringPool;
@@ -72,51 +94,91 @@ const StringPool = struct {
         pool.map.deinit(pool.gpa);
     }
 
-    pub fn put(pool: *@This(), str: []const u8) Allocator.Error!String {
-        if (str.len == 0) return .empty;
-        const adapter: StringIndexAdapter = .{ .pool = pool };
-        const context: StringIndexContext = .{ .pool = pool };
-        const gop = try pool.map.getOrPutContextAdapted(pool.gpa, str, adapter, context);
+    pub fn putSlice(pool: *@This(), slice: String.Slice) Allocator.Error!String {
+        const slice_len = slice.len(pool);
+        if (slice_len == 0) return .empty;
+        const adp: StringIndexAdapter = .{ .pool = pool };
+        const ctx: StringIndexContext = .{ .pool = pool };
+        const gop = try pool.map.getOrPutContextAdapted(pool.gpa, slice.get(pool), adp, ctx);
 
         if (!gop.found_existing) {
-            gop.key_ptr.* = try pool.putNewString(str);
+            assert(pool.bytes.items.len % 2 == 0);
+            defer assert(pool.bytes.items.len % 2 == 0);
+            const start_index: String = @enumFromInt(pool.bytes.items.len);
+
+            const old_len = pool.bytes.items.len;
+            const num_bytes = try pool.growAndPutLen(slice_len);
+            defer assert(pool.bytes.items.len == old_len + num_bytes);
+
+            // slice.get(pool) MUST be called again here. If we try to cache it at the start of the
+            // function call, it may point to invalid memory since we grew the pool's byte array.
+            pool.bytes.appendSliceAssumeCapacity(slice.get(pool));
+            pool.bytes.appendAssumeCapacity(0);
+
+            // Add padding byte
+            if (pool.bytes.items.len % 2 != 0)
+                pool.bytes.appendAssumeCapacity(0);
+
+            gop.key_ptr.* = start_index;
         }
 
         return gop.key_ptr.*;
     }
 
-    pub fn putNewString(pool: *StringPool, str: []const u8) !String {
-        assert(pool.bytes.items.len % 2 == 0);
-        defer assert(pool.bytes.items.len % 2 == 0);
-        const index: String = @enumFromInt(pool.bytes.items.len);
+    pub fn put(pool: *@This(), str: []const u8) Allocator.Error!String {
+        if (str.len == 0) return .empty;
+        const adp: StringIndexAdapter = .{ .pool = pool };
+        const ctx: StringIndexContext = .{ .pool = pool };
+        const gop = try pool.map.getOrPutContextAdapted(pool.gpa, str, adp, ctx);
 
-        const length_bytes_amt = (std.math.log2(str.len) / length_payload_bits + 1) * @sizeOf(u16);
-        const bytes_to_write = length_bytes_amt + str.len + 1;
-        assert(@intFromEnum(index) + bytes_to_write < std.math.maxInt(u32));
+        if (!gop.found_existing) {
+            assert(pool.bytes.items.len % 2 == 0);
+            defer assert(pool.bytes.items.len % 2 == 0);
+            const start_index: String = @enumFromInt(pool.bytes.items.len);
+
+            const old_len = pool.bytes.items.len;
+            const num_bytes = try pool.growAndPutLen(str.len);
+            defer assert(pool.bytes.items.len == old_len + num_bytes);
+
+            pool.bytes.appendSliceAssumeCapacity(str);
+            pool.bytes.appendAssumeCapacity(0);
+
+            // Add padding byte
+            if (pool.bytes.items.len % 2 != 0)
+                pool.bytes.appendAssumeCapacity(0);
+
+            gop.key_ptr.* = start_index;
+        }
+
+        return gop.key_ptr.*;
+    }
+
+    fn growAndPutLen(pool: *StringPool, str_len: usize) !usize {
+        const num_length_bytes = (std.math.log2(str_len) / length_payload_bits + 1) * @sizeOf(u16);
+        const bytes_to_write = blk: {
+            const num_bytes = num_length_bytes + str_len + 1;
+            // Add an extra byte to get to multiple of 2 for padding.
+            break :blk num_bytes + num_bytes % 2;
+        };
+        assert(pool.bytes.items.len + bytes_to_write < std.math.maxInt(u32));
         try pool.bytes.ensureUnusedCapacity(pool.gpa, bytes_to_write);
 
         // Write the length of the string; each byte of the length will be of the form `0b10xxxxxx`.
         // By beginning with `0b10`, we avoid collisions with utf-8 encoded strings.
-        var len = str.len;
+        var len = str_len;
         assert(len < std.math.maxInt(u32));
-        for (0..length_bytes_amt / 2) |_| {
+        for (0..num_length_bytes / 2) |_| {
             assert(len != 0);
             const len_bits: u16 = @intCast(len & length_payload_mask);
             const bytes: u16 = length_payload_header | len_bits;
+            // Store in big endian
             pool.bytes.appendAssumeCapacity(@intCast((bytes & 0xFF00) >> 8));
             pool.bytes.appendAssumeCapacity(@intCast(bytes & 0x00FF));
             len >>= length_payload_bits;
         }
         assert(len == 0);
 
-        pool.bytes.appendSliceAssumeCapacity(str);
-        pool.bytes.appendAssumeCapacity(0);
-
-        // Add padding byte
-        if (bytes_to_write % 2 != 0)
-            try pool.bytes.append(pool.gpa, 0);
-
-        return index;
+        return bytes_to_write;
     }
 };
 
