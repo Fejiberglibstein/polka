@@ -159,7 +159,7 @@ fn printIndex(fs: *VirtualFilesystem, w: *Io.Writer, ind: Entry.Index) !void {
     try w.printInt(@intFromEnum(ind), 10, .lower, .{
         .alignment = .right,
         .fill = ' ',
-        .width = std.math.log10(fs.entries.items.len) + 1,
+        .width = std.math.log10(fs.entries.items.len - 1) + 1,
     });
     try w.writeAll("] ");
 }
@@ -277,6 +277,7 @@ pub fn addFile(fs: *VirtualFilesystem, args: AddFileArgs) !void {
             .status = status,
         } },
     });
+
     if (status == .templated) {
         fs.unlinkDir(parent_entry.dst_path);
     }
@@ -290,7 +291,20 @@ fn addDirectoryAndItsParents(
     symlink_to_path: ?String,
 ) !Entry.Index {
     const youngest_child_gop = try fs.dst_paths.getOrPut(fs.gpa, dest_path);
-    if (youngest_child_gop.found_existing) return youngest_child_gop.value_ptr.*;
+    if (youngest_child_gop.found_existing) {
+        const parent = youngest_child_gop.value_ptr.*;
+        const parent_entry = parent.get(fs);
+        switch (parent_entry.item.dir.status) {
+            .symlinked => |symlinked| {
+                assert(symlinked.src_path != .null);
+                if (symlink_to_path orelse .null != symlinked.src_path) {
+                    fs.unlinkDir(parent_entry.dst_path);
+                }
+            },
+            else => {},
+        }
+        return parent;
+    }
 
     const root_path = Entry.root.get(fs).dst_path;
     assert(std.mem.startsWith(u8, dest_path.get(fs.pool), root_path.get(fs.pool)));
@@ -328,15 +342,14 @@ fn addDirectoryAndItsParents(
             });
 
             // Unlink parent if paths dont match
-            if (parent_symlink_path) |parent_dir_path| {
-                switch (parent_entry.item.dir.status) {
-                    .unlinked => {},
-                    .symlinked => |symlinked| {
-                        if (parent_dir_path != symlinked.src_path) {
-                            fs.unlinkDir(parent_entry.dst_path);
-                        }
-                    },
-                }
+            switch (parent_entry.item.dir.status) {
+                .symlinked => |symlinked| {
+                    assert(symlinked.src_path != .null);
+                    if (parent_symlink_path orelse .null != symlinked.src_path) {
+                        fs.unlinkDir(parent_entry.dst_path);
+                    }
+                },
+                else => {},
             }
             break :loop;
         }
