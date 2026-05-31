@@ -40,7 +40,7 @@ pub const Entry = struct {
 
     /// Pointer may be invalidated when a new string is created; Don't expect these to stick around
     /// very long
-    fn destBasename(entry: Entry, pool: *const String.Pool) []const u8 {
+    fn basename(entry: Entry, pool: *const String.Pool) []const u8 {
         return path.basename(entry.dst_path.get(pool));
     }
 
@@ -168,9 +168,9 @@ fn printImpl(fs: *VirtualFilesystem, w: *Io.Writer, depth: u8, bar_bits: u32, pa
     const parent_entry = parent.get(fs);
     assert(parent_entry.item == .dir);
     switch (parent_entry.item.dir.status) {
-        .unlinked => try w.print(" {s}\n", .{parent_entry.destBasename(fs.pool)}),
+        .unlinked => try w.print(" {s}\n", .{parent_entry.basename(fs.pool)}),
         .symlinked => try w.print(" {s} -> {s}\n", .{
-            parent_entry.destBasename(fs.pool),
+            parent_entry.basename(fs.pool),
             parent_entry.item.dir.status.symlinked.src_path.get(fs.pool),
         }),
     }
@@ -200,15 +200,15 @@ fn printImpl(fs: *VirtualFilesystem, w: *Io.Writer, depth: u8, bar_bits: u32, pa
             .dir => try fs.printImpl(w, depth + 1, new_bits, child),
             .file => |file| switch (file.status) {
                 .weak_link => try w.print(" {s} ~> {s}\n", .{
-                    child_entry.destBasename(fs.pool),
+                    child_entry.basename(fs.pool),
                     file.src_path.get(fs.pool),
                 }),
                 .symlinked => try w.print(" {s} -> {s}\n", .{
-                    child_entry.destBasename(fs.pool),
+                    child_entry.basename(fs.pool),
                     file.src_path.get(fs.pool),
                 }),
                 .templated => try w.print(" {s} (template @ {s})\n", .{
-                    child_entry.destBasename(fs.pool),
+                    child_entry.basename(fs.pool),
                     file.src_path.get(fs.pool),
                 }),
             },
@@ -234,14 +234,10 @@ fn unlinkDir(fs: *VirtualFilesystem, dst_path: String) void {
 }
 
 fn parentDir(fs: *VirtualFilesystem, dir_path: String) !?String {
-    var iter: path.NativeComponentIterator = .init(dir_path.get(fs.pool));
-    _ = iter.last();
-    const parent = iter.previous() orelse return null;
-
-    // TODO this is a really annoying hack
-    const len = parent.path.len;
-    try fs.pool.bytes.ensureUnusedCapacity(fs.pool.gpa, len + 1);
-    return try fs.pool.put(dir_path.get(fs.pool)[0..len]);
+    const dir_path_bytes = dir_path.get(fs.pool);
+    const end = std.mem.findLastLinear(u8, dir_path_bytes, path.sep_str) orelse return null;
+    const slice = dir_path.slice(0, @intCast(end));
+    return try fs.pool.putSlice(slice);
 }
 
 pub const AddFileArgs = struct {
@@ -260,7 +256,6 @@ pub fn addFile(fs: *VirtualFilesystem, args: AddFileArgs) !void {
     const src_path = try fs.pool.put(args.src_path);
     const status = args.status;
 
-    std.log.debug("{s} :: {s}", .{ args.dst_path, args.src_path });
     const dst_parent = try fs.parentDir(dst_path) orelse unreachable;
     const src_parent = try fs.parentDir(src_path); // If it's null, it won't get symlinked.
     const parent = try fs.addDirectoryAndItsParents(dst_parent, src_parent);
@@ -298,7 +293,6 @@ fn addDirectoryAndItsParents(
     if (youngest_child_gop.found_existing) return youngest_child_gop.value_ptr.*;
 
     const root_path = Entry.root.get(fs).dst_path;
-    std.log.warn("{s} :: {s}", .{ dest_path.get(fs.pool), root_path.get(fs.pool) });
     assert(std.mem.startsWith(u8, dest_path.get(fs.pool), root_path.get(fs.pool)));
 
     // The next entry that gets appended to entries will be the index of the child to return
@@ -312,14 +306,12 @@ fn addDirectoryAndItsParents(
         .first_child = .null,
         .status = .symlinkIf(child_symlink_path),
     };
-    std.log.debug("parent: {s}", .{dest_path.get(fs.pool)});
     loop: while (true) {
         const parent_symlink_path = if (child_symlink_path) |link|
             try fs.parentDir(link)
         else
             null;
         const parent_dest_path = try fs.parentDir(child_dest_path) orelse unreachable;
-        std.log.debug("{s}", .{parent_dest_path.get(fs.pool)});
         const parent_gop = try fs.dst_paths.getOrPut(fs.gpa, parent_dest_path);
         if (parent_gop.found_existing) {
             try fs.entries.ensureUnusedCapacity(fs.gpa, 1);
