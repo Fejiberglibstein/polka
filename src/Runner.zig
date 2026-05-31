@@ -263,7 +263,10 @@ fn syncDirEntry(
             const file = try start_dir.openFile(io, entry.name, .{});
             defer file.close(io);
 
-            runner.syncFile(io, config, file) catch |e| switch (e) {
+            // Each file should have a copy of the config, so files don't influence each other
+            var file_config = config.copy();
+            defer file_config.deinit();
+            runner.syncFile(io, &file_config, file) catch |e| switch (e) {
                 error.ParseError, error.RuntimeError => {
                     std.log.err("Error in {s}, skipping", .{runner.cwd.src.path()});
                     return;
@@ -281,6 +284,7 @@ fn syncFile(
     config: *PolkaConfig,
     src_file: Io.File,
 ) !void {
+    assert(config.modified_bitset == 0);
     const gpa = runner.gpa;
     const vfs = &runner.vfs;
     _ = runner.ephemeral_value_allocator.reset(.retain_capacity);
@@ -306,8 +310,6 @@ fn syncFile(
     const src = try src_reader.interface.readAlloc(gpa, try src_file.length(io));
     defer gpa.free(src);
 
-    std.log.info("syncing file {s}", .{runner.cwd.src.path()});
-
     const parsed = try parser.parse(src, status.parse_mode, gpa);
     defer parsed.deinit(gpa);
     if (parsed.errors.len != 0) {
@@ -315,38 +317,17 @@ fn syncFile(
         return error.ParseError;
     }
 
-    // create output file
-    const Out = struct {
-        writer: *Io.Writer,
-        buf: [2048]u8 = undefined,
-        kind: union(enum) {
-            discarding: Io.Writer.Discarding,
-            tmp: struct {
-                file: Io.File,
-                writer: Io.File.Writer,
-            },
-        },
-    };
-    const out: Out = blk: {
-        var out: Out = undefined;
-        out = if (status.kind == .polka) .{
-            .kind = .{ .discarding = .init(&out.buf) },
-            .writer = &out.kind.discarding.writer,
-        } else .{
-            .kind = .{ .tmp = .{
-                .file = try runner.tmp.createFile(io, .{}),
-                .writer = out.kind.tmp.file.writer(io, &out.buf),
-            } },
-            .writer = &out.kind.tmp.writer.interface,
-        };
-        break :blk out;
-    };
+    var out_buf: [2048]u8 = undefined;
+    const file = if (status.kind == .template) try runner.tmp.createFile(io, .{}) else null;
+    var file_writer = if (file) |f| f.writer(io, &out_buf) else null;
+    var discarding_writer = Io.Writer.Discarding.init(&out_buf);
+    const output_writer = if (file_writer) |*w| &w.interface else &discarding_writer.writer;
 
     var vm: Vm = try .init(gpa, .{
         .src = src,
         .config = config,
-        .output = out.writer,
         .nodes = parsed.nodes,
+        .output = output_writer,
         .string_pool = runner.pool,
         .constants = runner.constants,
         .value_allocator = status.value_allocator,
@@ -358,6 +339,7 @@ fn syncFile(
         try runner.logRuntimeError(src, parsed.nodes, runner.cwd.src.path(), result.err);
         return error.RuntimeError;
     }
+
     const m = if (config.isModified(.destination_path)) blk: {
         const m = try runner.cwd.dst.new(runner.gpa, config.destination_path.get(runner.pool));
         _ = try runner.cwd.dst.enterFile(vfs.gpa, runner.cwd.src.basename() orelse unreachable);
@@ -369,8 +351,10 @@ fn syncFile(
         .weak_link
     else switch (result.output.status) {
         .text => .symlinked,
-        .templated => .{ .templated = .{ .content = out.kind.tmp.file } },
+        .templated => .{ .templated = .{ .content = file orelse unreachable } },
     };
+
+    std.log.info("syncing file {s} to {s}", .{ runner.cwd.src.path(), runner.cwd.dst.path() });
     try vfs.addFile(.{
         .status = file_status,
         .src_path = runner.cwd.src.path(),
@@ -410,6 +394,7 @@ const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const path_sep = Io.Dir.path.sep;
+const assert = std.debug.assert;
 
 const lang = @import("lang.zig");
 const builtin = lang.builtin;
